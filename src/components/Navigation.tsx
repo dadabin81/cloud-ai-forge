@@ -49,6 +49,12 @@ export function Navigation() {
             >
               Docs
             </Link>
+            <Link 
+              to="/playground" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              Playground
+            </Link>
             <button 
               onClick={() => scrollToSection('examples')} 
               className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
@@ -114,6 +120,13 @@ export function Navigation() {
             onClick={() => setIsMenuOpen(false)}
           >
             Docs
+          </Link>
+          <Link 
+            to="/playground" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Playground
           </Link>
           <button 
             onClick={() => scrollToSection('examples')} 
