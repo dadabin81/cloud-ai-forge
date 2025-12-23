@@ -1,0 +1,253 @@
+import { Navigation } from '@/components/Navigation';
+import { Footer } from '@/components/Footer';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Check, Zap, Building, Sparkles } from 'lucide-react';
+
+const plans = [
+  {
+    name: 'Free',
+    price: '$0',
+    period: '/month',
+    description: 'Perfect for getting started and experimenting',
+    icon: Zap,
+    features: [
+      '1,000 requests/month',
+      'Access to all free models',
+      'Basic rate limiting (10 req/min)',
+      'Community support',
+      '7-day usage history',
+    ],
+    cta: 'Get Started',
+    highlighted: false,
+  },
+  {
+    name: 'Pro',
+    price: '$19',
+    period: '/month',
+    description: 'For developers building production applications',
+    icon: Sparkles,
+    features: [
+      '50,000 requests/month',
+      'Access to all models',
+      'Higher rate limits (100 req/min)',
+      'Priority support',
+      '90-day usage history',
+      'Webhook notifications',
+      'Custom model routing',
+    ],
+    cta: 'Start Free Trial',
+    highlighted: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    description: 'For teams with advanced requirements',
+    icon: Building,
+    features: [
+      'Unlimited requests',
+      'Dedicated infrastructure',
+      'Custom rate limits',
+      'SLA guarantee (99.9%)',
+      'Priority queue access',
+      'Custom integrations',
+      'Dedicated support',
+      'SOC2 compliance',
+    ],
+    cta: 'Contact Sales',
+    highlighted: false,
+  },
+];
+
+const faqs = [
+  {
+    q: 'What happens if I exceed my request limit?',
+    a: 'Your requests will be rate-limited until the next billing cycle. You can upgrade your plan at any time to increase your limits.',
+  },
+  {
+    q: 'Can I switch plans at any time?',
+    a: 'Yes! You can upgrade or downgrade your plan at any time. Changes take effect immediately, and we\'ll prorate any differences.',
+  },
+  {
+    q: 'What models are included?',
+    a: 'Free plans include access to Llama 3.2 1B/3B models. Pro and Enterprise plans include access to all models including larger models and function-calling models.',
+  },
+  {
+    q: 'Is there a free trial for Pro?',
+    a: 'Yes! Pro comes with a 14-day free trial. No credit card required to start.',
+  },
+];
+
+export default function Pricing() {
+  return (
+    <div className="min-h-screen bg-background">
+      <Navigation />
+      
+      <main className="pt-24 pb-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Header */}
+          <div className="text-center mb-16">
+            <h1 className="text-4xl font-bold mb-4">
+              Simple, Transparent <span className="gradient-text">Pricing</span>
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Start free, scale as you grow. No hidden fees, no surprises.
+            </p>
+          </div>
+
+          {/* Pricing Cards */}
+          <div className="grid md:grid-cols-3 gap-8 mb-20">
+            {plans.map((plan) => (
+              <Card 
+                key={plan.name}
+                className={`relative ${
+                  plan.highlighted 
+                    ? 'border-primary shadow-lg shadow-primary/10' 
+                    : ''
+                }`}
+              >
+                {plan.highlighted && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">
+                      Most Popular
+                    </span>
+                  </div>
+                )}
+                <CardHeader>
+                  <div className="flex items-center gap-2 mb-2">
+                    <plan.icon className="w-5 h-5 text-primary" />
+                    <CardTitle>{plan.name}</CardTitle>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold">{plan.price}</span>
+                    <span className="text-muted-foreground">{plan.period}</span>
+                  </div>
+                  <CardDescription>{plan.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <ul className="space-y-3">
+                    {plan.features.map((feature, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Check className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                        <span className="text-sm">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button 
+                    className="w-full" 
+                    variant={plan.highlighted ? 'default' : 'outline'}
+                  >
+                    {plan.cta}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Comparison Table */}
+          <div className="mb-20">
+            <h2 className="text-2xl font-bold text-center mb-8">Compare Plans</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border border-border rounded-xl overflow-hidden">
+                <thead className="bg-secondary/50">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-sm font-medium">Feature</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium">Free</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium bg-primary/5">Pro</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium">Enterprise</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Monthly Requests</td>
+                    <td className="px-6 py-4 text-sm text-center">1,000</td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">50,000</td>
+                    <td className="px-6 py-4 text-sm text-center">Unlimited</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Rate Limit</td>
+                    <td className="px-6 py-4 text-sm text-center">10/min</td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">100/min</td>
+                    <td className="px-6 py-4 text-sm text-center">Custom</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Models Access</td>
+                    <td className="px-6 py-4 text-sm text-center">Basic</td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">All</td>
+                    <td className="px-6 py-4 text-sm text-center">All + Custom</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Agent Framework</td>
+                    <td className="px-6 py-4 text-sm text-center">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-center">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Streaming</td>
+                    <td className="px-6 py-4 text-sm text-center">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-center">
+                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">Support</td>
+                    <td className="px-6 py-4 text-sm text-center">Community</td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">Priority</td>
+                    <td className="px-6 py-4 text-sm text-center">Dedicated</td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 text-sm">SLA</td>
+                    <td className="px-6 py-4 text-sm text-center text-muted-foreground">—</td>
+                    <td className="px-6 py-4 text-sm text-center bg-primary/5">99%</td>
+                    <td className="px-6 py-4 text-sm text-center">99.9%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* FAQs */}
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-2xl font-bold text-center mb-8">Frequently Asked Questions</h2>
+            <div className="space-y-6">
+              {faqs.map((faq, i) => (
+                <div key={i} className="p-6 rounded-xl border border-border bg-card">
+                  <h3 className="font-semibold mb-2">{faq.q}</h3>
+                  <p className="text-muted-foreground">{faq.a}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="mt-20 text-center">
+            <div className="p-8 rounded-2xl border border-border bg-gradient-to-b from-primary/5 to-transparent">
+              <h2 className="text-2xl font-bold mb-4">Ready to get started?</h2>
+              <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
+                Join thousands of developers building AI-powered applications with Binario.
+              </p>
+              <div className="flex items-center justify-center gap-4">
+                <Button size="lg">Start for Free</Button>
+                <Button variant="outline" size="lg">Contact Sales</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <Footer />
+    </div>
+  );
+}

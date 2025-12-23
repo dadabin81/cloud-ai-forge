@@ -1,6 +1,10 @@
 // Binario SDK - Main Export
 
-// Core
+// Simplified Client (SaaS)
+export { Binario, BinarioAgent, createBinarioClient, BinarioRateLimitError, BinarioPaymentError } from './client';
+export type { BinarioOptions, StreamOptions, AgentOptions, UsageInfo } from './client';
+
+// Core (Self-hosted)
 export { BinarioAI, createBinario } from './core';
 
 // React Hooks

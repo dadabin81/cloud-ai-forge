@@ -451,8 +451,8 @@ async function checkRateLimit(kv: KVNamespace, keyInfo: ApiKeyInfo): Promise<{ a
   const limits = RATE_LIMITS[keyInfo.plan];
   const minuteKey = `ratelimit:${keyInfo.keyId}:${Math.floor(Date.now() / 60000)}`;
   
-  const currentValue = await kv.get(minuteKey);
-  const current = parseInt(currentValue || '0');
+  const currentValue = (await kv.get(minuteKey)) as string | null;
+  const current = parseInt(currentValue ?? '0');
   
   if (current >= limits.requestsPerMinute) {
     return { allowed: false, retryAfter: 60 };
