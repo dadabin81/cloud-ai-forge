@@ -55,12 +55,12 @@ export function Navigation() {
             >
               Playground
             </Link>
-            <button 
-              onClick={() => scrollToSection('examples')} 
+            <Link 
+              to="/pricing" 
               className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
             >
-              Examples
-            </button>
+              Pricing
+            </Link>
           </div>
 
           {/* Desktop CTAs */}
@@ -73,6 +73,13 @@ export function Navigation() {
             >
               <Github className="w-4 h-4" />
               GitHub
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => navigate('/dashboard')}
+            >
+              Dashboard
             </Button>
             <Button 
               variant="hero" 

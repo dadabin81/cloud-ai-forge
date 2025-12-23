@@ -17,42 +17,47 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const installCode = `npm install binario zod`;
+const installCode = `npm install binario`;
 
-const quickStartCode = `import { createBinario, useBinarioStream } from 'binario';
+const quickStartCode = `import { Binario } from 'binario';
 
-// Initialize with Cloudflare (free tier)
-const ai = createBinario({
-  providers: {
-    cloudflare: {
-      accountId: process.env.CF_ACCOUNT_ID,
-      apiKey: process.env.CF_API_TOKEN,
-      // Use small models for free tier
-      defaultModel: '@cf/meta/llama-3.2-1b-instruct',
-    },
-  },
-  defaultProvider: 'cloudflare',
-});
+// Initialize with your API key (get it at binario.dev/dashboard)
+const ai = new Binario('bsk_your_api_key');
 
-// Use in your React component
+// Simple chat
+const response = await ai.chat('Hello, how are you?');
+console.log(response.content);
+
+// Streaming
+for await (const token of ai.stream('Tell me a story')) {
+  process.stdout.write(token);
+}
+
+// React Component Example
 function Chat() {
-  const { messages, send, isStreaming, streamingContent } = 
-    useBinarioStream(ai);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  
+  const send = async () => {
+    const response = await ai.chat(input);
+    setMessages([...messages, 
+      { role: 'user', content: input },
+      { role: 'assistant', content: response.content }
+    ]);
+  };
 
   return (
     <div>
-      {messages.map((m, i) => (
-        <div key={i}>{m.content}</div>
-      ))}
-      {isStreaming && <div>{streamingContent}</div>}
-      <button onClick={() => send('Hello!')}>
-        Send
-      </button>
+      {messages.map((m, i) => <div key={i}>{m.content}</div>)}
+      <input value={input} onChange={e => setInput(e.target.value)} />
+      <button onClick={send}>Send</button>
     </div>
   );
 }`;
 
-const schemaCode = `import { createBinario, z } from 'binario';
+const schemaCode = `import { Binario, z } from 'binario';
+
+const ai = new Binario('bsk_your_api_key');
 
 // Define a type-safe response schema
 const ProductSchema = z.object({
@@ -74,34 +79,28 @@ console.log(response.data.name);     // string
 console.log(response.data.price);    // number
 console.log(response.data.features); // string[]`;
 
-const agentCode = `import { createBinario, createAgent, defineTool, z } from 'binario';
+const agentCode = `import { Binario } from 'binario';
 
-// Use a model that supports function calling
-const ai = createBinario({
-  providers: {
-    cloudflare: {
-      accountId: process.env.CF_ACCOUNT_ID,
-      apiKey: process.env.CF_API_TOKEN,
-      // hermes-2-pro supports function calling
-      defaultModel: '@hf/nousresearch/hermes-2-pro-mistral-7b',
-    },
-  },
-});
+const ai = new Binario('bsk_your_api_key');
 
 // Define tools for the agent
-const searchTool = defineTool({
-  name: 'web_search',
-  description: 'Search the web for information',
-  parameters: z.object({
-    query: z.string().describe('Search query'),
-  }),
-  execute: async ({ query }) => {
-    return \`Results for: \${query}\`;
-  },
-});
+const searchTool = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description: 'Search the web for information',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' }
+      },
+      required: ['query']
+    }
+  }
+};
 
 // Create an agent with tools
-const agent = createAgent(ai, {
+const agent = ai.agent({
   name: 'research-assistant',
   systemPrompt: 'You are a helpful research assistant.',
   tools: [searchTool],
@@ -110,43 +109,38 @@ const agent = createAgent(ai, {
 
 // Run the agent
 const result = await agent.run('What is quantum computing?');
-console.log(result.output);`;
+console.log(result.output);
 
-const providersCode = `import { createBinario } from 'binario';
+// Stream agent execution
+for await (const event of agent.runStream('Search for AI news')) {
+  if (event.type === 'thinking') console.log('Thinking:', event.content);
+  if (event.type === 'tool_call') console.log('Calling:', event.tool);
+  if (event.type === 'response') console.log('Response:', event.content);
+}`;
 
-const ai = createBinario({
-  providers: {
-    // Cloudflare Workers AI (10K neurons/day FREE)
-    cloudflare: {
-      accountId: process.env.CF_ACCOUNT_ID,
-      apiKey: process.env.CF_API_TOKEN,
-      // Small model for free tier
-      defaultModel: '@cf/meta/llama-3.2-1b-instruct',
-    },
-    
-    // Lovable AI Gateway (pre-configured in Supabase)
-    lovable: {
-      apiKey: process.env.LOVABLE_API_KEY,
-      defaultModel: 'google/gemini-2.5-flash',
-    },
-    
-    // OpenAI
-    openai: {
-      apiKey: process.env.OPENAI_API_KEY,
-      defaultModel: 'gpt-4o',
-    },
-    
-    // Anthropic
-    anthropic: {
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      defaultModel: 'claude-3-5-sonnet-20241022',
-    },
-  },
-  
-  defaultProvider: 'cloudflare',
-  cache: { enabled: true, ttl: 3600000 },
-  retry: { maxRetries: 3, backoff: 'exponential', initialDelay: 1000 },
-});`;
+const providersCode = `import { Binario } from 'binario';
+
+// The simplest way - just use your Binario API key
+const ai = new Binario('bsk_your_api_key');
+
+// That's it! Binario handles everything:
+// ✓ Automatic model routing
+// ✓ Rate limiting & retries
+// ✓ Usage tracking
+// ✓ Fallback to backup providers
+
+// Optional: Configure specific options
+const ai2 = new Binario('bsk_your_api_key', {
+  timeout: 30000,    // Request timeout
+  maxRetries: 3,     // Retry failed requests
+});
+
+// Use any method
+await ai.chat('Hello!');                    // Simple chat
+await ai.stream('Tell me a story');         // Streaming
+await ai.agent({ tools: [...] }).run('..'); // Agent with tools
+await ai.getUsage();                        // Check usage
+await ai.listModels();                      // List available models`;
 
 // Updated models with accurate information
 const models = [

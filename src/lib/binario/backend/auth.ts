@@ -206,8 +206,8 @@ export class RateLimiter {
     const dayKey = `rate:${keyId}:day:${dayWindow}`;
 
     // Check minute limit
-    const minuteValue = await this.kv.get(minuteKey);
-    const minuteCount = parseInt(minuteValue || '0');
+    const minuteValue = (await this.kv.get(minuteKey)) as string | null;
+    const minuteCount = parseInt(minuteValue ?? '0');
     if (minuteCount >= limits.requestsPerMinute) {
       return {
         allowed: false,
@@ -217,8 +217,8 @@ export class RateLimiter {
     }
 
     // Check day limit
-    const dayValue = await this.kv.get(dayKey);
-    const dayCount = parseInt(dayValue || '0');
+    const dayValue = (await this.kv.get(dayKey)) as string | null;
+    const dayCount = parseInt(dayValue ?? '0');
     if (dayCount >= limits.requestsPerDay) {
       return {
         allowed: false,
