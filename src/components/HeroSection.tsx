@@ -2,9 +2,9 @@ import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/CodeBlock';
 import { ArrowRight, Terminal, Sparkles } from 'lucide-react';
 
-const heroCode = `import { createNexus, useNexusStream } from 'nexus-ai';
+const heroCode = `import { createBinario, useBinarioStream } from 'binario';
 
-const nexus = createNexus({
+const ai = createBinario({
   providers: {
     openai: { apiKey: process.env.OPENAI_KEY },
     anthropic: { apiKey: process.env.ANTHROPIC_KEY },
@@ -16,7 +16,7 @@ const nexus = createNexus({
 
 function ChatApp() {
   const { messages, send, isStreaming, streamingContent } = 
-    useNexusStream(nexus, {
+    useBinarioStream(ai, {
       model: 'gpt-4o',
       temperature: 0.7,
     });
@@ -81,7 +81,7 @@ export function HeroSection() {
             <div className="animate-slide-up" style={{ animationDelay: '300ms' }}>
               <div className="inline-flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50 font-mono text-sm">
                 <span className="text-muted-foreground">$</span>
-                <span className="text-foreground">npm install nexus-ai</span>
+                <span className="text-foreground">npm install binario</span>
                 <button className="text-muted-foreground hover:text-foreground transition-colors">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />

@@ -39,8 +39,8 @@ const features = [
   },
   {
     icon: Code2,
-    title: 'React Hooks',
-    description: 'useNexusChat, useNexusStream, and useNexusCompletion for effortless React integration.',
+  title: 'React Hooks',
+    description: 'useBinarioChat, useBinarioStream, and useBinarioCompletion for effortless React integration.',
   },
   {
     icon: Workflow,
