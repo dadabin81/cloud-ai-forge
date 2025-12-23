@@ -4,29 +4,74 @@ import { cn } from '@/lib/utils';
 
 const examples = {
   cloudflare: {
-    title: 'Free Llama 3',
-    description: 'Use Llama 3.3 70B completely free via Cloudflare',
+    title: 'Cloudflare Free Tier',
+    description: 'Use AI for free with 10K neurons/day via Cloudflare Workers AI',
     code: `import { createBinario } from 'binario';
 
-// Configure Cloudflare Workers AI (FREE tier!)
+// Configure Cloudflare Workers AI
+// Free tier: 10,000 neurons/day
 const ai = createBinario({
   providers: {
     cloudflare: {
       accountId: process.env.CF_ACCOUNT_ID,
       apiKey: process.env.CF_API_TOKEN,
-      defaultModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      // Use small models for best free tier usage
+      defaultModel: '@cf/meta/llama-3.2-1b-instruct',
     },
   },
   defaultProvider: 'cloudflare',
 });
 
-// 10,000 free neurons/day included
+// Small models: ~500+ tokens/day free
+// llama-3.2-1b: Best for free tier
+// llama-3.2-3b: More capable, ~300 tokens/day
+// llama-3.1-8b-fast: ~280 tokens/day
+
 const response = await ai.chat([
-  { role: 'user', content: 'Explain quantum computing' }
+  { role: 'user', content: 'Hello!' }
 ]);
 
 console.log(response.content);
-// Uses Cloudflare's edge network for low latency`,
+
+// ⚠️ Large models (70B) consume 200K+ neurons per request
+// Not recommended for free tier usage`,
+  },
+  functionCalling: {
+    title: 'Function Calling',
+    description: 'Tool use with models that support it',
+    code: `import { createBinario, defineTool, z } from 'binario';
+
+// Models that support function calling:
+// - @hf/nousresearch/hermes-2-pro-mistral-7b (recommended)
+// - @cf/meta/llama-3.3-70b-instruct-fp8-fast
+// - @cf/meta/llama-4-scout-17b-16e-instruct
+
+const ai = createBinario({
+  providers: {
+    cloudflare: {
+      accountId: process.env.CF_ACCOUNT_ID,
+      apiKey: process.env.CF_API_TOKEN,
+      // hermes-2-pro is best for function calling
+      defaultModel: '@hf/nousresearch/hermes-2-pro-mistral-7b',
+    },
+  },
+});
+
+const weatherTool = defineTool({
+  name: 'get_weather',
+  description: 'Get current weather for a city',
+  parameters: z.object({
+    city: z.string().describe('City name'),
+  }),
+  execute: async ({ city }) => {
+    return \`Weather in \${city}: 22°C, sunny\`;
+  },
+});
+
+const response = await ai.chat(
+  [{ role: 'user', content: 'What\\'s the weather in Tokyo?' }],
+  { tools: [weatherTool] }
+);`,
   },
   schemas: {
     title: 'Pydantic-Style Schemas',
@@ -72,7 +117,7 @@ const searchTool = defineTool({
 
 // Create an agent with tools
 const agent = createAgent(ai, {
-  model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  model: '@hf/nousresearch/hermes-2-pro-mistral-7b',
   systemPrompt: 'You are a helpful research assistant',
   tools: [searchTool, calculatorTool],
   maxIterations: 5,
@@ -128,6 +173,11 @@ function AgentChat({ agent }) {
     cloudflare: { 
       accountId: process.env.CF_ACCOUNT_ID,
       apiKey: process.env.CF_API_TOKEN,
+      defaultModel: '@cf/meta/llama-3.2-1b-instruct', // Free tier
+    },
+    lovable: {
+      apiKey: process.env.LOVABLE_API_KEY,
+      defaultModel: 'google/gemini-2.5-flash',
     },
     openai: { 
       apiKey: process.env.OPENAI_KEY,
@@ -138,20 +188,17 @@ function AgentChat({ agent }) {
       defaultModel: 'claude-3-5-sonnet-20241022'
     },
   },
-  defaultProvider: 'cloudflare', // Start free!
+  defaultProvider: 'cloudflare', // Start with free tier!
 });
 
-// Use Cloudflare (FREE)
+// Use Cloudflare (FREE tier)
 await ai.chat(messages);
 
-// Use Claude for complex reasoning
-await ai.chat(messages, { provider: 'anthropic' });
+// Use Lovable AI Gateway
+await ai.chat(messages, { provider: 'lovable' });
 
-// Use GPT-4 for specific tasks
-await ai.chat(messages, { 
-  provider: 'openai',
-  model: 'gpt-4-turbo'
-});`,
+// Use Claude for complex reasoning
+await ai.chat(messages, { provider: 'anthropic' });`,
   },
 };
 
@@ -171,7 +218,7 @@ export function ExamplesSection() {
             <span className="gradient-text"> action</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Free Llama 3, Pydantic-style schemas, Agent framework, and more.
+            Cloudflare's free AI tier, Pydantic-style schemas, Agent framework, and more.
           </p>
         </div>
 

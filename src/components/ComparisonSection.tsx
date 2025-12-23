@@ -10,7 +10,7 @@ interface Feature {
 }
 
 const features: Feature[] = [
-  { name: 'Free Llama 3 (Cloudflare)', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Free AI tier (10K neurons/day)', binario: true, vercel: false, langchain: false, pydantic: false },
   { name: 'Pydantic-style schemas', binario: true, vercel: 'partial', langchain: 'partial', pydantic: true },
   { name: 'Agent framework', binario: true, vercel: false, langchain: true, pydantic: true },
   { name: 'Multi-provider support', binario: true, vercel: true, langchain: true, pydantic: true },
@@ -22,7 +22,7 @@ const features: Feature[] = [
   { name: 'Tool calling', binario: true, vercel: true, langchain: true, pydantic: true },
   { name: 'Type-safe', binario: true, vercel: true, langchain: 'partial', pydantic: true },
   { name: 'Bundle size <5kb', binario: true, vercel: 'partial', langchain: false, pydantic: false },
-  { name: 'Zero dependencies', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Minimal dependencies (only zod)', binario: true, vercel: false, langchain: false, pydantic: false },
   { name: 'Cloudflare Workers optimized', binario: true, vercel: false, langchain: false, pydantic: false },
 ];
 
@@ -46,7 +46,7 @@ export function ComparisonSection() {
             <span className="gradient-text"> compare</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Binario combines the best of Vercel AI SDK, LangChain, and Pydantic AI — with free Llama 3.
+            Binario combines the best of Vercel AI SDK, LangChain, and Pydantic AI — with Cloudflare's free AI tier.
           </p>
         </div>
 
