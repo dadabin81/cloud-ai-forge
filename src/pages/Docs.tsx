@@ -318,36 +318,32 @@ export default function Docs() {
           <section>
             <h2 className="text-2xl font-bold mb-6">Next Steps</h2>
             <div className="grid md:grid-cols-2 gap-4">
-              <a 
-                href="https://github.com/binario-ai/binario"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold mb-1">GitHub Repository</h3>
-                    <p className="text-sm text-muted-foreground">View source code and examples</p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            <a 
+              href="https://github.com/binario-ai/binario"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold mb-1">GitHub Repository</h3>
+                  <p className="text-sm text-muted-foreground">View source code and examples</p>
                 </div>
-              </a>
-              <a 
-                href="#playground"
-                onClick={(e) => {
-                  e.preventDefault();
-                  // TODO: Navigate to playground when implemented
-                }}
-                className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold mb-1">Interactive Playground</h3>
-                    <p className="text-sm text-muted-foreground">Try Binario in your browser</p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </a>
+            <a 
+              href="/playground"
+              className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold mb-1">Interactive Playground</h3>
+                  <p className="text-sm text-muted-foreground">Try Binario in your browser</p>
                 </div>
-              </a>
+                <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </a>
             </div>
           </section>
         </div>
