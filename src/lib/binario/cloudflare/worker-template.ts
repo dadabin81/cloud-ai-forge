@@ -76,7 +76,11 @@ export interface RequestContext {
  */
 export interface ChatRequestBody {
   messages: Message[];
-  options?: Partial<ChatOptions>;
+  options?: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  };
   stream?: boolean;
   sessionId?: string;
 }

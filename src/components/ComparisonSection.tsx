@@ -24,6 +24,11 @@ const features: Feature[] = [
   { name: 'Bundle size <5kb', binario: true, vercel: 'partial', langchain: false, pydantic: false },
   { name: 'Minimal dependencies (only zod)', binario: true, vercel: false, langchain: false, pydantic: false },
   { name: 'Cloudflare Workers optimized', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Dependency injection', binario: true, vercel: false, langchain: 'partial', pydantic: true },
+  { name: 'Observability hooks', binario: true, vercel: 'partial', langchain: true, pydantic: true },
+  { name: 'Usage tracking & budgets', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Free fallback models', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Worker template generator', binario: true, vercel: false, langchain: false, pydantic: false },
 ];
 
 function FeatureStatus({ status }: { status: boolean | 'partial' }) {
