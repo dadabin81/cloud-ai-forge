@@ -414,6 +414,64 @@ export default function Docs() {
             </p>
           </section>
 
+          {/* Advanced Features */}
+          <section className="mb-16">
+            <h2 className="text-2xl font-bold mb-6">Advanced Features</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="p-6 rounded-xl border border-border bg-card">
+                <h3 className="font-semibold mb-2 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-primary" />
+                  Dependency Injection
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Pydantic AI-inspired DI system for type-safe agent dependencies.
+                </p>
+                <code className="text-xs bg-secondary px-2 py-1 rounded">
+                  createDeps, createScope, runtimeDep
+                </code>
+              </div>
+              
+              <div className="p-6 rounded-xl border border-border bg-card">
+                <h3 className="font-semibold mb-2 flex items-center gap-2">
+                  <Info className="w-4 h-4 text-primary" />
+                  Observability
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  OpenTelemetry-ready hooks for spans, metrics, and logging.
+                </p>
+                <code className="text-xs bg-secondary px-2 py-1 rounded">
+                  createObservability, consoleHooks
+                </code>
+              </div>
+              
+              <div className="p-6 rounded-xl border border-border bg-card">
+                <h3 className="font-semibold mb-2 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-primary" />
+                  Usage Tracking
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Track Cloudflare neurons with automatic fallback to free models.
+                </p>
+                <code className="text-xs bg-secondary px-2 py-1 rounded">
+                  createUsageTracker, FREE_FALLBACK_MODELS
+                </code>
+              </div>
+              
+              <div className="p-6 rounded-xl border border-border bg-card">
+                <h3 className="font-semibold mb-2 flex items-center gap-2">
+                  <Code className="w-4 h-4 text-primary" />
+                  Worker Generator
+                </h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Generate complete Cloudflare Worker projects with D1, KV, R2.
+                </p>
+                <code className="text-xs bg-secondary px-2 py-1 rounded">
+                  generateWranglerConfig, createWorkerHandler
+                </code>
+              </div>
+            </div>
+          </section>
+
           {/* Next Steps */}
           <section>
             <h2 className="text-2xl font-bold mb-6">Next Steps</h2>
