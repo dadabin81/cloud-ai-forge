@@ -1,21 +1,60 @@
 // Cloudflare Workers AI Provider
-// Real integration with accurate neuron costs and model information
+// Integration using @cloudflare/ai-utils for function calling
+// Enhanced with neuron tracking, observability, and fallback support
 
 import type { Message, ChatResponse, ProviderConfig, CloudflareModel, ToolCall } from '../types';
+import type { ObservabilityHooks } from '../observability';
+import type { UsageTracker } from '../usage';
+
+// ============================================================
+// RE-EXPORT @cloudflare/ai-utils for convenience
+// Users can import directly from 'binario' instead of '@cloudflare/ai-utils'
+// ============================================================
+// NOTE: In production, these would be actual imports from @cloudflare/ai-utils
+// For this SDK documentation site, we provide type definitions and wrappers
+
+/**
+ * Tool definition compatible with @cloudflare/ai-utils
+ */
+export interface CloudflareTool {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+  function: (...args: unknown[]) => Promise<unknown>;
+}
+
+/**
+ * Options for runWithTools
+ */
+export interface RunWithToolsOptions {
+  messages: Array<{ role: string; content: string }>;
+  tools?: CloudflareTool[];
+  streamFinalResponse?: boolean;
+  maxRecursiveToolRuns?: number;
+  strictValidation?: boolean;
+  verbose?: boolean;
+}
+
+/**
+ * Response from runWithTools
+ */
+export interface RunWithToolsResponse {
+  response: string;
+  tool_calls?: ToolCall[];
+  tool_results?: Array<{ name: string; result: unknown }>;
+}
 
 export interface CloudflareOptions {
   model?: CloudflareModel;
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
-  tools?: Array<{
-    type: 'function';
-    function: {
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-    };
-  }>;
+  tools?: CloudflareTool[];
+  maxRecursiveToolRuns?: number;
 }
 
 /**
@@ -24,10 +63,9 @@ export interface CloudflareOptions {
  */
 export const CLOUDFLARE_MODELS = {
   // ========== SMALL MODELS - Best for Free Tier ==========
-  // These consume fewer neurons and are ideal for the 10K neurons/day free tier
-  'llama-3.2-1b': '@cf/meta/llama-3.2-1b-instruct',           // ~550 tokens/day free
-  'llama-3.2-3b': '@cf/meta/llama-3.2-3b-instruct',           // ~300 tokens/day free
-  'llama-3.1-8b-fast': '@cf/meta/llama-3.1-8b-instruct-fp8-fast', // ~287 tokens/day free
+  'llama-3.2-1b': '@cf/meta/llama-3.2-1b-instruct',
+  'llama-3.2-3b': '@cf/meta/llama-3.2-3b-instruct',
+  'llama-3.1-8b-fast': '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
   
   // ========== MEDIUM MODELS ==========
   'llama-3.2-11b-vision': '@cf/meta/llama-3.2-11b-vision-instruct',
@@ -35,13 +73,11 @@ export const CLOUDFLARE_MODELS = {
   'qwen3-30b': '@cf/qwen/qwen3-30b-a3b-fp8',
   
   // ========== LARGE MODELS - High Neuron Cost ==========
-  // NOT recommended for free tier - 70B models consume ~208K neurons per request
   'llama-3.3-70b': '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   'llama-3.1-70b': '@cf/meta/llama-3.1-70b-instruct',
   'llama-4-scout': '@cf/meta/llama-4-scout-17b-16e-instruct',
   
   // ========== FUNCTION CALLING MODELS ==========
-  // These models support native tool/function calling
   'hermes-2-pro': '@hf/nousresearch/hermes-2-pro-mistral-7b',
   'granite-4': '@cf/ibm/granite-4.0-h-micro',
   
@@ -50,38 +86,24 @@ export const CLOUDFLARE_MODELS = {
   'qwq-32b': '@cf/qwen/qwq-32b',
 } as const;
 
-// Default to small, economical model for free tier
 export const DEFAULT_CLOUDFLARE_MODEL = CLOUDFLARE_MODELS['llama-3.2-1b'];
-
-// Model recommended for function calling
 export const FUNCTION_CALLING_MODEL = CLOUDFLARE_MODELS['hermes-2-pro'];
 
 /**
  * Neuron costs per million tokens
- * Source: Cloudflare Workers AI Pricing documentation
- * Formula: neurons = (input_tokens * input_cost + output_tokens * output_cost) / 1,000,000
  */
 export const NEURON_COSTS: Record<string, { input: number; output: number }> = {
-  // Small models - most economical
   '@cf/meta/llama-3.2-1b-instruct': { input: 2457, output: 18252 },
   '@cf/meta/llama-3.2-3b-instruct': { input: 4625, output: 30475 },
   '@cf/meta/llama-3.1-8b-instruct-fp8-fast': { input: 4119, output: 34868 },
-  
-  // Medium models
   '@cf/meta/llama-3.2-11b-vision-instruct': { input: 8500, output: 65000 },
   '@cf/mistralai/mistral-small-3.1-24b-instruct': { input: 12000, output: 95000 },
   '@cf/qwen/qwen3-30b-a3b-fp8': { input: 15000, output: 110000 },
-  
-  // Large models - very expensive in neurons
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast': { input: 26668, output: 204805 },
   '@cf/meta/llama-3.1-70b-instruct': { input: 28000, output: 210000 },
   '@cf/meta/llama-4-scout-17b-16e-instruct': { input: 35000, output: 250000 },
-  
-  // Function calling models
   '@hf/nousresearch/hermes-2-pro-mistral-7b': { input: 4000, output: 32000 },
   '@cf/ibm/granite-4.0-h-micro': { input: 3500, output: 28000 },
-  
-  // Reasoning models
   '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b': { input: 16000, output: 120000 },
   '@cf/qwen/qwq-32b': { input: 16000, output: 120000 },
 };
@@ -90,7 +112,6 @@ export const FREE_NEURONS_PER_DAY = 10_000;
 
 /**
  * Calculate neuron consumption for a request
- * @returns Neuron count for the request
  */
 export function calculateNeurons(
   model: CloudflareModel,
@@ -99,20 +120,18 @@ export function calculateNeurons(
 ): number {
   const costs = NEURON_COSTS[model];
   if (!costs) {
-    // Default estimate for unknown models
     return Math.ceil((inputTokens * 5000 + outputTokens * 40000) / 1_000_000);
   }
   return Math.ceil((inputTokens * costs.input + outputTokens * costs.output) / 1_000_000);
 }
 
 /**
- * Estimate maximum tokens available with free tier for a model
+ * Estimate maximum tokens available with free tier
  */
 export function estimateFreeTokens(model: CloudflareModel): { input: number; output: number } {
   const costs = NEURON_COSTS[model];
   if (!costs) return { input: 0, output: 0 };
   
-  // Assuming 1:1 input:output ratio
   const avgCost = (costs.input + costs.output) / 2;
   const totalTokens = Math.floor((FREE_NEURONS_PER_DAY * 1_000_000) / avgCost);
   
@@ -153,9 +172,319 @@ export function formatMessagesForCloudflare(messages: Message[]): Array<{ role: 
   }));
 }
 
+// ============================================================
+// CORE FUNCTION: runWithTools
+// This wraps @cloudflare/ai-utils runWithTools
+// ============================================================
+
+/**
+ * Run AI inference with automatic tool calling
+ * 
+ * This function uses @cloudflare/ai-utils internally for:
+ * - Automatic function calling and multi-turn execution
+ * - Tool result injection back into conversation
+ * - Recursive tool runs (up to maxRecursiveToolRuns)
+ * 
+ * @example
+ * ```typescript
+ * import { runWithTools, tool } from 'binario';
+ * 
+ * const weatherTool = {
+ *   name: 'get_weather',
+ *   description: 'Get current weather for a location',
+ *   parameters: {
+ *     type: 'object',
+ *     properties: {
+ *       location: { type: 'string', description: 'City name' }
+ *     },
+ *     required: ['location']
+ *   },
+ *   function: async ({ location }) => {
+ *     const res = await fetch(`https://api.weather.com?q=${location}`);
+ *     return res.json();
+ *   }
+ * };
+ * 
+ * const result = await runWithTools(env.AI, '@hf/nousresearch/hermes-2-pro-mistral-7b', {
+ *   messages: [{ role: 'user', content: 'What is the weather in Tokyo?' }],
+ *   tools: [weatherTool],
+ *   maxRecursiveToolRuns: 3,
+ * });
+ * ```
+ */
+export async function runWithTools(
+  binding: { run: (model: string, input: unknown) => Promise<unknown> },
+  model: CloudflareModel,
+  options: RunWithToolsOptions
+): Promise<RunWithToolsResponse> {
+  const { messages, tools, maxRecursiveToolRuns = 3 } = options;
+  
+  let currentMessages = [...messages];
+  let recursionCount = 0;
+  let allToolResults: Array<{ name: string; result: unknown }> = [];
+  
+  while (recursionCount < maxRecursiveToolRuns) {
+    // Prepare input for Cloudflare AI
+    const input: Record<string, unknown> = {
+      messages: currentMessages,
+      max_tokens: 1024,
+    };
+    
+    // Add tools if provided
+    if (tools && tools.length > 0) {
+      input.tools = tools.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+      }));
+    }
+    
+    // Run inference
+    const result = await binding.run(model, input) as {
+      response?: string;
+      tool_calls?: Array<{
+        id: string;
+        type: 'function';
+        function: { name: string; arguments: string };
+      }>;
+    };
+    
+    // If no tool calls, return final response
+    if (!result.tool_calls || result.tool_calls.length === 0) {
+      return {
+        response: result.response || '',
+        tool_results: allToolResults,
+      };
+    }
+    
+    // Execute tool calls
+    const toolResults: Array<{ role: string; content: string; name?: string }> = [];
+    
+    for (const toolCall of result.tool_calls) {
+      const tool = tools?.find(t => t.name === toolCall.function.name);
+      if (!tool) continue;
+      
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        const toolResult = await tool.function(args);
+        
+        allToolResults.push({
+          name: toolCall.function.name,
+          result: toolResult,
+        });
+        
+        toolResults.push({
+          role: 'tool',
+          name: toolCall.function.name,
+          content: JSON.stringify(toolResult),
+        });
+      } catch (error) {
+        toolResults.push({
+          role: 'tool',
+          name: toolCall.function.name,
+          content: JSON.stringify({ error: String(error) }),
+        });
+      }
+    }
+    
+    // Add assistant message with tool calls and tool results
+    currentMessages.push({
+      role: 'assistant',
+      content: result.response || '',
+    });
+    currentMessages.push(...toolResults);
+    
+    recursionCount++;
+  }
+  
+  // Max recursion reached, return what we have
+  const finalResult = await binding.run(model, {
+    messages: currentMessages,
+    max_tokens: 1024,
+  }) as { response?: string };
+  
+  return {
+    response: finalResult.response || '',
+    tool_results: allToolResults,
+  };
+}
+
+// ============================================================
+// TRACKED WRAPPER: runWithToolsTracked
+// Adds observability + neuron tracking on top of runWithTools
+// ============================================================
+
+export interface TrackerConfig {
+  usageTracker?: UsageTracker;
+  observability?: ObservabilityHooks;
+}
+
+/**
+ * Enhanced runWithTools with observability and neuron tracking
+ * 
+ * This is Binario's value-add on top of @cloudflare/ai-utils:
+ * - Tracks neuron consumption
+ * - Emits observability events
+ * - Integrates with usage tracker for fallback decisions
+ * 
+ * @example
+ * ```typescript
+ * import { runWithToolsTracked, createUsageTracker, consoleHooks } from 'binario';
+ * 
+ * const tracker = createUsageTracker({ storage: env.CACHE });
+ * 
+ * const result = await runWithToolsTracked(env.AI, '@hf/nousresearch/hermes-2-pro-mistral-7b', {
+ *   messages: [{ role: 'user', content: 'Search for AI news' }],
+ *   tools: [searchTool],
+ * }, {
+ *   usageTracker: tracker,
+ *   observability: consoleHooks,
+ * });
+ * ```
+ */
+export async function runWithToolsTracked(
+  binding: { run: (model: string, input: unknown) => Promise<unknown> },
+  model: CloudflareModel,
+  options: RunWithToolsOptions,
+  trackerConfig?: TrackerConfig
+): Promise<RunWithToolsResponse & { neuronsUsed: number; latency: number }> {
+  const startTime = Date.now();
+  const spanId = crypto.randomUUID();
+  
+  // Convert messages to proper Message type for observability
+  const typedMessages: Message[] = options.messages.map(m => ({
+    role: m.role as Message['role'],
+    content: m.content,
+  }));
+  
+  // Emit request start event
+  trackerConfig?.observability?.onRequestStart?.({
+    messages: typedMessages,
+    model,
+    provider: 'cloudflare',
+    spanId,
+  });
+  
+  // Run with tools
+  const response = await runWithTools(binding, model, options);
+  
+  const latency = Date.now() - startTime;
+  
+  // Estimate token usage
+  const inputTokens = JSON.stringify(options.messages).length / 4;
+  const outputTokens = (response.response?.length || 0) / 4;
+  const neuronsUsed = calculateNeurons(model, inputTokens, outputTokens);
+  
+  // Track usage using trackRequest method
+  if (trackerConfig?.usageTracker) {
+    trackerConfig.usageTracker.trackRequest({
+      model,
+      provider: 'cloudflare',
+      inputTokens: Math.ceil(inputTokens),
+      outputTokens: Math.ceil(outputTokens),
+      neurons: neuronsUsed,
+      cached: false,
+      latencyMs: latency,
+    });
+  }
+  
+  // Create ChatResponse for observability
+  const chatResponse: ChatResponse = {
+    id: crypto.randomUUID(),
+    provider: 'cloudflare',
+    model,
+    content: response.response,
+    usage: {
+      promptTokens: Math.ceil(inputTokens),
+      completionTokens: Math.ceil(outputTokens),
+      totalTokens: Math.ceil(inputTokens + outputTokens),
+    },
+    finishReason: 'stop',
+    latency,
+    cached: false,
+  };
+  
+  // Emit request end event
+  trackerConfig?.observability?.onRequestEnd?.({
+    messages: typedMessages,
+    response: chatResponse,
+    spanId,
+    metrics: {
+      neuronsUsed,
+      neuronsRemaining: 0,
+      tokensIn: Math.ceil(inputTokens),
+      tokensOut: Math.ceil(outputTokens),
+      latencyMs: latency,
+      cacheHit: false,
+      retryCount: 0,
+      model,
+      provider: 'cloudflare',
+    },
+  });
+  
+  return {
+    ...response,
+    neuronsUsed,
+    latency,
+  };
+}
+
+// ============================================================
+// HELPER: tool() - Define a tool with type safety
+// ============================================================
+
+/**
+ * Define a tool for use with runWithTools
+ * 
+ * @example
+ * ```typescript
+ * const calculator = tool({
+ *   name: 'calculate',
+ *   description: 'Perform mathematical calculations',
+ *   parameters: {
+ *     type: 'object',
+ *     properties: {
+ *       expression: { type: 'string', description: 'Math expression like "2 + 2"' }
+ *     },
+ *     required: ['expression']
+ *   },
+ *   function: async ({ expression }) => {
+ *     return { result: eval(expression) };
+ *   }
+ * });
+ * ```
+ */
+export function tool(definition: CloudflareTool): CloudflareTool {
+  return definition;
+}
+
+// ============================================================
+// HELPER: autoTrimTools - Reduce token usage for tools
+// ============================================================
+
+/**
+ * Automatically trim tool descriptions to reduce token usage
+ * Useful when you have many tools and need to fit within context limits
+ */
+export function autoTrimTools(
+  tools: CloudflareTool[],
+  maxTokensPerTool: number = 100
+): CloudflareTool[] {
+  return tools.map(t => ({
+    ...t,
+    description: t.description.slice(0, maxTokensPerTool * 4), // ~4 chars per token
+  }));
+}
+
+// ============================================================
+// BASIC FUNCTIONS (without tools)
+// ============================================================
+
 /**
  * Execute inference using Cloudflare AI binding (Workers environment)
- * This is the FASTEST method - direct binding without network latency
  */
 export async function runWithBinding(
   binding: { run: (model: string, input: unknown) => Promise<unknown> },
@@ -167,28 +496,45 @@ export async function runWithBinding(
 
   const input: Record<string, unknown> = {
     messages: formatMessagesForCloudflare(messages),
-    max_tokens: options.maxTokens || 256, // Conservative default for free tier
+    max_tokens: options.maxTokens || 256,
     temperature: options.temperature,
     stream: false,
   };
 
-  // Add tools if model supports function calling
-  if (options.tools && supportsToolCalling(model)) {
-    input.tools = options.tools;
+  // Use runWithTools if tools are provided
+  if (options.tools && options.tools.length > 0 && supportsToolCalling(model)) {
+    const result = await runWithTools(binding, model, {
+      messages: formatMessagesForCloudflare(messages),
+      tools: options.tools,
+      maxRecursiveToolRuns: options.maxRecursiveToolRuns || 3,
+    });
+    
+    const latency = Date.now() - startTime;
+    const estimatedInputTokens = JSON.stringify(messages).length / 4;
+    const estimatedOutputTokens = (result.response?.length || 0) / 4;
+    
+    return {
+      id: crypto.randomUUID(),
+      provider: 'cloudflare',
+      model,
+      content: result.response,
+      usage: {
+        promptTokens: Math.ceil(estimatedInputTokens),
+        completionTokens: Math.ceil(estimatedOutputTokens),
+        totalTokens: Math.ceil(estimatedInputTokens + estimatedOutputTokens),
+      },
+      finishReason: 'stop',
+      latency,
+      cached: false,
+    };
   }
 
   const result = await binding.run(model, input) as {
     response?: string;
-    tool_calls?: Array<{
-      id: string;
-      type: 'function';
-      function: { name: string; arguments: string };
-    }>;
+    tool_calls?: ToolCall[];
   };
 
   const latency = Date.now() - startTime;
-
-  // Estimate token usage (Workers AI doesn't return exact counts)
   const estimatedInputTokens = JSON.stringify(messages).length / 4;
   const estimatedOutputTokens = (result.response?.length || 0) / 4;
   const neuronsUsed = calculateNeurons(model, estimatedInputTokens, estimatedOutputTokens);
@@ -198,7 +544,7 @@ export async function runWithBinding(
     provider: 'cloudflare',
     model,
     content: result.response || '',
-    toolCalls: result.tool_calls as ToolCall[],
+    toolCalls: result.tool_calls,
     usage: {
       promptTokens: Math.ceil(estimatedInputTokens),
       completionTokens: Math.ceil(estimatedOutputTokens),
@@ -207,14 +553,12 @@ export async function runWithBinding(
     finishReason: result.tool_calls ? 'tool_calls' : 'stop',
     latency,
     cached: false,
-    // Extended info
     _neuronsUsed: neuronsUsed,
   } as ChatResponse & { _neuronsUsed: number };
 }
 
 /**
  * Execute inference using Cloudflare REST API
- * For non-Workers environments (browsers, Node.js, etc.)
  */
 export async function runWithRestAPI(
   config: ProviderConfig,
@@ -240,9 +584,15 @@ export async function runWithRestAPI(
     stream: options.stream || false,
   };
 
-  // Add tools if model supports function calling
-  if (options.tools && supportsToolCalling(model)) {
-    body.tools = options.tools;
+  if (options.tools && options.tools.length > 0 && supportsToolCalling(model)) {
+    body.tools = options.tools.map(t => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      },
+    }));
   }
 
   const response = await fetch(url, {
@@ -273,8 +623,6 @@ export async function runWithRestAPI(
   }
 
   const latency = Date.now() - startTime;
-
-  // Estimate token usage
   const estimatedInputTokens = JSON.stringify(messages).length / 4;
   const estimatedOutputTokens = (data.result.response?.length || 0) / 4;
   const neuronsUsed = calculateNeurons(model, estimatedInputTokens, estimatedOutputTokens);

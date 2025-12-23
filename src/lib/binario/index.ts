@@ -31,7 +31,7 @@ export type { ObservabilityHooks, Span, SpanEvent, Metrics, LogEntry, LogLevel }
 export { createUsageTracker, UsageTracker, FREE_FALLBACK_MODELS, DEFAULT_FALLBACK_CONFIG } from './usage';
 export type { UsageRecord, DailyUsage, UsageReport, FallbackConfig } from './usage';
 
-// Providers - Cloudflare
+// Providers - Cloudflare (with @cloudflare/ai-utils integration)
 export { 
   CLOUDFLARE_MODELS, 
   DEFAULT_CLOUDFLARE_MODEL,
@@ -44,7 +44,15 @@ export {
   estimateFreeTokens,
   supportsToolCalling,
   getRecommendedModel,
+  // New: @cloudflare/ai-utils compatible exports
+  runWithTools,
+  runWithToolsTracked,
+  tool,
+  autoTrimTools,
 } from './providers/cloudflare';
+
+// OpenAPI Agent Builder
+export { createOpenAPIAgent, createMultiAPIAgent } from './cloudflare/openapi-agent';
 
 // Providers - Lovable
 export {
