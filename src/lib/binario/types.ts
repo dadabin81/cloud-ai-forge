@@ -4,10 +4,24 @@ import type { z } from 'zod';
 export type Provider = 'openai' | 'anthropic' | 'google' | 'mistral' | 'cohere' | 'cloudflare' | 'lovable';
 
 export type CloudflareModel =
-  | '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
-  | '@cf/meta/llama-3.2-11b-vision-instruct'
+  // Small models - Best for free tier
+  | '@cf/meta/llama-3.2-1b-instruct'
+  | '@cf/meta/llama-3.2-3b-instruct'
   | '@cf/meta/llama-3.1-8b-instruct-fp8-fast'
+  // Medium models
+  | '@cf/meta/llama-3.2-11b-vision-instruct'
+  | '@cf/mistralai/mistral-small-3.1-24b-instruct'
+  | '@cf/qwen/qwen3-30b-a3b-fp8'
+  // Large models - NOT for free tier
+  | '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+  | '@cf/meta/llama-3.1-70b-instruct'
+  | '@cf/meta/llama-4-scout-17b-16e-instruct'
+  // Function calling models
+  | '@hf/nousresearch/hermes-2-pro-mistral-7b'
+  | '@cf/ibm/granite-4.0-h-micro'
+  // Reasoning models
   | '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b'
+  | '@cf/qwen/qwq-32b'
   | string;
 
 export interface Message {

@@ -24,10 +24,15 @@ export type { InferSchema } from './schema';
 export { 
   CLOUDFLARE_MODELS, 
   DEFAULT_CLOUDFLARE_MODEL,
+  NEURON_COSTS,
+  FREE_NEURONS_PER_DAY,
   runWithBinding,
   runWithRestAPI,
   streamWithRestAPI,
-  estimateNeurons,
+  calculateNeurons,
+  estimateFreeTokens,
+  supportsToolCalling,
+  getRecommendedModel,
 } from './providers/cloudflare';
 
 export {
