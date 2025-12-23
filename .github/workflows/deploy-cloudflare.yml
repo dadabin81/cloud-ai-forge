@@ -1,0 +1,50 @@
+name: Deploy Binario API to Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/**'
+      - '.github/workflows/deploy-cloudflare.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy Worker
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: ./cloudflare
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: 'cloudflare'
+          command: deploy
+
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Worker deployed to: \`binario-api.YOUR_SUBDOMAIN.workers.dev\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Endpoints:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /health\` - Health check" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /v1/models\` - List models" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POST /v1/chat/completions\` - Chat completion" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POST /v1/chat/stream\` - Streaming chat" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POST /v1/agents/run\` - Agent execution" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /v1/usage\` - Usage statistics" >> $GITHUB_STEP_SUMMARY
