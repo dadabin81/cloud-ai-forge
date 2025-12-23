@@ -488,6 +488,3 @@ export function createBinario(config: BinarioConfig): BinarioAI {
   return new BinarioAI(config);
 }
 
-// Legacy aliases
-export { BinarioAI as NexusAI };
-export { createBinario as createNexus };
