@@ -1,34 +1,39 @@
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/CodeBlock';
-import { ArrowRight, Terminal, Sparkles } from 'lucide-react';
+import { ArrowRight, Terminal, Sparkles, Zap } from 'lucide-react';
 
 const heroCode = `import { createBinario, useBinarioStream } from 'binario';
+import { z } from 'zod';
 
+// FREE Llama 3 via Cloudflare Workers AI
 const ai = createBinario({
   providers: {
+    cloudflare: { 
+      accountId: process.env.CF_ACCOUNT_ID,
+      apiKey: process.env.CF_API_TOKEN,
+    },
     openai: { apiKey: process.env.OPENAI_KEY },
     anthropic: { apiKey: process.env.ANTHROPIC_KEY },
-    google: { apiKey: process.env.GOOGLE_KEY },
   },
-  defaultProvider: 'openai',
+  defaultProvider: 'cloudflare', // Free tier!
   cache: { enabled: true, ttl: 3600000 },
 });
 
+// Pydantic-style type-safe schemas
+const ResponseSchema = z.object({
+  answer: z.string(),
+  confidence: z.number(),
+  sources: z.array(z.string()),
+});
+
+// Streaming with React hooks
 function ChatApp() {
-  const { messages, send, isStreaming, streamingContent } = 
+  const { messages, send, isStreaming } = 
     useBinarioStream(ai, {
-      model: 'gpt-4o',
-      temperature: 0.7,
+      model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     });
 
-  return (
-    <Chat 
-      messages={messages}
-      streamingContent={streamingContent}
-      onSend={send}
-      loading={isStreaming}
-    />
-  );
+  return <Chat messages={messages} onSend={send} />;
 }`;
 
 export function HeroSection() {
@@ -47,9 +52,9 @@ export function HeroSection() {
           {/* Left side - Text content */}
           <div className="space-y-8">
             {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/50 border border-border/50 animate-fade-in">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm text-muted-foreground">v2.0 Now Available</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 animate-fade-in">
+              <Zap className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm text-emerald-400 font-medium">Free Llama 3 via Cloudflare</span>
             </div>
 
             {/* Headline */}
@@ -61,14 +66,31 @@ export function HeroSection() {
 
             {/* Subheadline */}
             <p className="text-lg text-muted-foreground max-w-xl animate-slide-up" style={{ animationDelay: '100ms' }}>
-              Multi-provider support, edge-ready streaming, intelligent caching, and type-safe React hooks. 
-              Built for developers who demand more from their AI integrations.
+              <strong className="text-foreground">Free Llama 3</strong> via Cloudflare Workers AI.
+              Pydantic-style schemas. Agent framework with tools.
+              Multi-provider streaming. Built for developers who demand more.
             </p>
+
+            {/* Stats row */}
+            <div className="flex flex-wrap gap-6 text-sm animate-slide-up" style={{ animationDelay: '150ms' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-primary">10K</span>
+                <span className="text-muted-foreground">free neurons/day</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-primary">7+</span>
+                <span className="text-muted-foreground">providers</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-primary">&lt;2kb</span>
+                <span className="text-muted-foreground">gzipped</span>
+              </div>
+            </div>
 
             {/* CTAs */}
             <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '200ms' }}>
               <Button variant="hero" size="xl" className="gap-2">
-                Get Started
+                Get Started Free
                 <ArrowRight className="w-5 h-5" />
               </Button>
               <Button variant="glass" size="xl" className="gap-2">
@@ -81,7 +103,7 @@ export function HeroSection() {
             <div className="animate-slide-up" style={{ animationDelay: '300ms' }}>
               <div className="inline-flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50 font-mono text-sm">
                 <span className="text-muted-foreground">$</span>
-                <span className="text-foreground">npm install binario</span>
+                <span className="text-foreground">npm install binario zod</span>
                 <button className="text-muted-foreground hover:text-foreground transition-colors">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />

@@ -3,11 +3,94 @@ import { CodeBlock } from '@/components/CodeBlock';
 import { cn } from '@/lib/utils';
 
 const examples = {
-  streaming: {
-    title: 'Streaming Chat',
-    description: 'Real-time token streaming with React hooks',
-    code: `import { useBinarioStream } from 'binario';
+  cloudflare: {
+    title: 'Free Llama 3',
+    description: 'Use Llama 3.3 70B completely free via Cloudflare',
+    code: `import { createBinario } from 'binario';
 
+// Configure Cloudflare Workers AI (FREE tier!)
+const ai = createBinario({
+  providers: {
+    cloudflare: {
+      accountId: process.env.CF_ACCOUNT_ID,
+      apiKey: process.env.CF_API_TOKEN,
+      defaultModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    },
+  },
+  defaultProvider: 'cloudflare',
+});
+
+// 10,000 free neurons/day included
+const response = await ai.chat([
+  { role: 'user', content: 'Explain quantum computing' }
+]);
+
+console.log(response.content);
+// Uses Cloudflare's edge network for low latency`,
+  },
+  schemas: {
+    title: 'Pydantic-Style Schemas',
+    description: 'Type-safe structured output with Zod validation',
+    code: `import { createBinario, z } from 'binario';
+
+// Define your schema (like Pydantic in Python)
+const RecipeSchema = z.object({
+  name: z.string().describe('Recipe name'),
+  ingredients: z.array(z.string()),
+  steps: z.array(z.string()),
+  prepTime: z.number().describe('Prep time in minutes'),
+  difficulty: z.enum(['easy', 'medium', 'hard']),
+});
+
+// Get type-safe, validated responses
+const response = await ai.chat(
+  [{ role: 'user', content: 'Give me a pasta recipe' }],
+  { outputSchema: RecipeSchema }
+);
+
+// response.data is fully typed!
+console.log(response.data.name);
+console.log(response.data.ingredients);`,
+  },
+  agents: {
+    title: 'Agent Framework',
+    description: 'Multi-step reasoning with tools and context',
+    code: `import { createBinario, createAgent, defineTool, z } from 'binario';
+
+// Define type-safe tools
+const searchTool = defineTool({
+  name: 'web_search',
+  description: 'Search the web',
+  parameters: z.object({
+    query: z.string(),
+    maxResults: z.number().default(5),
+  }),
+  execute: async ({ query }) => {
+    return await searchAPI(query);
+  },
+});
+
+// Create an agent with tools
+const agent = createAgent(ai, {
+  model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  systemPrompt: 'You are a helpful research assistant',
+  tools: [searchTool, calculatorTool],
+  maxIterations: 5,
+});
+
+// Run with callbacks for each step
+const result = await agent.run('Research AI trends in 2024', {
+  onToolCall: (tool, args, result) => {
+    console.log(\`Called \${tool}\`, args);
+  },
+});`,
+  },
+  streaming: {
+    title: 'React Streaming',
+    description: 'Real-time token streaming with hooks',
+    code: `import { useBinarioStream, useBinarioAgent } from 'binario';
+
+// Streaming chat hook
 function StreamingChat({ ai }) {
   const { 
     messages, 
@@ -29,44 +112,23 @@ function StreamingChat({ ai }) {
       <ChatInput onSend={send} disabled={isStreaming} />
     </div>
   );
-}`,
-  },
-  tools: {
-    title: 'Tool Calling',
-    description: 'Enable function calling for interactive agents',
-    code: `const tools = [{
-  type: 'function',
-  function: {
-    name: 'get_weather',
-    description: 'Get current weather for a location',
-    parameters: {
-      type: 'object',
-      properties: {
-        location: { type: 'string' },
-        unit: { type: 'string', enum: ['celsius', 'fahrenheit'] }
-      },
-      required: ['location']
-    }
-  }
-}];
+}
 
-const response = await ai.chat(messages, {
-  tools,
-  toolChoice: 'auto',
-});
-
-if (response.toolCalls) {
-  for (const call of response.toolCalls) {
-    const result = await executeFunction(call);
-    // Continue conversation with tool result
-  }
+// Agent hook with tool tracking
+function AgentChat({ agent }) {
+  const { run, output, toolCalls, isRunning } = useBinarioAgent(agent);
+  // ...
 }`,
   },
   multiProvider: {
     title: 'Multi-Provider',
-    description: 'Seamlessly switch between AI providers',
+    description: 'Switch providers with one line',
     code: `const ai = createBinario({
   providers: {
+    cloudflare: { 
+      accountId: process.env.CF_ACCOUNT_ID,
+      apiKey: process.env.CF_API_TOKEN,
+    },
     openai: { 
       apiKey: process.env.OPENAI_KEY,
       defaultModel: 'gpt-4o'
@@ -75,52 +137,20 @@ if (response.toolCalls) {
       apiKey: process.env.ANTHROPIC_KEY,
       defaultModel: 'claude-3-5-sonnet-20241022'
     },
-    google: { 
-      apiKey: process.env.GOOGLE_KEY,
-      defaultModel: 'gemini-2.0-flash'
-    },
   },
-  defaultProvider: 'openai',
+  defaultProvider: 'cloudflare', // Start free!
 });
 
-// Use OpenAI (default)
+// Use Cloudflare (FREE)
 await ai.chat(messages);
 
-// Use Claude
+// Use Claude for complex reasoning
 await ai.chat(messages, { provider: 'anthropic' });
 
-// Use Gemini with specific model
+// Use GPT-4 for specific tasks
 await ai.chat(messages, { 
-  provider: 'google',
-  model: 'gemini-2.0-pro'
-});`,
-  },
-  caching: {
-    title: 'Smart Caching',
-    description: 'Reduce latency and costs with intelligent caching',
-    code: `const ai = createBinario({
-  providers: { /* ... */ },
-  cache: {
-    enabled: true,
-    ttl: 3600000, // 1 hour
-    maxSize: 100, // Max cached responses
-  },
-});
-
-// First call - hits the API
-const response1 = await ai.chat(messages);
-console.log(response1.cached); // false
-console.log(response1.latency); // ~800ms
-
-// Same request - returns from cache
-const response2 = await ai.chat(messages);
-console.log(response2.cached); // true
-console.log(response2.latency); // ~2ms
-
-// Custom cache key for more control
-await ai.chat(messages, {
-  cacheKey: 'user-123-summary',
-  cacheTTL: 86400000, // 24 hours
+  provider: 'openai',
+  model: 'gpt-4-turbo'
 });`,
   },
 };
@@ -128,7 +158,7 @@ await ai.chat(messages, {
 type ExampleKey = keyof typeof examples;
 
 export function ExamplesSection() {
-  const [activeExample, setActiveExample] = useState<ExampleKey>('streaming');
+  const [activeExample, setActiveExample] = useState<ExampleKey>('cloudflare');
 
   return (
     <section id="examples" className="py-24 px-4 relative">
@@ -141,7 +171,7 @@ export function ExamplesSection() {
             <span className="gradient-text"> action</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Explore real-world examples and patterns for common AI integration scenarios.
+            Free Llama 3, Pydantic-style schemas, Agent framework, and more.
           </p>
         </div>
 

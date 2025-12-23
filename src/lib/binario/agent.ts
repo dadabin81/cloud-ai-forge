@@ -235,7 +235,7 @@ export class Agent<TContext = unknown, TDeps = unknown> {
 
     const parsed = parseStructuredOutput(result.output, schema);
     if (!parsed.success) {
-      throw new Error(`Failed to parse structured output: ${parsed.error.message}`);
+      throw new Error(`Failed to parse structured output: ${(parsed as { error: { message: string } }).error.message}`);
     }
 
     return {

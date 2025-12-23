@@ -1,23 +1,29 @@
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Github, BookOpen } from 'lucide-react';
+import { ArrowRight, Github, Zap } from 'lucide-react';
 
 export function CTASection() {
   return (
     <section className="py-24 px-4 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-primary/10 to-background" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/10 rounded-full blur-3xl" />
-      
+      {/* Background effects */}
+      <div className="absolute inset-0 bg-gradient-to-t from-primary/10 via-transparent to-transparent" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/20 rounded-full blur-3xl" />
+
       <div className="relative max-w-4xl mx-auto text-center">
-        <h2 className="text-4xl sm:text-5xl font-bold mb-6">
-          Ready to build
+        {/* Badge */}
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 mb-8">
+          <Zap className="w-4 h-4 text-emerald-400" />
+          <span className="text-sm text-emerald-400 font-medium">10,000 free neurons/day</span>
+        </div>
+
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6">
+          Start building with
           <br />
-          <span className="gradient-text">smarter AI apps?</span>
+          <span className="gradient-text">free Llama 3</span>
         </h2>
-        
-        <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Join thousands of developers who are shipping AI features faster with NexusAI.
-          Open source, battle-tested, and built for production.
+
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+          Get started in minutes with Cloudflare's free tier. 
+          Pydantic-style schemas, Agent framework, and multi-provider support included.
         </p>
 
         <div className="flex flex-wrap justify-center gap-4 mb-12">
@@ -26,8 +32,8 @@ export function CTASection() {
             <ArrowRight className="w-5 h-5" />
           </Button>
           <Button variant="glass" size="xl" className="gap-2">
-            <BookOpen className="w-5 h-5" />
-            Read the Docs
+            <Github className="w-5 h-5" />
+            View on GitHub
           </Button>
         </div>
 
@@ -35,7 +41,7 @@ export function CTASection() {
         <div className="inline-flex items-center gap-4 px-6 py-4 rounded-2xl bg-card/50 border border-border/50 backdrop-blur-sm">
           <code className="font-mono text-sm">
             <span className="text-muted-foreground">$</span>{' '}
-            <span className="text-foreground">npm install binario</span>
+            <span className="text-foreground">npm install binario zod</span>
           </code>
           <div className="w-px h-6 bg-border" />
           <a 
@@ -45,6 +51,22 @@ export function CTASection() {
             <Github className="w-4 h-4" />
             Star on GitHub
           </a>
+        </div>
+
+        {/* Trust badges */}
+        <div className="mt-12 flex flex-wrap justify-center gap-8 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span className="text-primary font-semibold">✓</span>
+            <span>Free Cloudflare tier</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-primary font-semibold">✓</span>
+            <span>No credit card required</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-primary font-semibold">✓</span>
+            <span>MIT licensed</span>
+          </div>
         </div>
       </div>
     </section>

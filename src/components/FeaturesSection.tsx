@@ -8,19 +8,38 @@ import {
   Code2, 
   Globe, 
   Cpu,
-  Workflow
+  Workflow,
+  Bot,
+  FileJson,
+  DollarSign
 } from 'lucide-react';
 
 const features = [
   {
+    icon: DollarSign,
+    title: 'Free Llama 3',
+    description: 'Use Llama 3.3 70B completely free via Cloudflare Workers AI. 10,000 neurons/day included.',
+    highlight: true,
+  },
+  {
+    icon: FileJson,
+    title: 'Pydantic-Style Schemas',
+    description: 'Type-safe structured output with Zod validation. Define schemas, get validated responses.',
+  },
+  {
+    icon: Bot,
+    title: 'Agent Framework',
+    description: 'Multi-step reasoning agents with tool calling and dependency injection. Like LangChain but simpler.',
+  },
+  {
     icon: Layers,
     title: 'Multi-Provider',
-    description: 'Seamlessly switch between OpenAI, Anthropic, Google, Mistral, and Cohere with a unified API.',
+    description: 'Seamlessly switch between OpenAI, Anthropic, Google, Cloudflare, Mistral, and Cohere.',
   },
   {
     icon: Zap,
     title: 'Edge-Ready Streaming',
-    description: 'Native SSE streaming optimized for Cloudflare Workers, Vercel Edge, and Deno Deploy.',
+    description: 'Native SSE streaming optimized for Cloudflare Workers with V8 isolate security.',
   },
   {
     icon: Shield,
@@ -39,8 +58,8 @@ const features = [
   },
   {
     icon: Code2,
-  title: 'React Hooks',
-    description: 'useBinarioChat, useBinarioStream, and useBinarioCompletion for effortless React integration.',
+    title: 'React Hooks',
+    description: 'useBinarioChat, useBinarioStream, useBinarioAgent, and useBinarioStructured for React.',
   },
   {
     icon: Workflow,
@@ -50,7 +69,7 @@ const features = [
   {
     icon: Cpu,
     title: 'Structured Output',
-    description: 'JSON schema validation for reliable structured responses from any model.',
+    description: 'Zod schema validation for reliable structured responses from any model.',
   },
   {
     icon: Globe,
@@ -68,12 +87,13 @@ export function FeaturesSection() {
         {/* Section header */}
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            Everything you need,
+            More power,
             <br />
-            <span className="gradient-text">nothing you don't</span>
+            <span className="gradient-text">less cost</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            A carefully crafted SDK that provides powerful abstractions without sacrificing flexibility or performance.
+            Free Llama 3 via Cloudflare, Pydantic-style schemas, and an Agent framework. 
+            Everything you need, nothing you don't.
           </p>
         </div>
 

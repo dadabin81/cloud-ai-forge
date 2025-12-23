@@ -1,32 +1,36 @@
-// NexusAI SDK Core
+// Binario SDK Core
 
 import type {
   Provider,
   Message,
   ChatOptions,
   ChatResponse,
-  NexusConfig,
+  BinarioConfig,
   StreamCallbacks,
   ProviderConfig,
 } from './types';
+import { runWithBinding, runWithRestAPI, streamWithRestAPI, DEFAULT_CLOUDFLARE_MODEL } from './providers/cloudflare';
+import { parseStructuredOutput } from './schema';
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: 'gpt-4o',
   anthropic: 'claude-3-5-sonnet-20241022',
   google: 'gemini-2.0-flash',
   mistral: 'mistral-large-latest',
   cohere: 'command-r-plus',
+  cloudflare: DEFAULT_CLOUDFLARE_MODEL,
 };
 
-const PROVIDER_ENDPOINTS: Record<Provider, string> = {
+const PROVIDER_ENDPOINTS: Partial<Record<Provider, string>> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
   google: 'https://generativelanguage.googleapis.com/v1beta/models',
   mistral: 'https://api.mistral.ai/v1/chat/completions',
   cohere: 'https://api.cohere.ai/v1/chat',
+  cloudflare: 'https://api.cloudflare.com/client/v4/accounts',
 };
 
-class NexusCache {
+class BinarioCache {
   private cache = new Map<string, { data: ChatResponse; timestamp: number }>();
   private maxSize: number;
   private defaultTTL: number;
@@ -67,17 +71,17 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export class NexusAI {
-  private config: NexusConfig;
-  private cache: NexusCache;
+export class BinarioAI {
+  private config: BinarioConfig;
+  private cache: BinarioCache;
 
-  constructor(config: NexusConfig) {
+  constructor(config: BinarioConfig) {
     this.config = {
       ...config,
       retry: config.retry || { maxRetries: 3, backoff: 'exponential', initialDelay: 1000 },
       timeout: config.timeout || 30000,
     };
-    this.cache = new NexusCache(
+    this.cache = new BinarioCache(
       config.cache?.maxSize || 100,
       config.cache?.ttl || 3600000
     );
@@ -135,6 +139,13 @@ export class NexusAI {
           contents: messages.map((m) => ({
             role: m.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: m.content }],
+          })),
+        };
+      case 'cloudflare':
+        return {
+          messages: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
           })),
         };
       default:
@@ -217,11 +228,11 @@ export class NexusAI {
 
   async chat(
     messages: Message[],
-    options: ChatOptions & { provider?: Provider } = {}
+    options: ChatOptions = {}
   ): Promise<ChatResponse> {
     const provider = this.getProvider(options.provider);
     const providerConfig = this.getProviderConfig(provider);
-    const model = options.model || providerConfig.defaultModel || DEFAULT_MODELS[provider];
+    const model = options.model || providerConfig.defaultModel || DEFAULT_MODELS[provider] || '';
 
     // Check cache
     if (this.config.cache?.enabled && options.cache !== false) {
@@ -232,6 +243,25 @@ export class NexusAI {
       }
     }
 
+    // Handle Cloudflare provider specially
+    if (provider === 'cloudflare') {
+      const cfOptions = { model, maxTokens: options.maxTokens, temperature: options.temperature };
+      
+      if (providerConfig.binding) {
+        const response = await this.retryWithBackoff(
+          () => runWithBinding(providerConfig.binding as { run: (model: string, input: unknown) => Promise<unknown> }, messages, cfOptions),
+          options.retries
+        );
+        return this.handleStructuredOutput(response, options);
+      }
+      
+      const response = await this.retryWithBackoff(
+        () => runWithRestAPI(providerConfig, messages, cfOptions),
+        options.retries
+      );
+      return this.handleStructuredOutput(response, options);
+    }
+
     const startTime = Date.now();
 
     const makeRequest = async (): Promise<ChatResponse> => {
@@ -239,16 +269,15 @@ export class NexusAI {
       const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.config.timeout);
 
       try {
-        let url = providerConfig.baseUrl || PROVIDER_ENDPOINTS[provider];
+        let url = providerConfig.baseUrl || PROVIDER_ENDPOINTS[provider] || '';
         let headers: Record<string, string> = {
           'Content-Type': 'application/json',
           ...providerConfig.headers,
         };
 
-        // Provider-specific auth and URL
         switch (provider) {
           case 'anthropic':
-            headers['x-api-key'] = providerConfig.apiKey;
+            headers['x-api-key'] = providerConfig.apiKey || '';
             headers['anthropic-version'] = '2024-01-01';
             break;
           case 'google':
@@ -294,31 +323,59 @@ export class NexusAI {
     };
 
     const response = await this.retryWithBackoff(makeRequest, options.retries);
+    const finalResponse = this.handleStructuredOutput(response, options);
 
-    // Store in cache
     if (this.config.cache?.enabled && options.cache !== false) {
       const cacheKey = options.cacheKey || this.cache.generateKey(messages, options);
-      this.cache.set(cacheKey, response);
+      this.cache.set(cacheKey, finalResponse);
     }
 
+    return finalResponse;
+  }
+
+  private handleStructuredOutput(response: ChatResponse, options: ChatOptions): ChatResponse {
+    if (options.outputSchema && response.content) {
+      const parsed = parseStructuredOutput(response.content, options.outputSchema);
+      if (parsed.success) {
+        return { ...response, data: parsed.data };
+      }
+    }
     return response;
   }
 
   async *streamChat(
     messages: Message[],
-    options: ChatOptions & { provider?: Provider } = {},
+    options: ChatOptions = {},
     callbacks?: StreamCallbacks
   ): AsyncGenerator<string, ChatResponse, unknown> {
     const provider = this.getProvider(options.provider);
     const providerConfig = this.getProviderConfig(provider);
-    const model = options.model || providerConfig.defaultModel || DEFAULT_MODELS[provider];
+    const model = options.model || providerConfig.defaultModel || DEFAULT_MODELS[provider] || '';
+
+    if (provider === 'cloudflare') {
+      const stream = streamWithRestAPI(providerConfig, messages, {
+        model,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+      });
+
+      for await (const token of stream) {
+        callbacks?.onToken?.(token);
+        yield token;
+      }
+
+      const result = await stream.next();
+      const response = result.value as ChatResponse;
+      callbacks?.onComplete?.(response);
+      return response;
+    }
 
     const startTime = Date.now();
     let fullContent = '';
-    let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
     try {
-      let url = providerConfig.baseUrl || PROVIDER_ENDPOINTS[provider];
+      let url = providerConfig.baseUrl || PROVIDER_ENDPOINTS[provider] || '';
       let headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...providerConfig.headers,
@@ -326,7 +383,7 @@ export class NexusAI {
 
       switch (provider) {
         case 'anthropic':
-          headers['x-api-key'] = providerConfig.apiKey;
+          headers['x-api-key'] = providerConfig.apiKey || '';
           headers['anthropic-version'] = '2024-01-01';
           break;
         case 'google':
@@ -427,7 +484,10 @@ export class NexusAI {
   }
 }
 
-// Convenience function for quick initialization
-export function createNexus(config: NexusConfig): NexusAI {
-  return new NexusAI(config);
+export function createBinario(config: BinarioConfig): BinarioAI {
+  return new BinarioAI(config);
 }
+
+// Legacy aliases
+export { BinarioAI as NexusAI };
+export { createBinario as createNexus };
