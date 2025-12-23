@@ -1,47 +1,78 @@
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Menu, X, Github } from 'lucide-react';
+import { Menu, X, Github, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import binarioLogo from '@/assets/binario-logo.png';
 
 export function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const scrollToSection = (id: string) => {
+    setIsMenuOpen(false);
+    const element = document.getElementById(id);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-3">
             <img src={binarioLogo} alt="Binario" className="w-9 h-9 rounded-lg" />
             <span className="font-bold text-xl tracking-tight">
               <span className="gradient-text">Binario</span>
             </span>
-          </div>
+          </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            <button 
+              onClick={() => scrollToSection('features')} 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
               Features
-            </a>
-            <a href="#providers" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            </button>
+            <button 
+              onClick={() => scrollToSection('providers')} 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
               Providers
-            </a>
-            <a href="#docs" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            </button>
+            <Link 
+              to="/docs" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
               Docs
-            </a>
-            <a href="#examples" className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium">
+            </Link>
+            <button 
+              onClick={() => scrollToSection('examples')} 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
               Examples
-            </a>
+            </button>
           </div>
 
           {/* Desktop CTAs */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => window.open('https://github.com/binario-ai/binario', '_blank')}
+            >
               <Github className="w-4 h-4" />
               GitHub
             </Button>
-            <Button variant="hero" size="sm">
+            <Button 
+              variant="hero" 
+              size="sm"
+              onClick={() => navigate('/docs')}
+            >
               Get Started
             </Button>
           </div>
@@ -65,24 +96,48 @@ export function Navigation() {
         )}
       >
         <div className="px-4 py-4 space-y-4">
-          <a href="#features" className="block text-muted-foreground hover:text-foreground transition-colors py-2">
+          <button 
+            onClick={() => scrollToSection('features')} 
+            className="block w-full text-left text-muted-foreground hover:text-foreground transition-colors py-2"
+          >
             Features
-          </a>
-          <a href="#providers" className="block text-muted-foreground hover:text-foreground transition-colors py-2">
+          </button>
+          <button 
+            onClick={() => scrollToSection('providers')} 
+            className="block w-full text-left text-muted-foreground hover:text-foreground transition-colors py-2"
+          >
             Providers
-          </a>
-          <a href="#docs" className="block text-muted-foreground hover:text-foreground transition-colors py-2">
+          </button>
+          <Link 
+            to="/docs" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
             Docs
-          </a>
-          <a href="#examples" className="block text-muted-foreground hover:text-foreground transition-colors py-2">
+          </Link>
+          <button 
+            onClick={() => scrollToSection('examples')} 
+            className="block w-full text-left text-muted-foreground hover:text-foreground transition-colors py-2"
+          >
             Examples
-          </a>
+          </button>
           <div className="pt-4 flex flex-col gap-3">
-            <Button variant="outline" className="w-full gap-2">
+            <Button 
+              variant="outline" 
+              className="w-full gap-2"
+              onClick={() => window.open('https://github.com/binario-ai/binario', '_blank')}
+            >
               <Github className="w-4 h-4" />
               GitHub
             </Button>
-            <Button variant="hero" className="w-full">
+            <Button 
+              variant="hero" 
+              className="w-full"
+              onClick={() => {
+                setIsMenuOpen(false);
+                navigate('/docs');
+              }}
+            >
               Get Started
             </Button>
           </div>

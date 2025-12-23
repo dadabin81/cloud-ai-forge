@@ -1,7 +1,7 @@
 // Binario SDK Types
 import type { z } from 'zod';
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'mistral' | 'cohere' | 'cloudflare';
+export type Provider = 'openai' | 'anthropic' | 'google' | 'mistral' | 'cohere' | 'cloudflare' | 'lovable';
 
 export type CloudflareModel =
   | '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
@@ -120,8 +120,10 @@ export interface AgentConfig<TContext = unknown, TDeps = unknown> {
 
 export interface AgentRunOptions {
   maxIterations?: number;
+  maxSteps?: number;
   onToolCall?: (tool: string, args: unknown, result: unknown) => void;
   onThinking?: (content: string) => void;
+  onStep?: (step: { type: string; content: string }) => void;
   signal?: AbortSignal;
 }
 
