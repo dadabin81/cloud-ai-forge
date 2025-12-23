@@ -6,15 +6,15 @@ const examples = {
   streaming: {
     title: 'Streaming Chat',
     description: 'Real-time token streaming with React hooks',
-    code: `import { useNexusStream } from 'nexus-ai';
+    code: `import { useBinarioStream } from 'binario';
 
-function StreamingChat({ nexus }) {
+function StreamingChat({ ai }) {
   const { 
     messages, 
     send, 
     isStreaming, 
     streamingContent 
-  } = useNexusStream(nexus);
+  } = useBinarioStream(ai);
 
   return (
     <div className="chat">
@@ -50,7 +50,7 @@ function StreamingChat({ nexus }) {
   }
 }];
 
-const response = await nexus.chat(messages, {
+const response = await ai.chat(messages, {
   tools,
   toolChoice: 'auto',
 });
@@ -65,7 +65,7 @@ if (response.toolCalls) {
   multiProvider: {
     title: 'Multi-Provider',
     description: 'Seamlessly switch between AI providers',
-    code: `const nexus = createNexus({
+    code: `const ai = createBinario({
   providers: {
     openai: { 
       apiKey: process.env.OPENAI_KEY,
@@ -84,13 +84,13 @@ if (response.toolCalls) {
 });
 
 // Use OpenAI (default)
-await nexus.chat(messages);
+await ai.chat(messages);
 
 // Use Claude
-await nexus.chat(messages, { provider: 'anthropic' });
+await ai.chat(messages, { provider: 'anthropic' });
 
 // Use Gemini with specific model
-await nexus.chat(messages, { 
+await ai.chat(messages, { 
   provider: 'google',
   model: 'gemini-2.0-pro'
 });`,
@@ -98,7 +98,7 @@ await nexus.chat(messages, {
   caching: {
     title: 'Smart Caching',
     description: 'Reduce latency and costs with intelligent caching',
-    code: `const nexus = createNexus({
+    code: `const ai = createBinario({
   providers: { /* ... */ },
   cache: {
     enabled: true,
@@ -108,17 +108,17 @@ await nexus.chat(messages, {
 });
 
 // First call - hits the API
-const response1 = await nexus.chat(messages);
+const response1 = await ai.chat(messages);
 console.log(response1.cached); // false
 console.log(response1.latency); // ~800ms
 
 // Same request - returns from cache
-const response2 = await nexus.chat(messages);
+const response2 = await ai.chat(messages);
 console.log(response2.cached); // true
 console.log(response2.latency); // ~2ms
 
 // Custom cache key for more control
-await nexus.chat(messages, {
+await ai.chat(messages, {
   cacheKey: 'user-123-summary',
   cacheTTL: 86400000, // 24 hours
 });`,

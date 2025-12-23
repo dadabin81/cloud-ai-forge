@@ -35,7 +35,7 @@ export function CTASection() {
         <div className="inline-flex items-center gap-4 px-6 py-4 rounded-2xl bg-card/50 border border-border/50 backdrop-blur-sm">
           <code className="font-mono text-sm">
             <span className="text-muted-foreground">$</span>{' '}
-            <span className="text-foreground">npm install nexus-ai</span>
+            <span className="text-foreground">npm install binario</span>
           </code>
           <div className="w-px h-6 bg-border" />
           <a 

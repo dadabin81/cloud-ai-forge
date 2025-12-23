@@ -1,4 +1,5 @@
-import { Zap, Github, Twitter } from 'lucide-react';
+import { Github, Twitter } from 'lucide-react';
+import binarioLogo from '@/assets/binario-logo.png';
 
 const links = {
   product: [
@@ -28,13 +29,10 @@ export function Footer() {
         <div className="grid md:grid-cols-5 gap-12 mb-12">
           {/* Brand */}
           <div className="md:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                <Zap className="w-5 h-5 text-primary-foreground" />
-              </div>
+            <div className="flex items-center gap-3 mb-4">
+              <img src={binarioLogo} alt="Binario" className="w-9 h-9 rounded-lg" />
               <span className="font-bold text-xl">
-                <span className="gradient-text">Nexus</span>
-                <span className="text-foreground">AI</span>
+                <span className="gradient-text">Binario</span>
               </span>
             </div>
             <p className="text-muted-foreground text-sm max-w-xs mb-6">
@@ -111,7 +109,7 @@ export function Footer() {
 
         <div className="pt-8 border-t border-border/50 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-sm text-muted-foreground">
-            © 2024 NexusAI. All rights reserved.
+            © 2024 Binario. All rights reserved.
           </p>
           <p className="text-sm text-muted-foreground">
             Made with ❤️ for developers everywhere

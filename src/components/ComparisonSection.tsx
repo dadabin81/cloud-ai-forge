@@ -3,24 +3,24 @@ import { cn } from '@/lib/utils';
 
 interface Feature {
   name: string;
-  nexus: boolean | 'partial';
+  binario: boolean | 'partial';
   vercel: boolean | 'partial';
   langchain: boolean | 'partial';
 }
 
 const features: Feature[] = [
-  { name: 'Multi-provider support', nexus: true, vercel: true, langchain: true },
-  { name: 'Native streaming', nexus: true, vercel: true, langchain: 'partial' },
-  { name: 'Edge runtime ready', nexus: true, vercel: true, langchain: false },
-  { name: 'React hooks', nexus: true, vercel: true, langchain: false },
-  { name: 'Built-in caching', nexus: true, vercel: false, langchain: 'partial' },
-  { name: 'Auto-retry with backoff', nexus: true, vercel: false, langchain: 'partial' },
-  { name: 'Tool calling', nexus: true, vercel: true, langchain: true },
-  { name: 'Structured output', nexus: true, vercel: true, langchain: true },
-  { name: 'Type-safe', nexus: true, vercel: true, langchain: 'partial' },
-  { name: 'Bundle size <5kb', nexus: true, vercel: 'partial', langchain: false },
-  { name: 'Zero dependencies', nexus: true, vercel: false, langchain: false },
-  { name: 'Cloudflare optimized', nexus: true, vercel: false, langchain: false },
+  { name: 'Multi-provider support', binario: true, vercel: true, langchain: true },
+  { name: 'Native streaming', binario: true, vercel: true, langchain: 'partial' },
+  { name: 'Edge runtime ready', binario: true, vercel: true, langchain: false },
+  { name: 'React hooks', binario: true, vercel: true, langchain: false },
+  { name: 'Built-in caching', binario: true, vercel: false, langchain: 'partial' },
+  { name: 'Auto-retry with backoff', binario: true, vercel: false, langchain: 'partial' },
+  { name: 'Tool calling', binario: true, vercel: true, langchain: true },
+  { name: 'Structured output', binario: true, vercel: true, langchain: true },
+  { name: 'Type-safe', binario: true, vercel: true, langchain: 'partial' },
+  { name: 'Bundle size <5kb', binario: true, vercel: 'partial', langchain: false },
+  { name: 'Zero dependencies', binario: true, vercel: false, langchain: false },
+  { name: 'Cloudflare optimized', binario: true, vercel: false, langchain: false },
 ];
 
 function FeatureStatus({ status }: { status: boolean | 'partial' }) {
@@ -53,7 +53,7 @@ export function ComparisonSection() {
               <tr className="border-b border-border">
                 <th className="text-left py-4 px-4 font-semibold text-foreground">Feature</th>
                 <th className="text-center py-4 px-4 font-semibold">
-                  <span className="gradient-text">NexusAI</span>
+                  <span className="gradient-text">Binario</span>
                 </th>
                 <th className="text-center py-4 px-4 font-semibold text-muted-foreground">Vercel AI</th>
                 <th className="text-center py-4 px-4 font-semibold text-muted-foreground">LangChain</th>
@@ -71,7 +71,7 @@ export function ComparisonSection() {
                   <td className="py-4 px-4 text-sm text-muted-foreground">{feature.name}</td>
                   <td className="py-4 px-4">
                     <div className="flex justify-center">
-                      <FeatureStatus status={feature.nexus} />
+                      <FeatureStatus status={feature.binario} />
                     </div>
                   </td>
                   <td className="py-4 px-4">
