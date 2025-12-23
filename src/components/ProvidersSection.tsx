@@ -2,19 +2,19 @@ import { ProviderBadge } from '@/components/ProviderBadge';
 import { StatsCard } from '@/components/StatsCard';
 
 const providers = [
+  { name: 'Cloudflare', color: '#f38020', highlight: true },
   { name: 'OpenAI', color: '#10a37f' },
   { name: 'Anthropic', color: '#d4a574' },
   { name: 'Google AI', color: '#4285f4' },
   { name: 'Mistral', color: '#ff7000' },
   { name: 'Cohere', color: '#39594d' },
   { name: 'Azure OpenAI', color: '#0078d4' },
-  { name: 'AWS Bedrock', color: '#ff9900' },
   { name: 'Groq', color: '#f55036' },
 ];
 
 const stats = [
-  { value: '8+', label: 'Supported Providers' },
-  { value: '50+', label: 'AI Models' },
+  { value: '10K', label: 'Free Neurons/Day' },
+  { value: '7+', label: 'Providers' },
   { value: '<2kb', label: 'Gzipped Size' },
   { value: '100%', label: 'TypeScript' },
 ];
@@ -36,8 +36,11 @@ export function ProvidersSection() {
             One SDK,
             <span className="gradient-text"> every provider</span>
           </h2>
-          <p className="text-muted-foreground max-w-2xl mx-auto mb-12">
-            Switch providers with a single line change. No rewriting code, no learning new APIs.
+          <p className="text-muted-foreground max-w-2xl mx-auto mb-4">
+            Switch providers with a single line change. Start free with Cloudflare, scale with any provider.
+          </p>
+          <p className="text-sm text-emerald-400 font-medium mb-12">
+            ✨ Cloudflare Workers AI: 10,000 free neurons/day
           </p>
 
           <div className="flex flex-wrap justify-center gap-4">

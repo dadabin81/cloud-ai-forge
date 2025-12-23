@@ -6,21 +6,24 @@ interface Feature {
   binario: boolean | 'partial';
   vercel: boolean | 'partial';
   langchain: boolean | 'partial';
+  pydantic: boolean | 'partial';
 }
 
 const features: Feature[] = [
-  { name: 'Multi-provider support', binario: true, vercel: true, langchain: true },
-  { name: 'Native streaming', binario: true, vercel: true, langchain: 'partial' },
-  { name: 'Edge runtime ready', binario: true, vercel: true, langchain: false },
-  { name: 'React hooks', binario: true, vercel: true, langchain: false },
-  { name: 'Built-in caching', binario: true, vercel: false, langchain: 'partial' },
-  { name: 'Auto-retry with backoff', binario: true, vercel: false, langchain: 'partial' },
-  { name: 'Tool calling', binario: true, vercel: true, langchain: true },
-  { name: 'Structured output', binario: true, vercel: true, langchain: true },
-  { name: 'Type-safe', binario: true, vercel: true, langchain: 'partial' },
-  { name: 'Bundle size <5kb', binario: true, vercel: 'partial', langchain: false },
-  { name: 'Zero dependencies', binario: true, vercel: false, langchain: false },
-  { name: 'Cloudflare optimized', binario: true, vercel: false, langchain: false },
+  { name: 'Free Llama 3 (Cloudflare)', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Pydantic-style schemas', binario: true, vercel: 'partial', langchain: 'partial', pydantic: true },
+  { name: 'Agent framework', binario: true, vercel: false, langchain: true, pydantic: true },
+  { name: 'Multi-provider support', binario: true, vercel: true, langchain: true, pydantic: true },
+  { name: 'Native streaming', binario: true, vercel: true, langchain: 'partial', pydantic: 'partial' },
+  { name: 'Edge runtime ready', binario: true, vercel: true, langchain: false, pydantic: false },
+  { name: 'React hooks', binario: true, vercel: true, langchain: false, pydantic: false },
+  { name: 'Built-in caching', binario: true, vercel: false, langchain: 'partial', pydantic: false },
+  { name: 'Auto-retry with backoff', binario: true, vercel: false, langchain: 'partial', pydantic: false },
+  { name: 'Tool calling', binario: true, vercel: true, langchain: true, pydantic: true },
+  { name: 'Type-safe', binario: true, vercel: true, langchain: 'partial', pydantic: true },
+  { name: 'Bundle size <5kb', binario: true, vercel: 'partial', langchain: false, pydantic: false },
+  { name: 'Zero dependencies', binario: true, vercel: false, langchain: false, pydantic: false },
+  { name: 'Cloudflare Workers optimized', binario: true, vercel: false, langchain: false, pydantic: false },
 ];
 
 function FeatureStatus({ status }: { status: boolean | 'partial' }) {
@@ -36,14 +39,14 @@ function FeatureStatus({ status }: { status: boolean | 'partial' }) {
 export function ComparisonSection() {
   return (
     <section className="py-24 px-4">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="text-center mb-12">
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
             How we
             <span className="gradient-text"> compare</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            NexusAI combines the best features from existing solutions while adding what's missing.
+            Binario combines the best of Vercel AI SDK, LangChain, and Pydantic AI — with free Llama 3.
           </p>
         </div>
 
@@ -57,10 +60,11 @@ export function ComparisonSection() {
                 </th>
                 <th className="text-center py-4 px-4 font-semibold text-muted-foreground">Vercel AI</th>
                 <th className="text-center py-4 px-4 font-semibold text-muted-foreground">LangChain</th>
+                <th className="text-center py-4 px-4 font-semibold text-muted-foreground">Pydantic AI</th>
               </tr>
             </thead>
             <tbody>
-              {features.map((feature, index) => (
+              {features.map((feature) => (
                 <tr
                   key={feature.name}
                   className={cn(
@@ -82,6 +86,11 @@ export function ComparisonSection() {
                   <td className="py-4 px-4">
                     <div className="flex justify-center">
                       <FeatureStatus status={feature.langchain} />
+                    </div>
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex justify-center">
+                      <FeatureStatus status={feature.pydantic} />
                     </div>
                   </td>
                 </tr>
