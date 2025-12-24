@@ -70,6 +70,12 @@ export function Navigation() {
               Playground
             </Link>
             <Link 
+              to="/use-cases" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              Use Cases
+            </Link>
+            <Link 
               to="/pricing" 
               className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
             >

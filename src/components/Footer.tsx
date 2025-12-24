@@ -3,16 +3,15 @@ import binarioLogo from '@/assets/binario-logo.png';
 
 const links = {
   product: [
-    { name: 'Features', href: '#features' },
-    { name: 'Providers', href: '#providers' },
-    { name: 'Pricing', href: '#' },
-    { name: 'Changelog', href: '#' },
+    { name: 'Features', href: '/#features' },
+    { name: 'Providers', href: '/#providers' },
+    { name: 'Pricing', href: '/pricing' },
+    { name: 'Use Cases', href: '/use-cases' },
   ],
   resources: [
-    { name: 'Documentation', href: '#' },
-    { name: 'API Reference', href: '#' },
-    { name: 'Examples', href: '#examples' },
-    { name: 'Blog', href: '#' },
+    { name: 'Documentation', href: '/docs' },
+    { name: 'Playground', href: '/playground' },
+    { name: 'Examples', href: '/#examples' },
   ],
   company: [
     { name: 'About', href: '#' },

@@ -11,6 +11,8 @@ import Playground from "./pages/Playground";
 import Dashboard from "./pages/Dashboard";
 import Pricing from "./pages/Pricing";
 import Auth from "./pages/Auth";
+import Welcome from "./pages/Welcome";
+import UseCases from "./pages/UseCases";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +29,15 @@ const App = () => (
             <Route path="/docs" element={<Docs />} />
             <Route path="/playground" element={<Playground />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/use-cases" element={<UseCases />} />
+            <Route 
+              path="/welcome" 
+              element={
+                <ProtectedRoute>
+                  <Welcome />
+                </ProtectedRoute>
+              } 
+            />
             <Route 
               path="/dashboard" 
               element={
