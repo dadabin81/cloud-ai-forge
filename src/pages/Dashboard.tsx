@@ -22,7 +22,8 @@ import {
   ArrowRight,
   Zap,
   Code,
-  CheckCircle
+  CheckCircle,
+  TrendingUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -34,6 +35,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
 
 interface ApiKey {
   id: string;
@@ -509,82 +522,220 @@ const response = await ai.chat([
 
             {/* Usage Tab */}
             <TabsContent value="usage">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Usage History</CardTitle>
-                  <CardDescription>
-                    Your API usage over the last 7 days
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {isLoadingUsage ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : usageData?.dailyUsage && usageData.dailyUsage.length > 0 ? (
-                    <div className="space-y-4">
-                      {/* Simple bar chart */}
-                      <div className="flex items-end gap-2 h-40">
-                        {usageData.dailyUsage.map((day, i) => {
-                          const maxRequests = Math.max(...usageData.dailyUsage.map(d => d.requests));
-                          const height = maxRequests > 0 ? (day.requests / maxRequests) * 100 : 0;
-                          return (
-                            <div 
-                              key={i} 
-                              className="flex-1 flex flex-col items-center gap-2"
-                            >
-                              <div 
-                                className="w-full bg-primary/80 rounded-t transition-all hover:bg-primary"
-                                style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0' }}
-                                title={`${day.requests} requests`}
-                              />
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(day.date).toLocaleDateString('en', { weekday: 'short' })}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+              <div className="space-y-6">
+                {/* Charts Grid */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Requests Chart */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <BarChart3 className="w-5 h-5 text-primary" />
+                        API Requests
+                      </CardTitle>
+                      <CardDescription>
+                        Daily requests over the last 7 days
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {isLoadingUsage ? (
+                        <div className="flex items-center justify-center h-64">
+                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : usageData?.dailyUsage && usageData.dailyUsage.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={240}>
+                          <BarChart data={usageData.dailyUsage}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis 
+                              dataKey="date" 
+                              tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                              tickFormatter={(value) => new Date(value).toLocaleDateString('en', { weekday: 'short' })}
+                              stroke="hsl(var(--border))"
+                            />
+                            <YAxis 
+                              tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                              stroke="hsl(var(--border))"
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: 'hsl(var(--card))', 
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '8px',
+                                color: 'hsl(var(--foreground))'
+                              }}
+                              labelFormatter={(value) => new Date(value).toLocaleDateString('en', { 
+                                weekday: 'long', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                            />
+                            <Bar 
+                              dataKey="requests" 
+                              fill="hsl(var(--primary))" 
+                              radius={[4, 4, 0, 0]}
+                              name="Requests"
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-64 text-center">
+                          <BarChart3 className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                          <p className="text-muted-foreground text-sm">No request data yet</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
 
-                      {/* Usage table */}
-                      <div className="mt-8">
+                  {/* Tokens Chart */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-primary" />
+                        Token Usage
+                      </CardTitle>
+                      <CardDescription>
+                        Daily token consumption over the last 7 days
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {isLoadingUsage ? (
+                        <div className="flex items-center justify-center h-64">
+                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : usageData?.dailyUsage && usageData.dailyUsage.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={240}>
+                          <AreaChart data={usageData.dailyUsage}>
+                            <defs>
+                              <linearGradient id="tokenGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis 
+                              dataKey="date" 
+                              tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                              tickFormatter={(value) => new Date(value).toLocaleDateString('en', { weekday: 'short' })}
+                              stroke="hsl(var(--border))"
+                            />
+                            <YAxis 
+                              tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                              stroke="hsl(var(--border))"
+                              tickFormatter={(value) => `${(value / 1000).toFixed(0)}K`}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: 'hsl(var(--card))', 
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '8px',
+                                color: 'hsl(var(--foreground))'
+                              }}
+                              labelFormatter={(value) => new Date(value).toLocaleDateString('en', { 
+                                weekday: 'long', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                              formatter={(value: number) => [`${value.toLocaleString()} tokens`, 'Tokens']}
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="tokens" 
+                              stroke="hsl(var(--primary))" 
+                              fill="url(#tokenGradient)"
+                              strokeWidth={2}
+                              name="Tokens"
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-64 text-center">
+                          <TrendingUp className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                          <p className="text-muted-foreground text-sm">No token data yet</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Usage Summary Table */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Detailed Usage</CardTitle>
+                    <CardDescription>
+                      Day-by-day breakdown of your API usage
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingUsage ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : usageData?.dailyUsage && usageData.dailyUsage.length > 0 ? (
+                      <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-border">
-                              <th className="text-left py-2 text-sm font-medium text-muted-foreground">Date</th>
-                              <th className="text-right py-2 text-sm font-medium text-muted-foreground">Requests</th>
-                              <th className="text-right py-2 text-sm font-medium text-muted-foreground">Tokens</th>
+                              <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                              <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Requests</th>
+                              <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Tokens</th>
+                              <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Avg Tokens/Request</th>
                             </tr>
                           </thead>
                           <tbody>
                             {usageData.dailyUsage.map((day, i) => (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-3 text-sm">{day.date}</td>
-                                <td className="py-3 text-sm text-right">{day.requests.toLocaleString()}</td>
-                                <td className="py-3 text-sm text-right">{day.tokens.toLocaleString()}</td>
+                              <tr key={i} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
+                                <td className="py-3 px-4 text-sm">
+                                  {new Date(day.date).toLocaleDateString('en', { 
+                                    weekday: 'short', 
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                  })}
+                                </td>
+                                <td className="py-3 px-4 text-sm text-right font-medium">{day.requests.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-sm text-right">{day.tokens.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-sm text-right text-muted-foreground">
+                                  {day.requests > 0 ? Math.round(day.tokens / day.requests).toLocaleString() : '—'}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
+                          <tfoot>
+                            <tr className="bg-muted/30">
+                              <td className="py-3 px-4 text-sm font-semibold">Total</td>
+                              <td className="py-3 px-4 text-sm text-right font-semibold">
+                                {usageData.dailyUsage.reduce((sum, day) => sum + day.requests, 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-sm text-right font-semibold">
+                                {usageData.dailyUsage.reduce((sum, day) => sum + day.tokens, 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-sm text-right text-muted-foreground">
+                                {(() => {
+                                  const totalReqs = usageData.dailyUsage.reduce((sum, day) => sum + day.requests, 0);
+                                  const totalToks = usageData.dailyUsage.reduce((sum, day) => sum + day.tokens, 0);
+                                  return totalReqs > 0 ? Math.round(totalToks / totalReqs).toLocaleString() : '—';
+                                })()}
+                              </td>
+                            </tr>
+                          </tfoot>
                         </table>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
-                      <p className="text-muted-foreground mb-2">No usage data yet</p>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Start making API requests to see your usage statistics
-                      </p>
-                      <Button variant="outline" asChild>
-                        <Link to="/playground">
-                          <Play className="w-4 h-4 mr-2" />
-                          Try the Playground
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    ) : (
+                      <div className="text-center py-8">
+                        <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
+                        <p className="text-muted-foreground mb-2">No usage data yet</p>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Start making API requests to see your usage statistics
+                        </p>
+                        <Button variant="outline" asChild>
+                          <Link to="/playground">
+                            <Play className="w-4 h-4 mr-2" />
+                            Try the Playground
+                          </Link>
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
 
               {/* Plan Upgrade Card */}
               <Card className="mt-6 border-primary/20">
