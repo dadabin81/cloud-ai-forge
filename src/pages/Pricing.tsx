@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Zap, Building, Sparkles } from 'lucide-react';
+import { Check, Zap, Building, Sparkles, Bell, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 const plans = [
   {
@@ -13,13 +16,14 @@ const plans = [
     icon: Zap,
     features: [
       '1,000 requests/month',
-      'Access to all free models',
+      'Cloudflare Workers AI models',
       'Basic rate limiting (10 req/min)',
       'Community support',
       '7-day usage history',
     ],
     cta: 'Get Started',
     highlighted: false,
+    available: true,
   },
   {
     name: 'Pro',
@@ -33,11 +37,12 @@ const plans = [
       'Higher rate limits (100 req/min)',
       'Priority support',
       '90-day usage history',
-      'Webhook notifications',
+      'Response caching',
       'Custom model routing',
     ],
-    cta: 'Start Free Trial',
+    cta: 'Coming Soon',
     highlighted: true,
+    available: false,
   },
   {
     name: 'Enterprise',
@@ -53,10 +58,10 @@ const plans = [
       'Priority queue access',
       'Custom integrations',
       'Dedicated support',
-      'SOC2 compliance',
     ],
-    cta: 'Contact Sales',
+    cta: 'Contact Us',
     highlighted: false,
+    available: false,
   },
 ];
 
@@ -66,33 +71,97 @@ const faqs = [
     a: 'Your requests will be rate-limited until the next billing cycle. You can upgrade your plan at any time to increase your limits.',
   },
   {
-    q: 'Can I switch plans at any time?',
-    a: 'Yes! You can upgrade or downgrade your plan at any time. Changes take effect immediately, and we\'ll prorate any differences.',
+    q: 'When will Pro and Enterprise plans be available?',
+    a: 'We\'re currently in beta. Sign up for our waitlist and we\'ll notify you when paid plans become available.',
   },
   {
-    q: 'What models are included?',
-    a: 'Free plans include access to Llama 3.2 1B/3B models. Pro and Enterprise plans include access to all models including larger models and function-calling models.',
+    q: 'What models are included in the free tier?',
+    a: 'Free plans include access to Cloudflare Workers AI models like Llama 3.1 8B, Mistral 7B, and more. These run on Cloudflare\'s free tier (10,000 neurons/day).',
   },
   {
-    q: 'Is there a free trial for Pro?',
-    a: 'Yes! Pro comes with a 14-day free trial. No credit card required to start.',
+    q: 'Can I use my own API keys for other providers?',
+    a: 'Currently, the hosted API uses Cloudflare Workers AI. For other providers (OpenAI, Anthropic, Google), you can self-host the SDK with your own API keys.',
   },
 ];
 
 export default function Pricing() {
+  const [email, setEmail] = useState('');
+  const [showWaitlist, setShowWaitlist] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleWaitlistSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    
+    setIsSubmitting(true);
+    // Simulate API call - in production this would save to your database
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    toast.success('Thanks! We\'ll notify you when paid plans are available.');
+    setEmail('');
+    setShowWaitlist(false);
+    setIsSubmitting(false);
+  };
+
+  const handlePlanClick = (plan: typeof plans[0]) => {
+    if (plan.available) {
+      window.location.href = '/auth';
+    } else {
+      setShowWaitlist(true);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
+      
+      {/* Waitlist Modal */}
+      {showWaitlist && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-primary" />
+                <h3 className="font-semibold">Join the Waitlist</h3>
+              </div>
+              <button 
+                onClick={() => setShowWaitlist(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Paid plans are coming soon! Enter your email and we'll notify you when they're available.
+            </p>
+            <form onSubmit={handleWaitlistSubmit} className="space-y-3">
+              <Input
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? 'Joining...' : 'Notify Me'}
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
       
       <main className="pt-24 pb-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/30 mb-4">
+              <span className="text-sm text-amber-400 font-medium">Beta - Free tier available</span>
+            </div>
             <h1 className="text-4xl font-bold mb-4">
               Simple, Transparent <span className="gradient-text">Pricing</span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Start free, scale as you grow. No hidden fees, no surprises.
+              Start free with Cloudflare's AI models. Paid plans coming soon.
             </p>
           </div>
 
@@ -105,12 +174,12 @@ export default function Pricing() {
                   plan.highlighted 
                     ? 'border-primary shadow-lg shadow-primary/10' 
                     : ''
-                }`}
+                } ${!plan.available ? 'opacity-80' : ''}`}
               >
                 {plan.highlighted && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">
-                      Most Popular
+                      Coming Soon
                     </span>
                   </div>
                 )}
@@ -137,6 +206,7 @@ export default function Pricing() {
                   <Button 
                     className="w-full" 
                     variant={plan.highlighted ? 'default' : 'outline'}
+                    onClick={() => handlePlanClick(plan)}
                   >
                     {plan.cta}
                   </Button>
