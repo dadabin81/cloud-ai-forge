@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { 
   Key, 
   BarChart3, 
@@ -13,38 +15,108 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  RefreshCw
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-// Mock data for demo
-const mockApiKeys = [
-  { id: '1', name: 'Production', prefix: 'bsk_live_abc...', createdAt: '2024-01-15', lastUsed: '2024-01-20' },
-  { id: '2', name: 'Development', prefix: 'bsk_test_xyz...', createdAt: '2024-01-10', lastUsed: '2024-01-19' },
-];
+interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
 
-const mockUsage = {
-  requestsUsed: 847,
-  requestsLimit: 1000,
-  tokensUsed: 125430,
-  plan: 'free' as const,
-  resetAt: '2024-02-01',
-};
+interface Usage {
+  tokensUsed: number;
+  requestsUsed: number;
+}
 
-const mockDailyUsage = [
-  { date: '2024-01-14', requests: 120, tokens: 18500 },
-  { date: '2024-01-15', requests: 95, tokens: 14200 },
-  { date: '2024-01-16', requests: 180, tokens: 27300 },
-  { date: '2024-01-17', requests: 145, tokens: 21800 },
-  { date: '2024-01-18', requests: 167, tokens: 25100 },
-  { date: '2024-01-19', requests: 89, tokens: 13400 },
-  { date: '2024-01-20', requests: 51, tokens: 7630 },
-];
+interface DailyUsage {
+  date: string;
+  tokens: number;
+  requests: number;
+}
+
+interface UsageData {
+  plan: 'free' | 'pro' | 'enterprise';
+  usage: Usage;
+  limits: {
+    tokensPerDay: number;
+    requestsPerDay: number;
+  };
+  dailyUsage: DailyUsage[];
+  resetAt: string;
+}
 
 export default function Dashboard() {
+  const { user, token } = useAuth();
   const [copied, setCopied] = useState<string | null>(null);
   const [showKey, setShowKey] = useState<string | null>(null);
+  
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [isLoadingKeys, setIsLoadingKeys] = useState(true);
   const [isCreatingKey, setIsCreatingKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  
+  // Usage state
+  const [usageData, setUsageData] = useState<UsageData | null>(null);
+  const [isLoadingUsage, setIsLoadingUsage] = useState(true);
+
+  // Fetch API keys
+  useEffect(() => {
+    fetchApiKeys();
+    fetchUsage();
+  }, [token]);
+
+  const fetchApiKeys = async () => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/keys`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setApiKeys(data.keys);
+      }
+    } catch (error) {
+      console.error('Failed to fetch API keys:', error);
+      toast.error('Failed to load API keys');
+    } finally {
+      setIsLoadingKeys(false);
+    }
+  };
+
+  const fetchUsage = async () => {
+    if (!token) return;
+    
+    // For usage, we need an API key. For now, we'll use mock data
+    // since /v1/usage requires an API key, not a session token
+    setUsageData({
+      plan: user?.plan || 'free',
+      usage: { tokensUsed: 0, requestsUsed: 0 },
+      limits: { tokensPerDay: 50000, requestsPerDay: 100 },
+      dailyUsage: [],
+      resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    setIsLoadingUsage(false);
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -53,7 +125,72 @@ export default function Dashboard() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const usagePercentage = (mockUsage.requestsUsed / mockUsage.requestsLimit) * 100;
+  const handleCreateKey = async () => {
+    if (!token) return;
+    
+    setIsCreatingKey(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/keys`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: newKeyName || 'API Key' }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNewlyCreatedKey(data.key);
+        setApiKeys(prev => [{
+          id: data.id,
+          name: data.name,
+          prefix: data.prefix,
+          createdAt: data.createdAt,
+          lastUsedAt: null,
+        }, ...prev]);
+        setNewKeyName('');
+        toast.success('API key created!');
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to create API key');
+      }
+    } catch (error) {
+      console.error('Failed to create API key:', error);
+      toast.error('Failed to create API key');
+    } finally {
+      setIsCreatingKey(false);
+    }
+  };
+
+  const handleRevokeKey = async (keyId: string) => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/keys/${keyId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        setApiKeys(prev => prev.filter(key => key.id !== keyId));
+        toast.success('API key revoked');
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to revoke API key');
+      }
+    } catch (error) {
+      console.error('Failed to revoke API key:', error);
+      toast.error('Failed to revoke API key');
+    }
+  };
+
+  const usagePercentage = usageData 
+    ? (usageData.usage.requestsUsed / usageData.limits.requestsPerDay) * 100 
+    : 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,7 +202,7 @@ export default function Dashboard() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
             <p className="text-muted-foreground">
-              Manage your API keys and monitor usage
+              Welcome back, {user?.email}
             </p>
           </div>
 
@@ -73,12 +210,18 @@ export default function Dashboard() {
           <div className="grid md:grid-cols-3 gap-6 mb-8">
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Requests This Month</CardDescription>
+                <CardDescription>Requests Today</CardDescription>
                 <CardTitle className="text-3xl">
-                  {mockUsage.requestsUsed.toLocaleString()}
-                  <span className="text-lg text-muted-foreground font-normal">
-                    /{mockUsage.requestsLimit.toLocaleString()}
-                  </span>
+                  {isLoadingUsage ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <>
+                      {usageData?.usage.requestsUsed.toLocaleString() || 0}
+                      <span className="text-lg text-muted-foreground font-normal">
+                        /{usageData?.limits.requestsPerDay.toLocaleString() || 100}
+                      </span>
+                    </>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -89,7 +232,7 @@ export default function Dashboard() {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Resets {new Date(mockUsage.resetAt).toLocaleDateString()}
+                  Resets {usageData?.resetAt ? new Date(usageData.resetAt).toLocaleDateString() : 'tomorrow'}
                 </p>
               </CardContent>
             </Card>
@@ -98,7 +241,11 @@ export default function Dashboard() {
               <CardHeader className="pb-2">
                 <CardDescription>Tokens Used</CardDescription>
                 <CardTitle className="text-3xl">
-                  {(mockUsage.tokensUsed / 1000).toFixed(1)}K
+                  {isLoadingUsage ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    `${((usageData?.usage.tokensUsed || 0) / 1000).toFixed(1)}K`
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -112,7 +259,7 @@ export default function Dashboard() {
               <CardHeader className="pb-2">
                 <CardDescription>Current Plan</CardDescription>
                 <CardTitle className="text-3xl capitalize">
-                  {mockUsage.plan}
+                  {user?.plan || 'free'}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -146,76 +293,53 @@ export default function Dashboard() {
                       Manage your API keys for accessing Binario
                     </CardDescription>
                   </div>
-                  <Button 
-                    onClick={() => {
-                      setIsCreatingKey(true);
-                      setTimeout(() => {
-                        toast.success('New API key created!');
-                        setIsCreatingKey(false);
-                      }, 1000);
-                    }}
-                    disabled={isCreatingKey}
-                  >
-                    {isCreatingKey ? (
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Plus className="w-4 h-4 mr-2" />
-                    )}
+                  <Button onClick={() => setShowCreateDialog(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
                     Create New Key
                   </Button>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {mockApiKeys.map((key) => (
-                      <div 
-                        key={key.id}
-                        className="flex items-center justify-between p-4 rounded-lg border border-border bg-card"
-                      >
-                        <div className="flex-1">
-                          <div className="font-medium">{key.name}</div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <code className="text-sm text-muted-foreground bg-secondary px-2 py-0.5 rounded">
-                              {showKey === key.id ? 'bsk_live_abcdefgh1234567890' : key.prefix}
-                            </code>
-                            <button
-                              onClick={() => setShowKey(showKey === key.id ? null : key.id)}
-                              className="text-muted-foreground hover:text-foreground"
+                  {isLoadingKeys ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : apiKeys.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No API keys yet. Create one to get started.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {apiKeys.map((key) => (
+                        <div 
+                          key={key.id}
+                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-card"
+                        >
+                          <div className="flex-1">
+                            <div className="font-medium">{key.name}</div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <code className="text-sm text-muted-foreground bg-secondary px-2 py-0.5 rounded">
+                                {key.prefix}
+                              </code>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-2">
+                              Created {new Date(key.createdAt).toLocaleDateString()}
+                              {key.lastUsedAt && ` • Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handleRevokeKey(key.id)}
                             >
-                              {showKey === key.id ? (
-                                <EyeOff className="w-4 h-4" />
-                              ) : (
-                                <Eye className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-2">
-                            Created {key.createdAt} • Last used {key.lastUsed}
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => copyToClipboard('bsk_live_abcdefgh1234567890', key.id)}
-                          >
-                            {copied === key.id ? (
-                              <Check className="w-4 h-4 text-emerald-500" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => toast.success('API key revoked')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="mt-6 p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
                     <p className="text-sm text-amber-400">
@@ -237,58 +361,148 @@ export default function Dashboard() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {/* Simple bar chart */}
-                    <div className="flex items-end gap-2 h-40">
-                      {mockDailyUsage.map((day, i) => {
-                        const maxRequests = Math.max(...mockDailyUsage.map(d => d.requests));
-                        const height = (day.requests / maxRequests) * 100;
-                        return (
-                          <div 
-                            key={i} 
-                            className="flex-1 flex flex-col items-center gap-2"
-                          >
+                  {isLoadingUsage ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : usageData?.dailyUsage && usageData.dailyUsage.length > 0 ? (
+                    <div className="space-y-4">
+                      {/* Simple bar chart */}
+                      <div className="flex items-end gap-2 h-40">
+                        {usageData.dailyUsage.map((day, i) => {
+                          const maxRequests = Math.max(...usageData.dailyUsage.map(d => d.requests));
+                          const height = maxRequests > 0 ? (day.requests / maxRequests) * 100 : 0;
+                          return (
                             <div 
-                              className="w-full bg-primary/80 rounded-t transition-all hover:bg-primary"
-                              style={{ height: `${height}%` }}
-                              title={`${day.requests} requests`}
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(day.date).toLocaleDateString('en', { weekday: 'short' })}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                              key={i} 
+                              className="flex-1 flex flex-col items-center gap-2"
+                            >
+                              <div 
+                                className="w-full bg-primary/80 rounded-t transition-all hover:bg-primary"
+                                style={{ height: `${height}%`, minHeight: height > 0 ? '4px' : '0' }}
+                                title={`${day.requests} requests`}
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(day.date).toLocaleDateString('en', { weekday: 'short' })}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
 
-                    {/* Usage table */}
-                    <div className="mt-8">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-2 text-sm font-medium text-muted-foreground">Date</th>
-                            <th className="text-right py-2 text-sm font-medium text-muted-foreground">Requests</th>
-                            <th className="text-right py-2 text-sm font-medium text-muted-foreground">Tokens</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {mockDailyUsage.map((day, i) => (
-                            <tr key={i} className="border-b border-border/50">
-                              <td className="py-3 text-sm">{day.date}</td>
-                              <td className="py-3 text-sm text-right">{day.requests.toLocaleString()}</td>
-                              <td className="py-3 text-sm text-right">{day.tokens.toLocaleString()}</td>
+                      {/* Usage table */}
+                      <div className="mt-8">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 text-sm font-medium text-muted-foreground">Date</th>
+                              <th className="text-right py-2 text-sm font-medium text-muted-foreground">Requests</th>
+                              <th className="text-right py-2 text-sm font-medium text-muted-foreground">Tokens</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {usageData.dailyUsage.map((day, i) => (
+                              <tr key={i} className="border-b border-border/50">
+                                <td className="py-3 text-sm">{day.date}</td>
+                                <td className="py-3 text-sm text-right">{day.requests.toLocaleString()}</td>
+                                <td className="py-3 text-sm text-right">{day.tokens.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No usage data yet. Start making API requests to see your usage.
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
         </div>
       </main>
+
+      {/* Create Key Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New API Key</DialogTitle>
+            <DialogDescription>
+              Give your API key a name to help you identify it later.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {newlyCreatedKey ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                <p className="text-sm text-emerald-400 mb-2">
+                  <strong>Your new API key:</strong>
+                </p>
+                <div className="relative">
+                  <code className="block w-full p-3 bg-secondary rounded-lg text-sm break-all font-mono">
+                    {newlyCreatedKey}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-2 top-1/2 -translate-y-1/2"
+                    onClick={() => copyToClipboard(newlyCreatedKey, 'new-key')}
+                  >
+                    {copied === 'new-key' ? (
+                      <Check className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <p className="text-sm text-amber-400">
+                  <strong>Save this key!</strong> You won't be able to see it again.
+                </p>
+              </div>
+              <Button 
+                onClick={() => {
+                  setNewlyCreatedKey(null);
+                  setShowCreateDialog(false);
+                }} 
+                className="w-full"
+              >
+                Done
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="key-name">Key Name</Label>
+                <Input
+                  id="key-name"
+                  placeholder="e.g., Production, Development"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreateKey} disabled={isCreatingKey}>
+                  {isCreatingKey ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Key'
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>

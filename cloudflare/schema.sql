@@ -5,6 +5,7 @@
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
   plan TEXT DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'enterprise')),
   stripe_customer_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -13,7 +13,7 @@ export interface Env {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
 };
 
@@ -48,6 +48,12 @@ interface ApiKeyInfo {
   keyId: string;
 }
 
+interface SessionInfo {
+  userId: string;
+  email: string;
+  plan: 'free' | 'pro' | 'enterprise';
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Handle CORS preflight
@@ -59,7 +65,7 @@ export default {
     const path = url.pathname;
 
     try {
-      // Public endpoints
+      // ============ Public Endpoints ============
       if (path === '/health') {
         return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
       }
@@ -68,7 +74,58 @@ export default {
         return jsonResponse({ models: getAvailableModels() });
       }
 
-      // Protected endpoints - require API key
+      // ============ Auth Endpoints (Public) ============
+      if (path === '/v1/auth/signup' && request.method === 'POST') {
+        return await handleSignup(request, env);
+      }
+
+      if (path === '/v1/auth/login' && request.method === 'POST') {
+        return await handleLogin(request, env);
+      }
+
+      // ============ Session-Protected Endpoints ============
+      if (path === '/v1/auth/logout' && request.method === 'POST') {
+        return await handleLogout(request, env);
+      }
+
+      if (path === '/v1/auth/me' && request.method === 'GET') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+        return jsonResponse({
+          id: sessionInfo.userId,
+          email: sessionInfo.email,
+          plan: sessionInfo.plan,
+        });
+      }
+
+      // ============ API Keys Management (Session-Protected) ============
+      if (path === '/v1/keys') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+
+        if (request.method === 'GET') {
+          return await handleListKeys(env, sessionInfo);
+        }
+        if (request.method === 'POST') {
+          return await handleCreateKey(request, env, sessionInfo);
+        }
+      }
+
+      // Delete API key
+      const keyDeleteMatch = path.match(/^\/v1\/keys\/(.+)$/);
+      if (keyDeleteMatch && request.method === 'DELETE') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+        return await handleDeleteKey(env, sessionInfo, keyDeleteMatch[1]);
+      }
+
+      // ============ API Key Protected Endpoints ============
       const apiKey = request.headers.get('X-API-Key') || 
                      request.headers.get('Authorization')?.replace('Bearer ', '');
 
@@ -113,6 +170,216 @@ export default {
     }
   },
 };
+
+// ============ Auth Handlers ============
+
+async function handleSignup(request: Request, env: Env): Promise<Response> {
+  const body = await request.json() as { email: string; password: string };
+  
+  // Validate input
+  if (!body.email || !body.password) {
+    return jsonError('Email and password are required', 400);
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(body.email)) {
+    return jsonError('Invalid email format', 400);
+  }
+
+  if (body.password.length < 8) {
+    return jsonError('Password must be at least 8 characters', 400);
+  }
+
+  // Check if user already exists
+  const existingUser = await env.DB.prepare(
+    'SELECT id FROM users WHERE email = ?'
+  ).bind(body.email.toLowerCase()).first();
+
+  if (existingUser) {
+    return jsonError('Email already registered', 409);
+  }
+
+  // Create user
+  const userId = crypto.randomUUID();
+  const passwordHash = await hashKey(body.password);
+
+  await env.DB.prepare(`
+    INSERT INTO users (id, email, password_hash, plan)
+    VALUES (?, ?, ?, 'free')
+  `).bind(userId, body.email.toLowerCase(), passwordHash).run();
+
+  // Create session
+  const sessionToken = crypto.randomUUID();
+  const sessionHash = await hashKey(sessionToken);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+  await env.DB.prepare(`
+    INSERT INTO sessions (id, user_id, token_hash, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).bind(crypto.randomUUID(), userId, sessionHash, expiresAt.toISOString()).run();
+
+  // Create initial API key
+  const apiKeyValue = `bsk_live_${generateRandomString(32)}`;
+  const apiKeyHash = await hashKey(apiKeyValue);
+  const keyPrefix = apiKeyValue.substring(0, 12) + '...';
+
+  await env.DB.prepare(`
+    INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, is_active)
+    VALUES (?, ?, 'Default', ?, ?, 1)
+  `).bind(crypto.randomUUID(), userId, keyPrefix, apiKeyHash).run();
+
+  return jsonResponse({
+    user: {
+      id: userId,
+      email: body.email.toLowerCase(),
+      plan: 'free',
+    },
+    token: sessionToken,
+    apiKey: apiKeyValue,
+  }, 201);
+}
+
+async function handleLogin(request: Request, env: Env): Promise<Response> {
+  const body = await request.json() as { email: string; password: string };
+
+  if (!body.email || !body.password) {
+    return jsonError('Email and password are required', 400);
+  }
+
+  // Find user
+  const user = await env.DB.prepare(`
+    SELECT id, email, password_hash, plan FROM users WHERE email = ?
+  `).bind(body.email.toLowerCase()).first();
+
+  if (!user) {
+    return jsonError('Invalid email or password', 401);
+  }
+
+  // Verify password
+  const passwordHash = await hashKey(body.password);
+  if (passwordHash !== user.password_hash) {
+    return jsonError('Invalid email or password', 401);
+  }
+
+  // Create session
+  const sessionToken = crypto.randomUUID();
+  const sessionHash = await hashKey(sessionToken);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  await env.DB.prepare(`
+    INSERT INTO sessions (id, user_id, token_hash, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).bind(crypto.randomUUID(), user.id, sessionHash, expiresAt.toISOString()).run();
+
+  return jsonResponse({
+    user: {
+      id: user.id,
+      email: user.email,
+      plan: user.plan,
+    },
+    token: sessionToken,
+  });
+}
+
+async function handleLogout(request: Request, env: Env): Promise<Response> {
+  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  if (!token) {
+    return jsonError('No session token provided', 400);
+  }
+
+  const tokenHash = await hashKey(token);
+  
+  await env.DB.prepare(`
+    DELETE FROM sessions WHERE token_hash = ?
+  `).bind(tokenHash).run();
+
+  return jsonResponse({ success: true });
+}
+
+async function validateSession(request: Request, env: Env): Promise<SessionInfo | null> {
+  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  if (!token) return null;
+
+  const tokenHash = await hashKey(token);
+
+  const result = await env.DB.prepare(`
+    SELECT s.user_id, u.email, u.plan
+    FROM sessions s
+    JOIN users u ON s.user_id = u.id
+    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
+  `).bind(tokenHash).first();
+
+  if (!result) return null;
+
+  return {
+    userId: result.user_id as string,
+    email: result.email as string,
+    plan: result.plan as 'free' | 'pro' | 'enterprise',
+  };
+}
+
+// ============ API Keys Handlers ============
+
+async function handleListKeys(env: Env, sessionInfo: SessionInfo): Promise<Response> {
+  const keys = await env.DB.prepare(`
+    SELECT id, name, key_prefix, created_at, last_used_at, is_active
+    FROM api_keys
+    WHERE user_id = ? AND is_active = 1
+    ORDER BY created_at DESC
+  `).bind(sessionInfo.userId).all();
+
+  return jsonResponse({
+    keys: keys.results.map(key => ({
+      id: key.id,
+      name: key.name,
+      prefix: key.key_prefix,
+      createdAt: key.created_at,
+      lastUsedAt: key.last_used_at,
+    })),
+  });
+}
+
+async function handleCreateKey(request: Request, env: Env, sessionInfo: SessionInfo): Promise<Response> {
+  const body = await request.json() as { name?: string };
+  const keyName = body.name || 'API Key';
+
+  const apiKeyValue = `bsk_live_${generateRandomString(32)}`;
+  const apiKeyHash = await hashKey(apiKeyValue);
+  const keyPrefix = apiKeyValue.substring(0, 12) + '...';
+  const keyId = crypto.randomUUID();
+
+  await env.DB.prepare(`
+    INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, is_active)
+    VALUES (?, ?, ?, ?, ?, 1)
+  `).bind(keyId, sessionInfo.userId, keyName, keyPrefix, apiKeyHash).run();
+
+  return jsonResponse({
+    id: keyId,
+    name: keyName,
+    key: apiKeyValue,
+    prefix: keyPrefix,
+    createdAt: new Date().toISOString(),
+  }, 201);
+}
+
+async function handleDeleteKey(env: Env, sessionInfo: SessionInfo, keyId: string): Promise<Response> {
+  // Verify key belongs to user
+  const key = await env.DB.prepare(`
+    SELECT id FROM api_keys WHERE id = ? AND user_id = ?
+  `).bind(keyId, sessionInfo.userId).first();
+
+  if (!key) {
+    return jsonError('API key not found', 404);
+  }
+
+  await env.DB.prepare(`
+    UPDATE api_keys SET is_active = 0 WHERE id = ?
+  `).bind(keyId).run();
+
+  return jsonResponse({ success: true });
+}
 
 // ============ Chat Handlers ============
 
@@ -255,7 +522,8 @@ async function handleAgentRun(request: Request, env: Env, keyInfo: ApiKeyInfo): 
 async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
   const today = new Date().toISOString().split('T')[0];
   
-  const usage = await env.DB.prepare(`
+  // Get today's usage
+  const todayUsage = await env.DB.prepare(`
     SELECT 
       SUM(tokens_used) as total_tokens,
       COUNT(*) as total_requests
@@ -263,18 +531,28 @@ async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
     WHERE user_id = ? AND date = ?
   `).bind(keyInfo.userId, today).first();
 
+  // Get daily usage for last 7 days
+  const dailyUsage = await env.DB.prepare(`
+    SELECT date, SUM(tokens_used) as tokens, COUNT(*) as requests
+    FROM usage
+    WHERE user_id = ? AND date >= date('now', '-7 days')
+    GROUP BY date
+    ORDER BY date DESC
+  `).bind(keyInfo.userId).all();
+
   const limits = RATE_LIMITS[keyInfo.plan];
 
   return jsonResponse({
     plan: keyInfo.plan,
     usage: {
-      tokensUsed: usage?.total_tokens || 0,
-      requestsUsed: usage?.total_requests || 0,
+      tokensUsed: todayUsage?.total_tokens || 0,
+      requestsUsed: todayUsage?.total_requests || 0,
     },
     limits: {
       tokensPerDay: limits.tokensPerDay,
       requestsPerDay: limits.requestsPerDay,
     },
+    dailyUsage: dailyUsage.results,
     resetAt: getNextResetDate(),
   });
 }
@@ -367,6 +645,17 @@ async function hashKey(key: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function generateRandomString(length: number): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  const randomValues = new Uint8Array(length);
+  crypto.getRandomValues(randomValues);
+  for (let i = 0; i < length; i++) {
+    result += chars[randomValues[i] % chars.length];
+  }
+  return result;
 }
 
 function estimateTokens(content: string | ChatMessage[]): number {
