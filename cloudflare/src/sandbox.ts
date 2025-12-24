@@ -10,7 +10,7 @@ export interface SandboxEnv {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
-  SANDBOX: Container;
+  // SANDBOX: Container; // Container SDK not yet available in workers-types
 }
 
 export interface Project {
