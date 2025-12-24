@@ -70,6 +70,12 @@ export function Navigation() {
               Playground
             </Link>
             <Link 
+              to="/rag-example" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              RAG Demo
+            </Link>
+            <Link 
               to="/use-cases" 
               className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
             >
@@ -184,6 +190,13 @@ export function Navigation() {
             onClick={() => setIsMenuOpen(false)}
           >
             Playground
+          </Link>
+          <Link 
+            to="/rag-example" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            RAG Demo
           </Link>
           <Link 
             to="/use-cases" 
