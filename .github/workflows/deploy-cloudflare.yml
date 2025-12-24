@@ -30,8 +30,9 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: 'cloudflare'
-          command: deploy
+          wranglerVersion: '3.99.0'
 
       - name: Deployment Summary
         run: |
