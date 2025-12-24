@@ -19,6 +19,10 @@ export * from './memory';
 // Embeddings
 export * from './embeddings';
 
+// React Hooks
+export { useAgent } from './hooks';
+export type { UseAgentOptions, UseAgentReturn, AgentMessage } from './hooks';
+
 // Types
 export type {
   Provider,

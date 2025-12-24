@@ -1,12 +1,17 @@
 /**
  * Binario API - Cloudflare Worker
  * Production-ready API gateway for AI chat and agents
+ * Now with Cloudflare Agents SDK - WebSocket support and persistent state
  */
+
+// Re-export the BinarioAgent Durable Object
+export { BinarioAgent } from './agent';
 
 export interface Env {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
+  BINARIO_AGENT: DurableObjectNamespace;
   OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
@@ -104,9 +109,19 @@ export default {
     const path = url.pathname;
 
     try {
+      // ============ WebSocket Agent Endpoint ============
+      if (path.startsWith('/v1/agent/ws')) {
+        return await handleAgentWebSocket(request, env, url);
+      }
+
+      // ============ Agent REST Endpoints ============
+      if (path.startsWith('/v1/agent/')) {
+        return await handleAgentRest(request, env, url);
+      }
+
       // ============ Public Endpoints ============
       if (path === '/health') {
-        return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
+        return jsonResponse({ status: 'ok', timestamp: new Date().toISOString(), agents: true });
       }
 
       if (path === '/v1/models') {
@@ -1427,4 +1442,119 @@ function validateJsonSchema(data: any, schema: JsonSchema): { valid: boolean; er
   validate(data, schema, '$');
   
   return { valid: errors.length === 0, errors };
+}
+
+// ============ Agent WebSocket Handler ============
+
+async function handleAgentWebSocket(request: Request, env: Env, url: URL): Promise<Response> {
+  // Check for WebSocket upgrade
+  const upgradeHeader = request.headers.get('Upgrade');
+  if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+    return jsonError('Expected WebSocket upgrade', 426);
+  }
+
+  // Extract conversation ID from path or query params
+  // Format: /v1/agent/ws/:conversationId or /v1/agent/ws?conversationId=xxx
+  const pathParts = url.pathname.split('/');
+  let conversationId = pathParts[4] || url.searchParams.get('conversationId');
+  
+  // If no conversation ID, create a new one
+  if (!conversationId) {
+    conversationId = crypto.randomUUID();
+  }
+
+  // Get user ID from auth header (optional for public agents)
+  const apiKey = request.headers.get('X-API-Key') || 
+                 request.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  let userId = 'anonymous';
+  if (apiKey) {
+    const keyInfo = await validateApiKey(env, apiKey);
+    if (keyInfo) {
+      userId = keyInfo.userId;
+    }
+  }
+
+  // Get or create Durable Object for this conversation
+  const id = env.BINARIO_AGENT.idFromName(conversationId);
+  const agent = env.BINARIO_AGENT.get(id);
+
+  // Forward the WebSocket upgrade request to the Durable Object
+  const agentUrl = new URL(request.url);
+  agentUrl.pathname = '/';
+  agentUrl.searchParams.set('userId', userId);
+  agentUrl.searchParams.set('conversationId', conversationId);
+
+  return agent.fetch(new Request(agentUrl, {
+    headers: request.headers,
+    method: request.method,
+  }));
+}
+
+// ============ Agent REST Handler ============
+
+async function handleAgentRest(request: Request, env: Env, url: URL): Promise<Response> {
+  const pathParts = url.pathname.split('/');
+  // Format: /v1/agent/:conversationId/:action
+  const conversationId = pathParts[3];
+  const action = pathParts[4] || '';
+
+  if (!conversationId || conversationId === 'ws') {
+    return jsonError('Conversation ID required', 400);
+  }
+
+  // Optional authentication
+  const apiKey = request.headers.get('X-API-Key') || 
+                 request.headers.get('Authorization')?.replace('Bearer ', '');
+  
+  let userId = 'anonymous';
+  if (apiKey) {
+    const keyInfo = await validateApiKey(env, apiKey);
+    if (keyInfo) {
+      userId = keyInfo.userId;
+    }
+  }
+
+  // Get Durable Object for this conversation
+  const id = env.BINARIO_AGENT.idFromName(conversationId);
+  const agent = env.BINARIO_AGENT.get(id);
+
+  // Build the request URL for the Durable Object
+  const agentUrl = new URL(request.url);
+  
+  switch (action) {
+    case 'state':
+      agentUrl.pathname = '/state';
+      break;
+    case 'history':
+      agentUrl.pathname = '/history';
+      break;
+    case 'clear':
+      agentUrl.pathname = '/clear';
+      break;
+    case 'chat':
+      agentUrl.pathname = '/chat';
+      break;
+    default:
+      return jsonError('Unknown agent action', 404);
+  }
+
+  agentUrl.searchParams.set('userId', userId);
+
+  const response = await agent.fetch(new Request(agentUrl, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+  }));
+
+  // Add CORS headers to the response
+  const newHeaders = new Headers(response.headers);
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    newHeaders.set(key, value);
+  });
+
+  return new Response(response.body, {
+    status: response.status,
+    headers: newHeaders,
+  });
 }

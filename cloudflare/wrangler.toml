@@ -24,6 +24,16 @@ database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
 binding = "KV"
 id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
+# ============ Durable Objects for Agents SDK ============
+[[durable_objects.bindings]]
+name = "BINARIO_AGENT"
+class_name = "BinarioAgent"
+
+# Durable Object migrations - enables SQLite storage
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BinarioAgent"]
+
 # Development environment
 [env.development]
 name = "binario-api-dev"
@@ -31,12 +41,20 @@ name = "binario-api-dev"
 [env.development.vars]
 ENVIRONMENT = "development"
 
+[[env.development.durable_objects.bindings]]
+name = "BINARIO_AGENT"
+class_name = "BinarioAgent"
+
 # Staging environment
 [env.staging]
 name = "binario-api-staging"
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
+
+[[env.staging.durable_objects.bindings]]
+name = "BINARIO_AGENT"
+class_name = "BinarioAgent"
 
 # Production custom domain (optional)
 # Uncomment after configuring in Cloudflare Dashboard
@@ -52,6 +70,6 @@ enabled = true
 [build]
 command = "npm run build"
 
-# Limits
+# Limits - increased for agents
 [limits]
-cpu_ms = 50
+cpu_ms = 100
