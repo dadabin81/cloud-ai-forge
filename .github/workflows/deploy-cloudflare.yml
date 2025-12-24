@@ -35,24 +35,19 @@ jobs:
           workingDirectory: 'cloudflare'
           command: deploy
 
-      - name: Initialize Database Schema
-        uses: cloudflare/wrangler-action@v3
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: 'cloudflare'
-          command: d1 execute binario-db --remote --file=schema.sql
-
       - name: Deployment Summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Worker deployed to: \`binario-api.YOUR_SUBDOMAIN.workers.dev\`" >> $GITHUB_STEP_SUMMARY
+          echo "Worker deployed to: \`binario-api.databin81.workers.dev\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Endpoints:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`GET /health\` - Health check" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POST /v1/auth/signup\` - User registration" >> $GITHUB_STEP_SUMMARY
+          echo "- \`POST /v1/auth/login\` - User login" >> $GITHUB_STEP_SUMMARY
           echo "- \`GET /v1/models\` - List models" >> $GITHUB_STEP_SUMMARY
           echo "- \`POST /v1/chat/completions\` - Chat completion" >> $GITHUB_STEP_SUMMARY
-          echo "- \`POST /v1/chat/stream\` - Streaming chat" >> $GITHUB_STEP_SUMMARY
-          echo "- \`POST /v1/agents/run\` - Agent execution" >> $GITHUB_STEP_SUMMARY
-          echo "- \`GET /v1/usage\` - Usage statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** Database schema should be initialized manually using:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "cd cloudflare && npx wrangler d1 execute binario-db --remote --file=schema.sql" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
