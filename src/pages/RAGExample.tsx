@@ -372,28 +372,50 @@ export default function RAGExample() {
       setMessages(prev => [...prev, userMessage]);
       setInput('');
 
-      // Simulate AI response with RAG (in production, call an LLM API)
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Build context-aware response
-      let response = '';
-      if (relevantDocs.length > 0 && relevantDocs[0].score > 0.5) {
-        response = `Based on the documentation:\n\n${relevantDocs[0].content}\n\n`;
-        if (relevantDocs.length > 1 && relevantDocs[1].score > 0.4) {
-          response += `Additionally, ${relevantDocs[1].content.toLowerCase()}`;
-        }
-      } else {
-        response = "I couldn't find specific information about that in the indexed documents. Try adding more relevant documents or rephrasing your question.";
+      // Step 2: Build context from retrieved documents
+      const contextText = relevantDocs.length > 0
+        ? relevantDocs.map((doc, i) => `[Document ${i + 1} (similarity: ${(doc.score * 100).toFixed(1)}%)]\n${doc.content}`).join('\n\n')
+        : 'No relevant documents found.';
+
+      // Step 3: Call real AI chat API with RAG context
+      const systemPrompt = `You are a helpful AI assistant with access to a knowledge base. Answer the user's question based on the provided context. If the context doesn't contain relevant information, say so honestly.
+
+Context from knowledge base:
+${contextText}`;
+
+      const chatResponse = await fetch('https://binario-api.databin81.workers.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.map(m => ({ role: m.role, content: m.content })),
+            { role: 'user', content: input.trim() },
+          ],
+          stream: false,
+        }),
+      });
+
+      if (!chatResponse.ok) {
+        const errorData = await chatResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Chat API error: ${chatResponse.status}`);
       }
+
+      const chatData = await chatResponse.json();
+      const aiResponse = chatData.choices?.[0]?.message?.content || 'No response generated.';
 
       const assistantMessage: Message = {
         role: 'assistant',
-        content: response,
+        content: aiResponse,
         context: relevantDocs.map(d => d.content),
       };
       
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
+      console.error('RAG chat error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to process query');
     } finally {
       setIsLoading(false);
