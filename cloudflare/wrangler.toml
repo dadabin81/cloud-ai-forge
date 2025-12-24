@@ -35,10 +35,18 @@ index_name = "binario-embeddings"
 name = "BINARIO_AGENT"
 class_name = "BinarioAgent"
 
+[[durable_objects.bindings]]
+name = "SANDBOX_PROJECT"
+class_name = "SandboxProject"
+
 # Durable Object migrations - enables SQLite storage
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["BinarioAgent"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SandboxProject"]
 
 # ============ Workflows for Multi-step Agents ============
 [[workflows]]

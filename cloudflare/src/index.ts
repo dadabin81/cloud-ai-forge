@@ -8,8 +8,21 @@
 // Re-export the BinarioAgent Durable Object
 export { BinarioAgent } from './agent';
 
+// Re-export Sandbox Durable Object
+export { SandboxProject } from './sandbox';
+
 // Re-export Workflow classes
 export { ResearchWorkflow, RAGWorkflow } from './workflows';
+
+// Import Sandbox utilities
+import {
+  createProject,
+  listUserProjects,
+  getProjectById,
+  deleteProject,
+  getAvailableTemplates,
+  type Project,
+} from './sandbox';
 
 // Import RAG utilities
 import {
@@ -29,6 +42,7 @@ export interface Env {
   DB: D1Database;
   KV: KVNamespace;
   BINARIO_AGENT: DurableObjectNamespace;
+  SANDBOX_PROJECT: DurableObjectNamespace;
   VECTORIZE_INDEX: VectorizeIndex;
   RESEARCH_WORKFLOW: Workflow;
   RAG_WORKFLOW: Workflow;
@@ -147,6 +161,11 @@ export default {
       // ============ Workflow Endpoints ============
       if (path.startsWith('/v1/workflows/')) {
         return await handleWorkflowEndpoint(request, env, path);
+      }
+
+      // ============ Sandbox/Projects Endpoints ============
+      if (path.startsWith('/v1/sandbox/') || path.startsWith('/v1/projects/')) {
+        return await handleSandboxEndpoint(request, env, url);
       }
 
       // ============ Public Endpoints ============
@@ -1499,15 +1518,20 @@ async function handleAgentWebSocket(request: Request, env: Env, url: URL): Promi
     conversationId = crypto.randomUUID();
   }
 
-  // Get user ID from auth header (optional for public agents)
-  const apiKey = request.headers.get('X-API-Key') || 
+  // Get user ID from query params OR headers (browsers can't send headers with WebSocket)
+  // Priority: query param > X-API-Key header > Authorization header
+  const apiKey = url.searchParams.get('apiKey') ||
+                 request.headers.get('X-API-Key') || 
                  request.headers.get('Authorization')?.replace('Bearer ', '');
   
   let userId = 'anonymous';
+  let userPlan: 'free' | 'pro' | 'enterprise' = 'free';
+  
   if (apiKey) {
     const keyInfo = await validateApiKey(env, apiKey);
     if (keyInfo) {
       userId = keyInfo.userId;
+      userPlan = keyInfo.plan;
     }
   }
 
@@ -2004,6 +2028,145 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
     console.error('Workflow error:', error);
     return jsonError(
       error instanceof Error ? error.message : 'Workflow operation failed',
+      500
+    );
+  }
+}
+
+// ============ Sandbox/Projects Handler ============
+
+async function handleSandboxEndpoint(request: Request, env: Env, url: URL): Promise<Response> {
+  const path = url.pathname;
+  
+  // Most sandbox endpoints require authentication
+  const apiKey = url.searchParams.get('apiKey') ||
+                 request.headers.get('X-API-Key') || 
+                 request.headers.get('Authorization')?.replace('Bearer ', '');
+
+  // Templates endpoint is public
+  if (path === '/v1/sandbox/templates' || path === '/v1/projects/templates') {
+    return jsonResponse({ templates: getAvailableTemplates() });
+  }
+
+  if (!apiKey) {
+    return jsonError('API key required', 401);
+  }
+
+  const keyInfo = await validateApiKey(env, apiKey);
+  if (!keyInfo) {
+    return jsonError('Invalid API key', 401);
+  }
+
+  try {
+    // POST /v1/projects - Create new project
+    if ((path === '/v1/sandbox/projects' || path === '/v1/projects') && request.method === 'POST') {
+      const body = await request.json() as { name: string; template?: string };
+      
+      if (!body.name) {
+        return jsonError('Project name is required', 400);
+      }
+
+      const result = await createProject(
+        env as any,
+        keyInfo.userId,
+        body.name,
+        body.template || 'react-vite'
+      );
+
+      return jsonResponse(result, 201);
+    }
+
+    // GET /v1/projects - List user's projects
+    if ((path === '/v1/sandbox/projects' || path === '/v1/projects') && request.method === 'GET') {
+      const projects = await listUserProjects(env as any, keyInfo.userId);
+      return jsonResponse({ projects });
+    }
+
+    // Project-specific endpoints: /v1/projects/:projectId/...
+    const projectMatch = path.match(/^\/v1\/(?:sandbox\/)?projects\/([^\/]+)(?:\/(.*))?$/);
+    if (projectMatch) {
+      const projectId = projectMatch[1];
+      const action = projectMatch[2] || '';
+
+      // Verify project belongs to user
+      const project = await getProjectById(env as any, projectId);
+      if (!project) {
+        return jsonError('Project not found', 404);
+      }
+      if (project.userId !== keyInfo.userId) {
+        return jsonError('Access denied', 403);
+      }
+
+      // Get Durable Object for this project
+      const id = env.SANDBOX_PROJECT.idFromName(projectId);
+      const sandbox = env.SANDBOX_PROJECT.get(id);
+
+      // Route to appropriate action
+      switch (action) {
+        case '':
+          // GET /v1/projects/:id - Get project details
+          if (request.method === 'GET') {
+            return sandbox.fetch(new Request(`${url.origin}/status`));
+          }
+          // DELETE /v1/projects/:id - Delete project
+          if (request.method === 'DELETE') {
+            const deleted = await deleteProject(env as any, projectId, keyInfo.userId);
+            if (deleted) {
+              await sandbox.fetch(new Request(`${url.origin}/delete`, { method: 'POST' }));
+              return jsonResponse({ success: true });
+            }
+            return jsonError('Failed to delete project', 500);
+          }
+          break;
+
+        case 'files':
+          // GET/POST /v1/projects/:id/files
+          return sandbox.fetch(new Request(`${url.origin}/files${url.search}`, {
+            method: request.method,
+            headers: request.headers,
+            body: request.body,
+          }));
+
+        case 'exec':
+          // POST /v1/projects/:id/exec - Execute command
+          if (request.method === 'POST') {
+            return sandbox.fetch(new Request(`${url.origin}/exec`, {
+              method: 'POST',
+              headers: request.headers,
+              body: request.body,
+            }));
+          }
+          break;
+
+        case 'start':
+          // POST /v1/projects/:id/start - Start dev server
+          if (request.method === 'POST') {
+            return sandbox.fetch(new Request(`${url.origin}/start`, { method: 'POST' }));
+          }
+          break;
+
+        case 'stop':
+          // POST /v1/projects/:id/stop - Stop dev server
+          if (request.method === 'POST') {
+            return sandbox.fetch(new Request(`${url.origin}/stop`, { method: 'POST' }));
+          }
+          break;
+
+        case 'preview':
+          // GET /v1/projects/:id/preview - Get preview URL
+          if (request.method === 'GET') {
+            return sandbox.fetch(new Request(`${url.origin}/preview`));
+          }
+          break;
+      }
+    }
+
+    return jsonError('Sandbox endpoint not found', 404);
+
+  } catch (error) {
+    console.error('Sandbox error:', error);
+    return jsonError(
+      error instanceof Error ? error.message : 'Sandbox operation failed',
       500
     );
   }
