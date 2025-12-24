@@ -48,23 +48,51 @@ interface SearchResult {
   score: number;
 }
 
-// Simulated embeddings (in production, use Cloudflare Workers AI)
-function generateMockEmbedding(text: string): number[] {
-  const embedding: number[] = [];
-  const normalizedText = text.toLowerCase();
-  
-  // Create a simple hash-based embedding for demo purposes
-  for (let i = 0; i < 384; i++) {
-    let value = 0;
-    for (let j = 0; j < normalizedText.length; j++) {
-      value += normalizedText.charCodeAt(j) * ((i + j + 1) * 0.01);
-    }
-    embedding.push(Math.sin(value) * 0.5 + 0.5);
+// Cloudflare Workers AI Embeddings API
+const EMBEDDINGS_API_URL = 'https://binario-api.databin81.workers.dev/v1/embeddings';
+
+async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
+  const response = await fetch(EMBEDDINGS_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+    body: JSON.stringify({
+      input: text,
+      model: '@cf/baai/bge-base-en-v1.5',
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error((error as any).error || `API error: ${response.status}`);
   }
-  
-  // Normalize
-  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-  return embedding.map(val => val / magnitude);
+
+  const data = await response.json() as { data: Array<{ embedding: number[] }> };
+  return data.data[0].embedding;
+}
+
+async function generateEmbeddings(texts: string[], apiKey: string): Promise<number[][]> {
+  const response = await fetch(EMBEDDINGS_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+    body: JSON.stringify({
+      input: texts,
+      model: '@cf/baai/bge-base-en-v1.5',
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error((error as any).error || `API error: ${response.status}`);
+  }
+
+  const data = await response.json() as { data: Array<{ embedding: number[] }> };
+  return data.data.map(d => d.embedding);
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -120,6 +148,7 @@ export default function RAGExample() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [retrievedContext, setRetrievedContext] = useState<SearchResult[]>([]);
   const [copied, setCopied] = useState(false);
+  const [apiKey, setApiKey] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -128,40 +157,54 @@ export default function RAGExample() {
 
   // Load sample documents on mount
   const loadSampleDocs = async () => {
-    setIsIndexing(true);
-    const indexed: Document[] = [];
-    
-    for (const doc of sampleDocuments) {
-      // Simulate embedding generation delay
-      await new Promise(resolve => setTimeout(resolve, 100));
-      indexed.push({
-        ...doc,
-        embedding: generateMockEmbedding(doc.content),
-      });
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key first');
+      return;
     }
-    
-    setDocuments(indexed);
-    setIsIndexing(false);
-    toast.success(`Indexed ${indexed.length} documents`);
+
+    setIsIndexing(true);
+    try {
+      const contents = sampleDocuments.map(doc => doc.content);
+      const embeddings = await generateEmbeddings(contents, apiKey);
+      
+      const indexed: Document[] = sampleDocuments.map((doc, i) => ({
+        ...doc,
+        embedding: embeddings[i],
+      }));
+      
+      setDocuments(indexed);
+      toast.success(`Indexed ${indexed.length} documents with real embeddings`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to generate embeddings');
+    } finally {
+      setIsIndexing(false);
+    }
   };
 
   const addDocument = async () => {
     if (!newDocContent.trim()) return;
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key first');
+      return;
+    }
     
     setIsIndexing(true);
-    const newDoc: Document = {
-      id: `doc_${Date.now()}`,
-      content: newDocContent.trim(),
-      embedding: generateMockEmbedding(newDocContent.trim()),
-    };
-    
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    setDocuments(prev => [...prev, newDoc]);
-    setNewDocContent('');
-    setIsIndexing(false);
-    toast.success('Document indexed');
+    try {
+      const embedding = await generateEmbedding(newDocContent.trim(), apiKey);
+      const newDoc: Document = {
+        id: `doc_${Date.now()}`,
+        content: newDocContent.trim(),
+        embedding,
+      };
+      
+      setDocuments(prev => [...prev, newDoc]);
+      setNewDocContent('');
+      toast.success('Document indexed with real embedding');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to generate embedding');
+    } finally {
+      setIsIndexing(false);
+    }
   };
 
   const removeDocument = (id: string) => {
@@ -174,27 +217,38 @@ export default function RAGExample() {
     toast.success('All documents cleared');
   };
 
-  const searchDocuments = (query: string, topK: number = 3): SearchResult[] => {
+  const searchDocuments = async (query: string, topK: number = 3): Promise<SearchResult[]> => {
     if (!query.trim() || documents.length === 0) return [];
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key first');
+      return [];
+    }
     
-    const queryEmbedding = generateMockEmbedding(query);
-    
-    const results = documents
-      .filter(doc => doc.embedding)
-      .map(doc => ({
-        id: doc.id,
-        content: doc.content,
-        score: cosineSimilarity(queryEmbedding, doc.embedding!),
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK);
-    
-    return results;
+    try {
+      const queryEmbedding = await generateEmbedding(query, apiKey);
+      
+      const results = documents
+        .filter(doc => doc.embedding)
+        .map(doc => ({
+          id: doc.id,
+          content: doc.content,
+          score: cosineSimilarity(queryEmbedding, doc.embedding!),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK);
+      
+      return results;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to generate query embedding');
+      return [];
+    }
   };
 
-  const handleSearch = () => {
-    const results = searchDocuments(searchQuery, 5);
+  const handleSearch = async () => {
+    setIsLoading(true);
+    const results = await searchDocuments(searchQuery, 5);
     setSearchResults(results);
+    setIsLoading(false);
   };
 
   const handleSend = async () => {
@@ -205,41 +259,48 @@ export default function RAGExample() {
       return;
     }
 
-    setIsLoading(true);
-    
-    // Step 1: Retrieve relevant context
-    const relevantDocs = searchDocuments(input, 3);
-    setRetrievedContext(relevantDocs);
-    
-    const userMessage: Message = { role: 'user', content: input.trim() };
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-
-    // Simulate AI response with RAG
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Build context-aware response
-    const contextText = relevantDocs.map(d => d.content).join('\n\n');
-    
-    // Simulated AI response based on context
-    let response = '';
-    if (relevantDocs.length > 0 && relevantDocs[0].score > 0.5) {
-      response = `Based on the documentation:\n\n${relevantDocs[0].content}\n\n`;
-      if (relevantDocs.length > 1 && relevantDocs[1].score > 0.4) {
-        response += `Additionally, ${relevantDocs[1].content.toLowerCase()}`;
-      }
-    } else {
-      response = "I couldn't find specific information about that in the indexed documents. Try adding more relevant documents or rephrasing your question.";
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key first');
+      return;
     }
 
-    const assistantMessage: Message = {
-      role: 'assistant',
-      content: response,
-      context: relevantDocs.map(d => d.content),
-    };
+    setIsLoading(true);
     
-    setMessages(prev => [...prev, assistantMessage]);
-    setIsLoading(false);
+    try {
+      // Step 1: Retrieve relevant context using real embeddings
+      const relevantDocs = await searchDocuments(input, 3);
+      setRetrievedContext(relevantDocs);
+      
+      const userMessage: Message = { role: 'user', content: input.trim() };
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+
+      // Simulate AI response with RAG (in production, call an LLM API)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Build context-aware response
+      let response = '';
+      if (relevantDocs.length > 0 && relevantDocs[0].score > 0.5) {
+        response = `Based on the documentation:\n\n${relevantDocs[0].content}\n\n`;
+        if (relevantDocs.length > 1 && relevantDocs[1].score > 0.4) {
+          response += `Additionally, ${relevantDocs[1].content.toLowerCase()}`;
+        }
+      } else {
+        response = "I couldn't find specific information about that in the indexed documents. Try adding more relevant documents or rephrasing your question.";
+      }
+
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: response,
+        context: relevantDocs.map(d => d.content),
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to process query');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -313,10 +374,26 @@ async function queryWithRAG(question: string) {
             <h1 className="text-3xl font-bold mb-2">
               RAG <span className="gradient-text">Example</span>
             </h1>
-            <p className="text-muted-foreground max-w-2xl">
-              Retrieval Augmented Generation demo using Binario's Memory System and Embeddings API.
+            <p className="text-muted-foreground max-w-2xl mb-4">
+              Retrieval Augmented Generation demo using real Cloudflare Workers AI embeddings.
               Add documents, index them with embeddings, and ask questions with semantic retrieval.
             </p>
+            
+            {/* API Key Input */}
+            <div className="flex items-center gap-3 max-w-md">
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Binario API key (bsk_live_...)"
+                className="flex-1"
+              />
+              {apiKey && (
+                <Badge variant={apiKey.startsWith('bsk_live_') ? 'default' : 'destructive'}>
+                  {apiKey.startsWith('bsk_live_') ? 'Valid format' : 'Invalid format'}
+                </Badge>
+              )}
+            </div>
           </div>
 
           {/* Stats */}
