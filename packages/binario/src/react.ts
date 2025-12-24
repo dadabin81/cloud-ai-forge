@@ -8,6 +8,8 @@ export {
   useBinarioAgent,
   useBinarioStructured,
   useBinarioTools,
+  useBinarioMemory,
+  useBinarioChatWithMemory,
 } from './hooks';
 
 export type {
@@ -22,5 +24,10 @@ export type {
   UseBinarioStructuredReturn,
   UseBinarioToolsOptions,
   UseBinarioToolsReturn,
+  UseBinarioMemoryOptions,
+  UseBinarioMemoryReturn,
+  UseBinarioChatWithMemoryOptions,
+  UseBinarioChatWithMemoryReturn,
   HookTool,
+  MemoryType,
 } from './hooks';
