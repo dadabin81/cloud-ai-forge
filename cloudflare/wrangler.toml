@@ -24,6 +24,12 @@ database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
 binding = "KV"
 id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
+# ============ Vectorize for RAG ============
+# Create with: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "binario-embeddings"
+
 # ============ Durable Objects for Agents SDK ============
 [[durable_objects.bindings]]
 name = "BINARIO_AGENT"

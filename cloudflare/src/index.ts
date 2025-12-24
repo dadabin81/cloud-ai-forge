@@ -2,16 +2,31 @@
  * Binario API - Cloudflare Worker
  * Production-ready API gateway for AI chat and agents
  * Now with Cloudflare Agents SDK - WebSocket support and persistent state
+ * And Vectorize for RAG
  */
 
 // Re-export the BinarioAgent Durable Object
 export { BinarioAgent } from './agent';
+
+// Import RAG utilities
+import {
+  generateEmbedding,
+  searchDocuments,
+  upsertDocuments,
+  deleteDocuments,
+  ingestDocument,
+  ragQuery,
+  getEmbeddingInfo,
+  type Document,
+  type RagEnv,
+} from './rag';
 
 export interface Env {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
   BINARIO_AGENT: DurableObjectNamespace;
+  VECTORIZE_INDEX: VectorizeIndex;
   OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
@@ -119,9 +134,19 @@ export default {
         return await handleAgentRest(request, env, url);
       }
 
+      // ============ RAG Endpoints ============
+      if (path.startsWith('/v1/rag/')) {
+        return await handleRagEndpoint(request, env, path);
+      }
+
       // ============ Public Endpoints ============
       if (path === '/health') {
-        return jsonResponse({ status: 'ok', timestamp: new Date().toISOString(), agents: true });
+        return jsonResponse({ 
+          status: 'ok', 
+          timestamp: new Date().toISOString(), 
+          agents: true,
+          rag: true,
+        });
       }
 
       if (path === '/v1/models') {
@@ -1557,4 +1582,194 @@ async function handleAgentRest(request: Request, env: Env, url: URL): Promise<Re
     status: response.status,
     headers: newHeaders,
   });
+}
+
+// ============ RAG Endpoints Handler ============
+
+interface RagIngestRequest {
+  content: string;
+  documentId?: string;
+  namespace?: string;
+  metadata?: Record<string, string | number | boolean>;
+  chunkSize?: number;
+  chunkOverlap?: number;
+}
+
+interface RagSearchRequest {
+  query: string;
+  topK?: number;
+  namespace?: string;
+  filter?: Record<string, unknown>;
+}
+
+interface RagQueryRequest {
+  query: string;
+  topK?: number;
+  namespace?: string;
+  model?: string;
+  systemPrompt?: string;
+}
+
+interface RagEmbedRequest {
+  text: string | string[];
+}
+
+interface RagDeleteRequest {
+  ids: string[];
+  namespace?: string;
+}
+
+async function handleRagEndpoint(request: Request, env: Env, path: string): Promise<Response> {
+  // RAG endpoints require API key authentication
+  const apiKey = request.headers.get('X-API-Key') || 
+                 request.headers.get('Authorization')?.replace('Bearer ', '');
+
+  if (!apiKey) {
+    return jsonError('API key required', 401);
+  }
+
+  const keyInfo = await validateApiKey(env, apiKey);
+  if (!keyInfo) {
+    return jsonError('Invalid API key', 401);
+  }
+
+  // Check rate limits
+  const rateLimitResult = await checkRateLimit(env, keyInfo);
+  if (!rateLimitResult.allowed) {
+    return jsonError('Rate limit exceeded', 429);
+  }
+
+  const ragEnv: RagEnv = {
+    AI: env.AI,
+    DB: env.DB,
+    VECTORIZE_INDEX: env.VECTORIZE_INDEX,
+  };
+
+  try {
+    // POST /v1/rag/ingest - Ingest a document
+    if (path === '/v1/rag/ingest' && request.method === 'POST') {
+      const body = await request.json() as RagIngestRequest;
+      
+      if (!body.content) {
+        return jsonError('Content is required', 400);
+      }
+
+      const result = await ingestDocument(ragEnv, body.content, {
+        documentId: body.documentId,
+        namespace: body.namespace || keyInfo.userId,
+        metadata: body.metadata,
+        chunkOptions: {
+          chunkSize: body.chunkSize,
+          chunkOverlap: body.chunkOverlap,
+        },
+      });
+
+      // Track usage
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', result.chunks * 100);
+
+      return jsonResponse(result, 201);
+    }
+
+    // POST /v1/rag/search - Semantic search
+    if (path === '/v1/rag/search' && request.method === 'POST') {
+      const body = await request.json() as RagSearchRequest;
+      
+      if (!body.query) {
+        return jsonError('Query is required', 400);
+      }
+
+      const results = await searchDocuments(ragEnv, body.query, {
+        topK: body.topK || 5,
+        namespace: body.namespace || keyInfo.userId,
+        filter: body.filter,
+      });
+
+      // Track usage
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', 100);
+
+      return jsonResponse({ results });
+    }
+
+    // POST /v1/rag/query - RAG query with answer generation
+    if (path === '/v1/rag/query' && request.method === 'POST') {
+      const body = await request.json() as RagQueryRequest;
+      
+      if (!body.query) {
+        return jsonError('Query is required', 400);
+      }
+
+      const result = await ragQuery(ragEnv, body.query, {
+        topK: body.topK || 5,
+        namespace: body.namespace || keyInfo.userId,
+        model: body.model,
+        systemPrompt: body.systemPrompt,
+      });
+
+      // Track usage (embedding + generation)
+      await trackUsage(env, keyInfo, body.model || '@cf/meta/llama-3.1-8b-instruct', 500);
+
+      return jsonResponse(result);
+    }
+
+    // POST /v1/rag/embed - Generate embeddings
+    if (path === '/v1/rag/embed' && request.method === 'POST') {
+      const body = await request.json() as RagEmbedRequest;
+      
+      if (!body.text) {
+        return jsonError('Text is required', 400);
+      }
+
+      const texts = Array.isArray(body.text) ? body.text : [body.text];
+      const embeddings: number[][] = [];
+
+      for (const text of texts) {
+        const embedding = await generateEmbedding(ragEnv, text);
+        embeddings.push(embedding);
+      }
+
+      // Track usage
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', texts.length * 100);
+
+      return jsonResponse({
+        embeddings,
+        model: getEmbeddingInfo().model,
+        dimensions: getEmbeddingInfo().dimensions,
+      });
+    }
+
+    // DELETE /v1/rag/documents - Delete documents
+    if (path === '/v1/rag/documents' && request.method === 'DELETE') {
+      const body = await request.json() as RagDeleteRequest;
+      
+      if (!body.ids || !Array.isArray(body.ids)) {
+        return jsonError('IDs array is required', 400);
+      }
+
+      const result = await deleteDocuments(ragEnv, body.ids, body.namespace || keyInfo.userId);
+
+      return jsonResponse(result);
+    }
+
+    // GET /v1/rag/info - Get RAG configuration info
+    if (path === '/v1/rag/info' && request.method === 'GET') {
+      return jsonResponse({
+        embedding: getEmbeddingInfo(),
+        features: ['ingest', 'search', 'query', 'embed', 'delete'],
+        limits: {
+          maxChunkSize: 2000,
+          maxDocumentSize: 100000,
+          maxTopK: 100,
+        },
+      });
+    }
+
+    return jsonError('RAG endpoint not found', 404);
+
+  } catch (error) {
+    console.error('RAG error:', error);
+    return jsonError(
+      error instanceof Error ? error.message : 'RAG operation failed',
+      500
+    );
+  }
 }
