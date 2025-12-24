@@ -37,6 +37,7 @@ jobs:
 
       - name: Initialize Database Schema
         uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: 'cloudflare'
