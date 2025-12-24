@@ -177,6 +177,9 @@ export default {
         case '/v1/agents/run':
           return await handleAgentRun(request, env, keyInfo);
         
+        case '/v1/embeddings':
+          return await handleEmbeddings(request, env, keyInfo);
+        
         case '/v1/usage':
           return await handleUsage(env, keyInfo);
         
@@ -537,6 +540,49 @@ async function handleAgentRun(request: Request, env: Env, keyInfo: ApiKeyInfo): 
 }
 
 // ============ Usage Handler ============
+
+// ============ Embeddings Handler ============
+
+interface EmbeddingsRequest {
+  input: string | string[];
+  model?: string;
+}
+
+async function handleEmbeddings(request: Request, env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
+  const body = await request.json() as EmbeddingsRequest;
+  
+  if (!body.input) {
+    return jsonError('Input is required', 400);
+  }
+
+  const inputs = Array.isArray(body.input) ? body.input : [body.input];
+  const model = body.model || '@cf/baai/bge-base-en-v1.5';
+
+  try {
+    const response = await env.AI.run(model as any, {
+      text: inputs,
+    });
+
+    const embeddings = (response as any).data || [];
+    
+    return jsonResponse({
+      object: 'list',
+      data: embeddings.map((embedding: number[], index: number) => ({
+        object: 'embedding',
+        embedding,
+        index,
+      })),
+      model,
+      usage: {
+        prompt_tokens: inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0),
+        total_tokens: inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0),
+      },
+    });
+  } catch (error) {
+    console.error('Embeddings error:', error);
+    return jsonError('Failed to generate embeddings', 500);
+  }
+}
 
 async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
   const today = new Date().toISOString().split('T')[0];
