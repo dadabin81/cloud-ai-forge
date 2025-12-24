@@ -98,12 +98,12 @@ export function HeroSection() {
                 <span className="text-muted-foreground">free neurons/day</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">7+</span>
+                <span className="text-2xl font-bold text-primary">4</span>
                 <span className="text-muted-foreground">providers</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">&lt;2kb</span>
-                <span className="text-muted-foreground">gzipped</span>
+                <span className="text-2xl font-bold text-primary">100%</span>
+                <span className="text-muted-foreground">TypeScript</span>
               </div>
             </div>
 

@@ -56,6 +56,7 @@ interface ChatRequest {
   temperature?: number;
   max_tokens?: number;
   response_format?: { type: 'text' | 'json_object'; schema?: JsonSchema };
+  cache?: boolean | { ttl?: number }; // Enable response caching
 }
 
 // Provider-specific model mappings
@@ -486,6 +487,23 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
   const model = body.model || MODEL_ROUTING[keyInfo.plan];
   const provider = body.provider || detectProvider(model);
 
+  // Check cache if enabled
+  const cacheEnabled = body.cache !== undefined && body.cache !== false;
+  const cacheTTL = typeof body.cache === 'object' && body.cache.ttl ? body.cache.ttl : 3600; // Default 1 hour
+  
+  if (cacheEnabled) {
+    const cacheKey = await generateCacheKey(body.messages, model, body.temperature, body.max_tokens);
+    const cachedResponse = await env.KV.get(cacheKey, 'json');
+    
+    if (cachedResponse) {
+      console.log('Cache hit for:', cacheKey.substring(0, 20));
+      return jsonResponse({
+        ...cachedResponse as object,
+        cached: true,
+      });
+    }
+  }
+
   // Validate provider/model compatibility
   if (provider !== 'cloudflare' && !isProviderConfigured(env, provider)) {
     // Try to use OpenRouter as a fallback for external models
@@ -545,7 +563,7 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
 
     await trackUsage(env, keyInfo, model, body.messages, response);
 
-    return jsonResponse({
+    const responseData = {
       id: `chat-${Date.now()}`,
       model,
       choices: [{
@@ -560,7 +578,16 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
         prompt_tokens: estimateTokens(body.messages),
         completion_tokens: estimateTokens(content),
       },
-    });
+    };
+
+    // Cache the response if caching is enabled
+    if (cacheEnabled) {
+      const cacheKey = await generateCacheKey(body.messages, model, body.temperature, body.max_tokens);
+      await env.KV.put(cacheKey, JSON.stringify(responseData), { expirationTtl: cacheTTL });
+      console.log('Cached response for:', cacheKey.substring(0, 20));
+    }
+
+    return jsonResponse(responseData);
   } catch (error) {
     console.error('Chat error:', error);
     // Fallback to OpenRouter if available
@@ -1222,6 +1249,22 @@ function estimateTokens(content: string | ChatMessage[]): number {
     return Math.ceil(content.length / 4);
   }
   return content.reduce((acc, msg) => acc + Math.ceil(msg.content.length / 4), 0);
+}
+
+// Generate a cache key for chat requests
+async function generateCacheKey(
+  messages: ChatMessage[], 
+  model: string, 
+  temperature?: number, 
+  maxTokens?: number
+): Promise<string> {
+  const payload = JSON.stringify({ messages, model, temperature, maxTokens });
+  const encoder = new TextEncoder();
+  const data = encoder.encode(payload);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return `cache:chat:${hash}`;
 }
 
 function getNextResetDate(): string {

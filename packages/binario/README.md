@@ -2,34 +2,39 @@
 
 > Universal AI SDK for Cloudflare Workers — Unified API, smart fallbacks, and cost optimization.
 
-[![npm version](https://img.shields.io/npm/v/binario.svg)](https://www.npmjs.com/package/binario)
-[![npm downloads](https://img.shields.io/npm/dm/binario.svg)](https://www.npmjs.com/package/binario)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 
+## ⚠️ Status: Beta
+
+This SDK is currently in **beta**. The hosted API at binario.dev is fully functional. For npm installation, build from source.
+
 ## ✨ Features
 
-- 🚀 **Simple API** — One unified interface for all AI providers
-- ⚡ **Cloudflare-First** — Optimized for Workers AI with neuron tracking
-- 🔄 **Smart Fallbacks** — Automatic failover to free models when limits are reached
-- 🤖 **Agent Framework** — Multi-step reasoning with tool calling
-- 📊 **Usage Tracking** — Built-in cost optimization and rate limiting
-- 🔧 **Type-Safe** — Full TypeScript support with Zod schemas
-- ⚛️ **React Hooks** — Ready-to-use hooks for chat, streaming, agents, memory, and embeddings
-- 🌐 **Multi-Provider** — OpenAI, Anthropic, Google, Mistral, OpenRouter
-- 🧠 **Memory System** — Buffer, summary, and vector memory for persistent conversations
-- 🔍 **Embeddings API** — Generate embeddings with Cloudflare AI for semantic search
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Chat completions | ✅ Working | Cloudflare Workers AI |
+| Streaming (SSE) | ✅ Working | Real-time token streaming |
+| Structured output | ✅ Working | JSON Schema validation |
+| Embeddings | ✅ Working | `@cf/baai/bge-base-en-v1.5` |
+| Agent framework | ✅ Working | Tool calling with iterations |
+| React Hooks | ✅ Working | Chat, stream, agent, memory |
+| Multi-provider | ⚠️ Config required | Needs your own API keys |
+| Smart caching | ⚠️ Planned | KV-based LRU cache |
+| Memory system | ⚠️ Client-side | Buffer, summary, vector |
 
 ## 📦 Installation
 
+### Option 1: Use the hosted API (Recommended)
+
+Sign up at [binario.dev](https://binario.dev) and get an API key.
+
+### Option 2: Build from source
+
 ```bash
-npm install binario
-# or
-yarn add binario
-# or
-pnpm add binario
-# or
-bun add binario
+git clone https://github.com/your-repo/binario.git
+cd binario/packages/binario
+npm install && npm run build
 ```
 
 ## 🚀 Quick Start
