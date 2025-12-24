@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -75,6 +76,7 @@ const models: Record<string, { id: string; name: string }[]> = {
 };
 
 export default function Playground() {
+  const { token, isAuthenticated } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('cloudflare');
   const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.1-8b-instruct');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -86,11 +88,19 @@ export default function Playground() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   
-  // API Key state
+  // API Key state - auto-fill from auth if logged in
   const [apiKey, setApiKey] = useState('');
   const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Auto-fill API key when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && token && !apiKey) {
+      setApiKey(token);
+      setIsApiKeyValid(true);
+    }
+  }, [isAuthenticated, token, apiKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
