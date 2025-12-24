@@ -93,9 +93,8 @@ class_name = "BinarioAgent"
 [observability]
 enabled = true
 
-# Build configuration
-[build]
-command = "npm run build"
+# Note: Wrangler handles TypeScript bundling automatically
+# No custom build command needed since main points to src/index.ts
 
 # Limits - increased for agents
 [limits]
