@@ -35,6 +35,13 @@ jobs:
           workingDirectory: 'cloudflare'
           command: deploy
 
+      - name: Initialize Database Schema
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: 'cloudflare'
+          command: d1 execute binario-db --remote --file=schema.sql
+
       - name: Deployment Summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
