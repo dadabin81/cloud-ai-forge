@@ -107,29 +107,5 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 
 -- ============ Triggers ============
-
--- Update users.updated_at on changes
-CREATE TRIGGER IF NOT EXISTS update_users_timestamp 
-AFTER UPDATE ON users
-BEGIN
-  UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
-
--- Update conversations.updated_at on changes
-CREATE TRIGGER IF NOT EXISTS update_conversations_timestamp 
-AFTER UPDATE ON conversations
-BEGIN
-  UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
-
--- Update conversation stats when message is added
-CREATE TRIGGER IF NOT EXISTS update_conversation_on_message
-AFTER INSERT ON messages
-BEGIN
-  UPDATE conversations 
-  SET 
-    message_count = message_count + 1,
-    total_tokens = total_tokens + NEW.tokens,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE id = NEW.conversation_id;
-END;
+-- Note: Triggers are created manually or handled in application code
+-- D1 SQLite has limitations with CREATE TRIGGER IF NOT EXISTS
