@@ -119,7 +119,7 @@ export default function Auth() {
         setNewApiKey(result.apiKey);
         setShowApiKey(true);
       } else {
-        navigate('/dashboard');
+        navigate('/welcome');
       }
     } else {
       toast.error(result.error || 'Signup failed');
@@ -135,9 +135,9 @@ export default function Auth() {
     }
   };
 
-  const goToDashboard = () => {
+  const goToWelcome = () => {
     setShowApiKey(false);
-    navigate('/dashboard');
+    navigate('/welcome');
   };
 
   // Show API key modal after signup
@@ -179,8 +179,8 @@ export default function Auth() {
               </p>
             </div>
 
-            <Button onClick={goToDashboard} className="w-full" variant="hero">
-              Continue to Dashboard
+            <Button onClick={goToWelcome} className="w-full" variant="hero">
+              Start Tutorial
             </Button>
           </CardContent>
         </Card>
