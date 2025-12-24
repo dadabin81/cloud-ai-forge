@@ -10,6 +10,8 @@ export {
   useBinarioTools,
   useBinarioMemory,
   useBinarioChatWithMemory,
+  useBinarioEmbed,
+  useBinarioSemanticSearch,
 } from './hooks';
 
 export type {
@@ -28,6 +30,13 @@ export type {
   UseBinarioMemoryReturn,
   UseBinarioChatWithMemoryOptions,
   UseBinarioChatWithMemoryReturn,
+  UseBinarioEmbedOptions,
+  UseBinarioEmbedReturn,
+  UseBinarioSemanticSearchOptions,
+  UseBinarioSemanticSearchReturn,
+  SearchDocument,
+  SearchResult,
   HookTool,
   MemoryType,
+  EmbeddingsProviderType,
 } from './hooks';

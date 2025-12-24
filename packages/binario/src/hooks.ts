@@ -937,6 +937,430 @@ export function useBinarioChatWithMemory(
   };
 }
 
+// ============= Embeddings Hook =============
+
+import type { 
+  EmbeddingsProvider, 
+  EmbeddingResult, 
+  BatchEmbeddingResult 
+} from './embeddings/types';
+import { CloudflareEmbeddings } from './embeddings/cloudflare';
+import { cosineSimilarity } from './memory/utils';
+
+export type EmbeddingsProviderType = 'cloudflare' | 'custom';
+
+export interface UseBinarioEmbedOptions {
+  /** Embeddings provider type */
+  provider?: EmbeddingsProviderType;
+  /** Custom embeddings provider instance */
+  customProvider?: EmbeddingsProvider;
+  /** Model to use (provider-specific) */
+  model?: string;
+  /** Cloudflare account ID (for REST API) */
+  accountId?: string;
+  /** Cloudflare API key (for REST API) */
+  apiKey?: string;
+  /** Cache embeddings in memory */
+  cache?: boolean;
+  /** Callback when embedding starts */
+  onStart?: () => void;
+  /** Callback when embedding completes */
+  onComplete?: (result: EmbeddingResult | BatchEmbeddingResult) => void;
+  /** Callback on error */
+  onError?: (error: Error) => void;
+}
+
+export interface UseBinarioEmbedReturn {
+  /** Generate embedding for a single text */
+  embed: (text: string) => Promise<EmbeddingResult | null>;
+  /** Generate embeddings for multiple texts */
+  embedMany: (texts: string[]) => Promise<BatchEmbeddingResult | null>;
+  /** Calculate similarity between two texts */
+  similarity: (text1: string, text2: string) => Promise<number | null>;
+  /** Find most similar texts from a list */
+  findSimilar: (query: string, candidates: string[], topK?: number) => Promise<Array<{ text: string; score: number }> | null>;
+  /** Current embedding result */
+  result: EmbeddingResult | null;
+  /** Batch embedding results */
+  batchResult: BatchEmbeddingResult | null;
+  /** Whether embedding is in progress */
+  isLoading: boolean;
+  /** Error if any */
+  error: Error | null;
+  /** Clear cached embeddings */
+  clearCache: () => void;
+  /** Get embedding from cache */
+  getCached: (text: string) => number[] | null;
+}
+
+export function useBinarioEmbed(
+  options: UseBinarioEmbedOptions = {}
+): UseBinarioEmbedReturn {
+  const {
+    provider: providerType = 'cloudflare',
+    customProvider,
+    model,
+    accountId,
+    apiKey,
+    cache = true,
+    onStart,
+    onComplete,
+    onError,
+  } = options;
+
+  // State
+  const [result, setResult] = useState<EmbeddingResult | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchEmbeddingResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  
+  // Embedding cache
+  const cacheRef = useRef<Map<string, number[]>>(new Map());
+
+  // Provider instance
+  const providerRef = useRef<EmbeddingsProvider | null>(null);
+
+  // Initialize provider
+  useEffect(() => {
+    if (customProvider) {
+      providerRef.current = customProvider;
+    } else if (providerType === 'cloudflare') {
+      providerRef.current = new CloudflareEmbeddings({
+        model,
+        accountId,
+        apiKey,
+      });
+    }
+  }, [providerType, customProvider, model, accountId, apiKey]);
+
+  const embed = useCallback(async (text: string): Promise<EmbeddingResult | null> => {
+    if (!providerRef.current) {
+      const err = new Error('Embeddings provider not initialized');
+      setError(err);
+      onError?.(err);
+      return null;
+    }
+
+    // Check cache
+    if (cache && cacheRef.current.has(text)) {
+      const cached: EmbeddingResult = {
+        text,
+        embedding: cacheRef.current.get(text)!,
+      };
+      setResult(cached);
+      return cached;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    onStart?.();
+
+    try {
+      const embeddingResult = await providerRef.current.embed(text);
+      
+      // Cache result
+      if (cache) {
+        cacheRef.current.set(text, embeddingResult.embedding);
+      }
+      
+      setResult(embeddingResult);
+      onComplete?.(embeddingResult);
+      return embeddingResult;
+    } catch (err) {
+      const error = err as Error;
+      setError(error);
+      onError?.(error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [cache, onStart, onComplete, onError]);
+
+  const embedMany = useCallback(async (texts: string[]): Promise<BatchEmbeddingResult | null> => {
+    if (!providerRef.current) {
+      const err = new Error('Embeddings provider not initialized');
+      setError(err);
+      onError?.(err);
+      return null;
+    }
+
+    if (texts.length === 0) {
+      return { embeddings: [], model: '', usage: { promptTokens: 0, totalTokens: 0 } };
+    }
+
+    // Check cache for all texts
+    const uncached: string[] = [];
+    const cachedResults: Map<string, number[]> = new Map();
+    
+    if (cache) {
+      for (const text of texts) {
+        if (cacheRef.current.has(text)) {
+          cachedResults.set(text, cacheRef.current.get(text)!);
+        } else {
+          uncached.push(text);
+        }
+      }
+    } else {
+      uncached.push(...texts);
+    }
+
+    setIsLoading(true);
+    setError(null);
+    onStart?.();
+
+    try {
+      let newEmbeddings: BatchEmbeddingResult = { 
+        embeddings: [], 
+        model: '', 
+        usage: { promptTokens: 0, totalTokens: 0 } 
+      };
+      
+      // Only call API for uncached texts
+      if (uncached.length > 0) {
+        newEmbeddings = await providerRef.current.embedMany(uncached);
+        
+        // Cache new results
+        if (cache) {
+          for (const emb of newEmbeddings.embeddings) {
+            cacheRef.current.set(emb.text, emb.embedding);
+          }
+        }
+      }
+
+      // Combine cached and new results in original order
+      const allEmbeddings: EmbeddingResult[] = texts.map(text => {
+        if (cachedResults.has(text)) {
+          return { text, embedding: cachedResults.get(text)! };
+        }
+        const found = newEmbeddings.embeddings.find(e => e.text === text);
+        return found || { text, embedding: [] };
+      });
+
+      const batchResult: BatchEmbeddingResult = {
+        embeddings: allEmbeddings,
+        model: newEmbeddings.model,
+        usage: newEmbeddings.usage,
+      };
+      
+      setBatchResult(batchResult);
+      onComplete?.(batchResult);
+      return batchResult;
+    } catch (err) {
+      const error = err as Error;
+      setError(error);
+      onError?.(error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [cache, onStart, onComplete, onError]);
+
+  const similarity = useCallback(async (text1: string, text2: string): Promise<number | null> => {
+    const results = await embedMany([text1, text2]);
+    if (!results || results.embeddings.length < 2) {
+      return null;
+    }
+    
+    const [emb1, emb2] = results.embeddings;
+    return cosineSimilarity(emb1.embedding, emb2.embedding);
+  }, [embedMany]);
+
+  const findSimilar = useCallback(async (
+    query: string, 
+    candidates: string[], 
+    topK: number = 5
+  ): Promise<Array<{ text: string; score: number }> | null> => {
+    if (candidates.length === 0) return [];
+    
+    // Embed query and all candidates
+    const allTexts = [query, ...candidates];
+    const results = await embedMany(allTexts);
+    
+    if (!results || results.embeddings.length === 0) {
+      return null;
+    }
+
+    const queryEmbedding = results.embeddings[0].embedding;
+    const candidateEmbeddings = results.embeddings.slice(1);
+
+    // Calculate similarities
+    const similarities = candidateEmbeddings.map((emb, i) => ({
+      text: candidates[i],
+      score: cosineSimilarity(queryEmbedding, emb.embedding),
+    }));
+
+    // Sort by score and take top K
+    return similarities
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+  }, [embedMany]);
+
+  const clearCache = useCallback(() => {
+    cacheRef.current.clear();
+  }, []);
+
+  const getCached = useCallback((text: string): number[] | null => {
+    return cacheRef.current.get(text) ?? null;
+  }, []);
+
+  return {
+    embed,
+    embedMany,
+    similarity,
+    findSimilar,
+    result,
+    batchResult,
+    isLoading,
+    error,
+    clearCache,
+    getCached,
+  };
+}
+
+// ============= Semantic Search Hook =============
+
+export interface UseBinarioSemanticSearchOptions extends UseBinarioEmbedOptions {
+  /** Minimum similarity score to include in results */
+  minScore?: number;
+  /** Maximum number of results to return */
+  maxResults?: number;
+}
+
+export interface SearchDocument {
+  id: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SearchResult {
+  document: SearchDocument;
+  score: number;
+}
+
+export interface UseBinarioSemanticSearchReturn {
+  /** Add documents to the search index */
+  addDocuments: (documents: SearchDocument[]) => Promise<void>;
+  /** Search for similar documents */
+  search: (query: string) => Promise<SearchResult[]>;
+  /** Remove documents by ID */
+  removeDocuments: (ids: string[]) => void;
+  /** Clear all documents */
+  clear: () => void;
+  /** Number of indexed documents */
+  documentCount: number;
+  /** Whether indexing is in progress */
+  isIndexing: boolean;
+  /** Whether search is in progress */
+  isSearching: boolean;
+  /** Error if any */
+  error: Error | null;
+}
+
+export function useBinarioSemanticSearch(
+  options: UseBinarioSemanticSearchOptions = {}
+): UseBinarioSemanticSearchReturn {
+  const { minScore = 0.5, maxResults = 10, ...embedOptions } = options;
+  
+  const { embedMany, clearCache } = useBinarioEmbed(embedOptions);
+  
+  // Document index with embeddings
+  const indexRef = useRef<Map<string, { document: SearchDocument; embedding: number[] }>>(new Map());
+  
+  const [documentCount, setDocumentCount] = useState(0);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const addDocuments = useCallback(async (documents: SearchDocument[]) => {
+    if (documents.length === 0) return;
+    
+    setIsIndexing(true);
+    setError(null);
+
+    try {
+      const texts = documents.map(d => d.text);
+      const embeddings = await embedMany(texts);
+      
+      if (!embeddings) {
+        throw new Error('Failed to generate embeddings');
+      }
+
+      for (let i = 0; i < documents.length; i++) {
+        indexRef.current.set(documents[i].id, {
+          document: documents[i],
+          embedding: embeddings.embeddings[i].embedding,
+        });
+      }
+
+      setDocumentCount(indexRef.current.size);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsIndexing(false);
+    }
+  }, [embedMany]);
+
+  const search = useCallback(async (query: string): Promise<SearchResult[]> => {
+    if (indexRef.current.size === 0) return [];
+    
+    setIsSearching(true);
+    setError(null);
+
+    try {
+      const queryEmbeddings = await embedMany([query]);
+      
+      if (!queryEmbeddings || queryEmbeddings.embeddings.length === 0) {
+        throw new Error('Failed to generate query embedding');
+      }
+
+      const queryEmbedding = queryEmbeddings.embeddings[0].embedding;
+
+      const results: SearchResult[] = [];
+      
+      for (const { document, embedding } of indexRef.current.values()) {
+        const score = cosineSimilarity(queryEmbedding, embedding);
+        
+        if (score >= minScore) {
+          results.push({ document, score });
+        }
+      }
+
+      return results
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    } catch (err) {
+      setError(err as Error);
+      return [];
+    } finally {
+      setIsSearching(false);
+    }
+  }, [embedMany, minScore, maxResults]);
+
+  const removeDocuments = useCallback((ids: string[]) => {
+    for (const id of ids) {
+      indexRef.current.delete(id);
+    }
+    setDocumentCount(indexRef.current.size);
+  }, []);
+
+  const clear = useCallback(() => {
+    indexRef.current.clear();
+    clearCache();
+    setDocumentCount(0);
+  }, [clearCache]);
+
+  return {
+    addDocuments,
+    search,
+    removeDocuments,
+    clear,
+    documentCount,
+    isIndexing,
+    isSearching,
+    error,
+  };
+}
+
 // Legacy aliases for backwards compatibility
 export { useBinarioChat as useNexusChat };
 export { useBinarioStream as useNexusStream };
