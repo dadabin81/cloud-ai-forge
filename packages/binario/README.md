@@ -15,8 +15,10 @@
 - 🤖 **Agent Framework** — Multi-step reasoning with tool calling
 - 📊 **Usage Tracking** — Built-in cost optimization and rate limiting
 - 🔧 **Type-Safe** — Full TypeScript support with Zod schemas
-- ⚛️ **React Hooks** — Ready-to-use hooks for chat, streaming, and agents
+- ⚛️ **React Hooks** — Ready-to-use hooks for chat, streaming, agents, memory, and embeddings
 - 🌐 **Multi-Provider** — OpenAI, Anthropic, Google, Mistral, OpenRouter
+- 🧠 **Memory System** — Buffer, summary, and vector memory for persistent conversations
+- 🔍 **Embeddings API** — Generate embeddings with Cloudflare AI for semantic search
 
 ## 📦 Installation
 
@@ -246,6 +248,642 @@ function AgentComponent() {
     </div>
   );
 }
+```
+
+### useBinarioCompletion
+
+Simple completions without chat history management:
+
+```tsx
+import { useBinarioCompletion } from 'binario/react';
+
+function CompletionComponent() {
+  const { 
+    result, 
+    isLoading, 
+    error,
+    complete,
+    reset 
+  } = useBinarioCompletion({
+    apiKey: 'bsk_your_api_key',
+    model: 'gpt-4',
+    temperature: 0.7,
+  });
+
+  return (
+    <div>
+      <button onClick={() => complete('Explain quantum computing in simple terms')}>
+        Generate
+      </button>
+      {isLoading && <div>Generating...</div>}
+      {result && <div className="result">{result.content}</div>}
+      {error && <div className="error">{error.message}</div>}
+      <button onClick={reset}>Reset</button>
+    </div>
+  );
+}
+```
+
+### useBinarioStructured
+
+Type-safe structured outputs with Zod schemas:
+
+```tsx
+import { useBinarioStructured } from 'binario/react';
+import { z } from 'zod';
+
+const ProductSchema = z.object({
+  name: z.string(),
+  price: z.number(),
+  category: z.enum(['electronics', 'clothing', 'food']),
+  inStock: z.boolean(),
+});
+
+function StructuredComponent() {
+  const { 
+    data, 
+    isLoading, 
+    error,
+    extract 
+  } = useBinarioStructured<z.infer<typeof ProductSchema>>({
+    apiKey: 'bsk_your_api_key',
+    schema: ProductSchema,
+  });
+
+  return (
+    <div>
+      <button onClick={() => extract('iPhone 15 Pro, $999, electronics, in stock')}>
+        Extract Product
+      </button>
+      {data && (
+        <div>
+          <p>Name: {data.name}</p>
+          <p>Price: ${data.price}</p>
+          <p>Category: {data.category}</p>
+          <p>In Stock: {data.inStock ? 'Yes' : 'No'}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### useBinarioTools
+
+Tool calling with automatic execution:
+
+```tsx
+import { useBinarioTools } from 'binario/react';
+import { z } from 'zod';
+
+function ToolsComponent() {
+  const { 
+    messages,
+    toolCalls,
+    isExecuting,
+    sendMessage,
+  } = useBinarioTools({
+    apiKey: 'bsk_your_api_key',
+    tools: {
+      get_weather: {
+        description: 'Get weather for a location',
+        parameters: z.object({
+          location: z.string(),
+        }),
+        execute: async ({ location }) => {
+          return { temperature: 22, condition: 'sunny', location };
+        },
+      },
+      calculate: {
+        description: 'Perform calculations',
+        parameters: z.object({
+          expression: z.string(),
+        }),
+        execute: async ({ expression }) => {
+          return { result: eval(expression) };
+        },
+      },
+    },
+  });
+
+  return (
+    <div>
+      <button onClick={() => sendMessage('What is the weather in Paris?')}>
+        Ask
+      </button>
+      {toolCalls.map((call, i) => (
+        <div key={i}>Tool: {call.name} → {JSON.stringify(call.result)}</div>
+      ))}
+    </div>
+  );
+}
+```
+
+### useBinarioMemory
+
+Memory management for persistent conversations:
+
+```tsx
+import { useBinarioMemory } from 'binario/react';
+
+function MemoryComponent() {
+  const { 
+    messages,
+    context,
+    addMessage,
+    getContext,
+    clear,
+    isLoading,
+    tokenCount,
+  } = useBinarioMemory({
+    type: 'buffer',
+    maxMessages: 50,
+    maxTokens: 4000,
+  });
+
+  // Add messages
+  const handleSend = async (content: string) => {
+    await addMessage({ role: 'user', content });
+    // Get AI response and add it
+    await addMessage({ role: 'assistant', content: 'Response...' });
+  };
+
+  return (
+    <div>
+      <div>Messages: {messages.length}</div>
+      <div>Tokens: {tokenCount}</div>
+      <button onClick={clear}>Clear Memory</button>
+    </div>
+  );
+}
+```
+
+### useBinarioChatWithMemory
+
+Chat with automatic persistent memory:
+
+```tsx
+import { useBinarioChatWithMemory } from 'binario/react';
+
+function PersistentChatComponent() {
+  const { 
+    messages,
+    sendMessage,
+    isLoading,
+    error,
+    summary,
+    memoryStats,
+    clearMemory,
+  } = useBinarioChatWithMemory({
+    apiKey: 'bsk_your_api_key',
+    memoryType: 'summary-buffer', // 'buffer' | 'summary' | 'summary-buffer' | 'vector'
+    memoryOptions: {
+      maxMessages: 20,
+      summarizeThreshold: 10,
+    },
+    systemPrompt: 'You are a helpful assistant with memory.',
+  });
+
+  return (
+    <div>
+      <div className="stats">
+        <span>Messages in memory: {memoryStats.messageCount}</span>
+        <span>Tokens used: {memoryStats.tokenCount}</span>
+      </div>
+      
+      {summary && (
+        <div className="summary">
+          <strong>Conversation summary:</strong> {summary}
+        </div>
+      )}
+      
+      <div className="messages">
+        {messages.map((msg, i) => (
+          <div key={i} className={msg.role}>{msg.content}</div>
+        ))}
+      </div>
+      
+      <input 
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            sendMessage(e.currentTarget.value);
+            e.currentTarget.value = '';
+          }
+        }}
+      />
+      
+      <button onClick={clearMemory}>Clear Memory</button>
+    </div>
+  );
+}
+```
+
+### useBinarioEmbed
+
+Generate embeddings for semantic operations:
+
+```tsx
+import { useBinarioEmbed } from 'binario/react';
+
+function EmbeddingsComponent() {
+  const { 
+    embed,
+    embedMany,
+    similarity,
+    findSimilar,
+    isLoading,
+    error,
+  } = useBinarioEmbed({
+    model: 'bge-base-en-v1.5',
+    cacheResults: true,
+  });
+
+  // Generate single embedding
+  const handleEmbed = async () => {
+    const result = await embed('Hello, world!');
+    console.log('Embedding dimensions:', result.embedding.length);
+  };
+
+  // Generate batch embeddings
+  const handleBatchEmbed = async () => {
+    const results = await embedMany([
+      'First text',
+      'Second text',
+      'Third text',
+    ]);
+    console.log('Generated embeddings:', results.embeddings.length);
+  };
+
+  // Calculate similarity between texts
+  const handleSimilarity = async () => {
+    const score = await similarity(
+      'I love programming',
+      'Coding is my passion'
+    );
+    console.log('Similarity score:', score); // ~0.85
+  };
+
+  // Find similar texts
+  const handleFindSimilar = async () => {
+    const documents = [
+      'JavaScript is a programming language',
+      'Python is great for data science',
+      'The weather is nice today',
+      'React is a UI library',
+    ];
+    
+    const similar = await findSimilar('frontend development', documents, {
+      topK: 2,
+      minScore: 0.5,
+    });
+    
+    console.log('Similar documents:', similar);
+    // [{ text: 'React is a UI library', score: 0.78 }, ...]
+  };
+
+  return (
+    <div>
+      <button onClick={handleEmbed}>Generate Embedding</button>
+      <button onClick={handleBatchEmbed}>Batch Embed</button>
+      <button onClick={handleSimilarity}>Check Similarity</button>
+      <button onClick={handleFindSimilar}>Find Similar</button>
+      {isLoading && <div>Processing...</div>}
+    </div>
+  );
+}
+```
+
+### useBinarioSemanticSearch
+
+Full semantic search solution with document management:
+
+```tsx
+import { useBinarioSemanticSearch } from 'binario/react';
+
+function SemanticSearchComponent() {
+  const { 
+    addDocument,
+    addDocuments,
+    search,
+    removeDocument,
+    clear,
+    documentCount,
+    isLoading,
+  } = useBinarioSemanticSearch({
+    model: 'bge-base-en-v1.5',
+  });
+
+  // Add documents to the index
+  const handleAddDocuments = async () => {
+    await addDocuments([
+      { id: 'doc1', content: 'React is a JavaScript library for building UIs' },
+      { id: 'doc2', content: 'Vue.js is a progressive JavaScript framework' },
+      { id: 'doc3', content: 'Angular is a platform for building web apps' },
+      { id: 'doc4', content: 'Python is popular for machine learning' },
+    ]);
+  };
+
+  // Search for similar documents
+  const handleSearch = async () => {
+    const results = await search('frontend framework for web development', {
+      maxResults: 3,
+      minScore: 0.5,
+    });
+    
+    console.log('Search results:', results);
+    // [
+    //   { id: 'doc3', content: 'Angular...', score: 0.82 },
+    //   { id: 'doc1', content: 'React...', score: 0.79 },
+    //   { id: 'doc2', content: 'Vue.js...', score: 0.77 },
+    // ]
+  };
+
+  return (
+    <div>
+      <div>Documents indexed: {documentCount}</div>
+      <button onClick={handleAddDocuments}>Add Documents</button>
+      <button onClick={handleSearch}>Search</button>
+      <button onClick={() => removeDocument('doc1')}>Remove doc1</button>
+      <button onClick={clear}>Clear Index</button>
+    </div>
+  );
+}
+```
+
+## 🧠 Memory System
+
+The Memory System provides persistent conversation context with multiple strategies for different use cases.
+
+### Memory Types
+
+| Type | Description | Best For |
+|------|-------------|----------|
+| `buffer` | Sliding window of recent messages | Simple chatbots, short conversations |
+| `summary` | LLM-powered summarization | Long conversations, context compression |
+| `summary-buffer` | Hybrid (buffer + summary) | Balanced memory with both recent and historical context |
+| `vector` | Semantic search with embeddings | RAG, document Q&A, knowledge retrieval |
+
+### BufferMemory
+
+Keeps a sliding window of the most recent messages:
+
+```typescript
+import { createMemory } from 'binario';
+
+const memory = createMemory({
+  type: 'buffer',
+  options: {
+    maxMessages: 50,    // Keep last 50 messages
+    maxTokens: 4000,    // Or limit by token count
+  },
+});
+
+// Add messages
+await memory.add({ role: 'user', content: 'Hello!' });
+await memory.add({ role: 'assistant', content: 'Hi there!' });
+
+// Get context for AI
+const context = await memory.getContext();
+console.log(context.messages); // Recent messages
+console.log(context.tokenCount); // Approximate tokens
+```
+
+### SummaryMemory
+
+Automatically summarizes conversations when they exceed a threshold:
+
+```typescript
+import { createMemory } from 'binario';
+
+const memory = createMemory({
+  type: 'summary',
+  options: {
+    summarizeThreshold: 20,  // Summarize after 20 messages
+    summaryMaxTokens: 500,   // Max tokens for summary
+  },
+});
+
+// Add messages as usual
+await memory.add({ role: 'user', content: 'Tell me about Paris' });
+await memory.add({ role: 'assistant', content: 'Paris is the capital of France...' });
+
+// Get context includes summary
+const context = await memory.getContext();
+console.log(context.summary); // "User asked about Paris. Assistant explained..."
+console.log(context.messages); // Recent messages after summary
+```
+
+### SummaryBufferMemory
+
+Combines buffer memory with automatic summarization:
+
+```typescript
+import { createMemory } from 'binario';
+
+const memory = createMemory({
+  type: 'summary-buffer',
+  options: {
+    maxMessages: 10,          // Keep 10 recent messages
+    summarizeThreshold: 20,   // Summarize when total exceeds 20
+    summaryMaxTokens: 500,
+  },
+});
+
+// Best of both worlds
+const context = await memory.getContext();
+console.log(context.summary);   // Summarized older context
+console.log(context.messages);  // Recent 10 messages
+```
+
+### VectorMemory
+
+Semantic retrieval for relevant context:
+
+```typescript
+import { createMemory } from 'binario';
+
+const memory = createMemory({
+  type: 'vector',
+  options: {
+    topK: 5,           // Retrieve top 5 relevant messages
+    minScore: 0.7,     // Minimum similarity threshold
+    embeddings: embeddingsProvider, // Your embeddings provider
+  },
+});
+
+// Add messages (embeddings generated automatically)
+await memory.add({ role: 'user', content: 'How do I deploy to Cloudflare?' });
+await memory.add({ role: 'assistant', content: 'Use wrangler deploy command...' });
+
+// Search retrieves semantically relevant messages
+const results = await memory.search('cloudflare deployment');
+// Returns messages about deployment, even if exact words don't match
+```
+
+### Storage Backends
+
+Memory supports multiple storage backends:
+
+```typescript
+import { 
+  createMemory, 
+  InMemoryStore, 
+  LocalStorageStore, 
+  CloudflareKVStore 
+} from 'binario';
+
+// In-Memory (default, development)
+const memoryDev = createMemory({
+  type: 'buffer',
+  store: new InMemoryStore(),
+});
+
+// LocalStorage (browser persistence)
+const memoryBrowser = createMemory({
+  type: 'buffer',
+  store: new LocalStorageStore('my-chat-'),
+});
+
+// Cloudflare KV (production, distributed)
+const memoryProd = createMemory({
+  type: 'buffer',
+  store: new CloudflareKVStore(env.CHAT_KV),
+});
+```
+
+## 🔍 Embeddings API
+
+Generate text embeddings for semantic search, similarity, and RAG applications.
+
+### CloudflareEmbeddings
+
+Use Cloudflare Workers AI for embeddings:
+
+```typescript
+import { CloudflareEmbeddings, createCloudflareEmbeddings } from 'binario';
+
+// With Workers AI binding (recommended in Workers)
+const embeddings = new CloudflareEmbeddings({
+  binding: env.AI,
+  model: 'bge-base-en-v1.5',
+});
+
+// With REST API (for external use)
+const embeddings = createCloudflareEmbeddings({
+  accountId: process.env.CF_ACCOUNT_ID,
+  apiKey: process.env.CF_API_KEY,
+  model: 'bge-large-en-v1.5',
+});
+```
+
+### Available Models
+
+| Model | Dimensions | Use Case |
+|-------|------------|----------|
+| `bge-small-en-v1.5` | 384 | Fast, lightweight |
+| `bge-base-en-v1.5` | 768 | Balanced (default) |
+| `bge-large-en-v1.5` | 1024 | Highest quality |
+
+### Generate Embeddings
+
+```typescript
+// Single embedding
+const result = await embeddings.embed('Hello, world!');
+console.log(result.embedding);  // Float32Array(768)
+console.log(result.model);      // 'bge-base-en-v1.5'
+
+// Batch embeddings (more efficient)
+const batch = await embeddings.embedMany([
+  'First document',
+  'Second document',
+  'Third document',
+]);
+console.log(batch.embeddings.length); // 3
+```
+
+### Similarity Search
+
+```typescript
+// Calculate cosine similarity between two embeddings
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// Find similar documents
+const query = await embeddings.embed('machine learning');
+const docs = await embeddings.embedMany([
+  'artificial intelligence and neural networks',
+  'cooking recipes for beginners',
+  'deep learning models',
+]);
+
+const similarities = docs.embeddings.map((emb, i) => ({
+  index: i,
+  score: cosineSimilarity(query.embedding, emb),
+}));
+
+similarities.sort((a, b) => b.score - a.score);
+console.log(similarities);
+// [{ index: 2, score: 0.89 }, { index: 0, score: 0.82 }, { index: 1, score: 0.12 }]
+```
+
+### RAG (Retrieval Augmented Generation)
+
+```typescript
+import { Binario, CloudflareEmbeddings, createMemory } from 'binario';
+
+// Setup
+const client = new Binario('bsk_your_api_key');
+const embeddings = new CloudflareEmbeddings({ binding: env.AI });
+
+// Create vector memory for documents
+const memory = createMemory({
+  type: 'vector',
+  options: {
+    topK: 3,
+    embeddings,
+  },
+});
+
+// Index your documents
+const documents = [
+  'Binario is an AI SDK for Cloudflare Workers',
+  'It supports multiple AI providers including OpenAI and Anthropic',
+  'The Memory System provides persistent conversation context',
+  'Embeddings can be generated using Cloudflare Workers AI',
+];
+
+for (const doc of documents) {
+  await memory.add({ role: 'system', content: doc });
+}
+
+// Query with RAG
+async function queryWithRAG(question: string) {
+  // Retrieve relevant context
+  const results = await memory.search(question);
+  const context = results.map(r => r.content).join('\n');
+  
+  // Generate answer with context
+  const response = await client.chat([
+    { role: 'system', content: `Answer based on this context:\n${context}` },
+    { role: 'user', content: question },
+  ]);
+  
+  return response.content;
+}
+
+const answer = await queryWithRAG('What AI providers does Binario support?');
+// "Binario supports multiple AI providers including OpenAI and Anthropic."
 ```
 
 ## 🤖 Agent Framework
