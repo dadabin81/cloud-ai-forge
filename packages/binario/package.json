@@ -58,6 +58,16 @@
         "types": "./dist/cloudflare.d.cts",
         "default": "./dist/cloudflare.cjs"
       }
+    },
+    "./memory": {
+      "import": {
+        "types": "./dist/memory.d.ts",
+        "default": "./dist/memory.js"
+      },
+      "require": {
+        "types": "./dist/memory.d.cts",
+        "default": "./dist/memory.cjs"
+      }
     }
   },
   "files": [
@@ -89,7 +99,9 @@
     "typescript": "^5.3.0",
     "@types/node": "^20.0.0",
     "vitest": "^1.6.0",
-    "@vitest/coverage-v8": "^1.6.0"
+    "@vitest/coverage-v8": "^1.6.0",
+    "@testing-library/react": "^14.0.0",
+    "@types/react": "^18.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
