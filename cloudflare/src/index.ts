@@ -2,11 +2,14 @@
  * Binario API - Cloudflare Worker
  * Production-ready API gateway for AI chat and agents
  * Now with Cloudflare Agents SDK - WebSocket support and persistent state
- * And Vectorize for RAG
+ * Vectorize for RAG, and Workflows for multi-step execution
  */
 
 // Re-export the BinarioAgent Durable Object
 export { BinarioAgent } from './agent';
+
+// Re-export Workflow classes
+export { ResearchWorkflow, RAGWorkflow } from './workflows';
 
 // Import RAG utilities
 import {
@@ -27,6 +30,8 @@ export interface Env {
   KV: KVNamespace;
   BINARIO_AGENT: DurableObjectNamespace;
   VECTORIZE_INDEX: VectorizeIndex;
+  RESEARCH_WORKFLOW: Workflow;
+  RAG_WORKFLOW: Workflow;
   OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
@@ -139,6 +144,11 @@ export default {
         return await handleRagEndpoint(request, env, path);
       }
 
+      // ============ Workflow Endpoints ============
+      if (path.startsWith('/v1/workflows/')) {
+        return await handleWorkflowEndpoint(request, env, path);
+      }
+
       // ============ Public Endpoints ============
       if (path === '/health') {
         return jsonResponse({ 
@@ -146,6 +156,7 @@ export default {
           timestamp: new Date().toISOString(), 
           agents: true,
           rag: true,
+          workflows: true,
         });
       }
 
@@ -1769,6 +1780,230 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
     console.error('RAG error:', error);
     return jsonError(
       error instanceof Error ? error.message : 'RAG operation failed',
+      500
+    );
+  }
+}
+
+// ============ Workflow Endpoints Handler ============
+
+interface WorkflowRunRequest {
+  type: 'research' | 'rag';
+  payload: Record<string, unknown>;
+}
+
+async function handleWorkflowEndpoint(request: Request, env: Env, path: string): Promise<Response> {
+  // Workflow endpoints require API key authentication
+  const apiKey = request.headers.get('X-API-Key') || 
+                 request.headers.get('Authorization')?.replace('Bearer ', '');
+
+  if (!apiKey) {
+    return jsonError('API key required', 401);
+  }
+
+  const keyInfo = await validateApiKey(env, apiKey);
+  if (!keyInfo) {
+    return jsonError('Invalid API key', 401);
+  }
+
+  // Check rate limits
+  const rateLimitResult = await checkRateLimit(env, keyInfo);
+  if (!rateLimitResult.allowed) {
+    return jsonError('Rate limit exceeded', 429);
+  }
+
+  try {
+    // POST /v1/workflows/run - Start a new workflow
+    if (path === '/v1/workflows/run' && request.method === 'POST') {
+      const body = await request.json() as WorkflowRunRequest;
+      
+      if (!body.type) {
+        return jsonError('Workflow type is required', 400);
+      }
+
+      let instance: WorkflowInstance;
+      const instanceId = crypto.randomUUID();
+
+      switch (body.type) {
+        case 'research':
+          instance = await env.RESEARCH_WORKFLOW.create({
+            id: instanceId,
+            params: {
+              ...body.payload,
+              userId: keyInfo.userId,
+            },
+          });
+          break;
+
+        case 'rag':
+          instance = await env.RAG_WORKFLOW.create({
+            id: instanceId,
+            params: {
+              ...body.payload,
+              userId: keyInfo.userId,
+            },
+          });
+          break;
+
+        default:
+          return jsonError(`Unknown workflow type: ${body.type}`, 400);
+      }
+
+      // Track usage
+      await trackUsage(env, keyInfo, 'workflow', 100);
+
+      return jsonResponse({
+        instanceId: instance.id,
+        type: body.type,
+        status: 'running',
+        createdAt: new Date().toISOString(),
+      }, 201);
+    }
+
+    // GET /v1/workflows/:instanceId - Get workflow status
+    const statusMatch = path.match(/^\/v1\/workflows\/([a-f0-9-]+)$/);
+    if (statusMatch && request.method === 'GET') {
+      const instanceId = statusMatch[1];
+
+      // Try to get status from both workflow types
+      let instance: WorkflowInstance | null = null;
+      let workflowType = '';
+
+      try {
+        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+        workflowType = 'research';
+      } catch {
+        try {
+          instance = await env.RAG_WORKFLOW.get(instanceId);
+          workflowType = 'rag';
+        } catch {
+          return jsonError('Workflow instance not found', 404);
+        }
+      }
+
+      if (!instance) {
+        return jsonError('Workflow instance not found', 404);
+      }
+
+      const status = await instance.status();
+
+      return jsonResponse({
+        instanceId,
+        type: workflowType,
+        status: status.status,
+        output: status.output,
+        error: status.error,
+      });
+    }
+
+    // POST /v1/workflows/:instanceId/pause - Pause a workflow
+    const pauseMatch = path.match(/^\/v1\/workflows\/([a-f0-9-]+)\/pause$/);
+    if (pauseMatch && request.method === 'POST') {
+      const instanceId = pauseMatch[1];
+
+      let instance: WorkflowInstance | null = null;
+      try {
+        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+      } catch {
+        try {
+          instance = await env.RAG_WORKFLOW.get(instanceId);
+        } catch {
+          return jsonError('Workflow instance not found', 404);
+        }
+      }
+
+      if (!instance) {
+        return jsonError('Workflow instance not found', 404);
+      }
+
+      await instance.pause();
+      return jsonResponse({ instanceId, status: 'paused' });
+    }
+
+    // POST /v1/workflows/:instanceId/resume - Resume a workflow
+    const resumeMatch = path.match(/^\/v1\/workflows\/([a-f0-9-]+)\/resume$/);
+    if (resumeMatch && request.method === 'POST') {
+      const instanceId = resumeMatch[1];
+
+      let instance: WorkflowInstance | null = null;
+      try {
+        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+      } catch {
+        try {
+          instance = await env.RAG_WORKFLOW.get(instanceId);
+        } catch {
+          return jsonError('Workflow instance not found', 404);
+        }
+      }
+
+      if (!instance) {
+        return jsonError('Workflow instance not found', 404);
+      }
+
+      await instance.resume();
+      return jsonResponse({ instanceId, status: 'running' });
+    }
+
+    // POST /v1/workflows/:instanceId/terminate - Terminate a workflow
+    const terminateMatch = path.match(/^\/v1\/workflows\/([a-f0-9-]+)\/terminate$/);
+    if (terminateMatch && request.method === 'POST') {
+      const instanceId = terminateMatch[1];
+
+      let instance: WorkflowInstance | null = null;
+      try {
+        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+      } catch {
+        try {
+          instance = await env.RAG_WORKFLOW.get(instanceId);
+        } catch {
+          return jsonError('Workflow instance not found', 404);
+        }
+      }
+
+      if (!instance) {
+        return jsonError('Workflow instance not found', 404);
+      }
+
+      await instance.terminate();
+      return jsonResponse({ instanceId, status: 'terminated' });
+    }
+
+    // GET /v1/workflows/info - Get available workflows
+    if (path === '/v1/workflows/info' && request.method === 'GET') {
+      return jsonResponse({
+        workflows: [
+          {
+            type: 'research',
+            description: 'Multi-step research workflow: analyze query, search context, synthesize answer',
+            parameters: {
+              query: { type: 'string', required: true, description: 'The research query' },
+              model: { type: 'string', required: false, description: 'AI model to use' },
+              topK: { type: 'number', required: false, description: 'Number of context results' },
+              includeRag: { type: 'boolean', required: false, description: 'Include RAG search' },
+            },
+          },
+          {
+            type: 'rag',
+            description: 'Document ingestion workflow: chunk, embed, and store in vector database',
+            parameters: {
+              content: { type: 'string', required: true, description: 'Document content' },
+              documentId: { type: 'string', required: true, description: 'Unique document ID' },
+              metadata: { type: 'object', required: false, description: 'Document metadata' },
+              chunkSize: { type: 'number', required: false, description: 'Chunk size in chars' },
+              chunkOverlap: { type: 'number', required: false, description: 'Overlap between chunks' },
+            },
+          },
+        ],
+        features: ['run', 'status', 'pause', 'resume', 'terminate'],
+      });
+    }
+
+    return jsonError('Workflow endpoint not found', 404);
+
+  } catch (error) {
+    console.error('Workflow error:', error);
+    return jsonError(
+      error instanceof Error ? error.message : 'Workflow operation failed',
       500
     );
   }

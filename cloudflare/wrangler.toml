@@ -40,6 +40,17 @@ class_name = "BinarioAgent"
 tag = "v1"
 new_sqlite_classes = ["BinarioAgent"]
 
+# ============ Workflows for Multi-step Agents ============
+[[workflows]]
+binding = "RESEARCH_WORKFLOW"
+name = "research-workflow"
+class_name = "ResearchWorkflow"
+
+[[workflows]]
+binding = "RAG_WORKFLOW"
+name = "rag-workflow"
+class_name = "RAGWorkflow"
+
 # Development environment
 [env.development]
 name = "binario-api-dev"
