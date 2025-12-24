@@ -16,14 +16,8 @@
   ],
   "author": "Binario Team",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/binario-ai/binario"
-  },
   "homepage": "https://binario.dev",
-  "bugs": {
-    "url": "https://github.com/binario-ai/binario/issues"
-  },
+  "sideEffects": false,
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

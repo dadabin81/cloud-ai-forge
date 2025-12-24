@@ -18,7 +18,7 @@ const features = [
   {
     icon: DollarSign,
     title: 'Free Llama 3',
-    description: 'Use Llama 3.3 70B completely free via Cloudflare Workers AI. 10,000 neurons/day included.',
+    description: 'Use Llama 3 models via Cloudflare Workers AI. 10,000 neurons/day free (~300-500 tokens).',
     highlight: true,
   },
   {
@@ -29,17 +29,17 @@ const features = [
   {
     icon: Bot,
     title: 'Agent Framework',
-    description: 'Multi-step reasoning agents with tool calling and dependency injection. Like LangChain but simpler.',
+    description: 'Multi-step reasoning agents with tool calling. Uses Hermes 2 Pro for function calling.',
   },
   {
     icon: Layers,
     title: 'Multi-Provider',
-    description: 'Seamlessly switch between OpenAI, Anthropic, Google, Cloudflare, Mistral, and Cohere.',
+    description: 'Cloudflare (built-in), OpenAI, Anthropic, Google. External providers require your own API keys.',
   },
   {
     icon: Zap,
     title: 'Edge-Ready Streaming',
-    description: 'Native SSE streaming optimized for Cloudflare Workers with V8 isolate security.',
+    description: 'Native SSE streaming optimized for Cloudflare Workers with real-time token delivery.',
   },
   {
     icon: Shield,
@@ -48,8 +48,8 @@ const features = [
   },
   {
     icon: Database,
-    title: 'Smart Caching',
-    description: 'Built-in LRU cache with configurable TTL to reduce latency and API costs.',
+    title: 'Response Caching',
+    description: 'KV-based LRU cache to reduce latency and API costs. Configurable TTL per request.',
   },
   {
     icon: RefreshCw,
@@ -64,17 +64,17 @@ const features = [
   {
     icon: Workflow,
     title: 'Tool Calling',
-    description: 'Native support for function calling and tool use across all compatible providers.',
+    description: 'Native support for function calling. Use @hf/nousresearch/hermes-2-pro-mistral-7b.',
   },
   {
     icon: Cpu,
     title: 'Structured Output',
-    description: 'Zod schema validation for reliable structured responses from any model.',
+    description: 'JSON Schema validation for reliable structured responses. Works with all Cloudflare models.',
   },
   {
     icon: Globe,
-    title: 'Framework Agnostic',
-    description: 'Works with React, Vue, Svelte, or vanilla JS. Use it anywhere JavaScript runs.',
+    title: 'Embeddings API',
+    description: 'Generate embeddings with @cf/baai/bge-base-en-v1.5 for semantic search and RAG.',
   },
 ];
 
