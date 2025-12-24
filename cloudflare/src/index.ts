@@ -35,12 +35,32 @@ interface ChatMessage {
   content: string;
 }
 
+interface JsonSchema {
+  type: string;
+  properties?: Record<string, any>;
+  required?: string[];
+  items?: any;
+  enum?: string[];
+  description?: string;
+  [key: string]: any;
+}
+
 interface ChatRequest {
   messages: ChatMessage[];
   model?: string;
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
+  response_format?: { type: 'text' | 'json_object'; schema?: JsonSchema };
+}
+
+interface StructuredRequest {
+  messages: ChatMessage[];
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  schema: JsonSchema;
+  retries?: number;
 }
 
 interface ApiKeyInfo {
@@ -173,6 +193,9 @@ export default {
         
         case '/v1/chat/stream':
           return await handleChatStream(request, env, keyInfo);
+        
+        case '/v1/structured':
+          return await handleStructured(request, env, keyInfo);
         
         case '/v1/agents/run':
           return await handleAgentRun(request, env, keyInfo);
@@ -410,11 +433,49 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
   const model = body.model || MODEL_ROUTING[keyInfo.plan];
 
   try {
+    // Prepare messages with JSON instruction if response_format is json_object
+    let messages = body.messages;
+    if (body.response_format?.type === 'json_object') {
+      const schemaInstructions = body.response_format.schema 
+        ? `\n\nYou must respond with valid JSON that conforms to this schema:\n${JSON.stringify(body.response_format.schema, null, 2)}`
+        : '\n\nYou must respond with valid JSON.';
+      
+      messages = messages.map((msg, i) => 
+        i === 0 && msg.role === 'system' 
+          ? { ...msg, content: msg.content + schemaInstructions }
+          : msg
+      );
+      
+      // If no system message, add one
+      if (messages[0]?.role !== 'system') {
+        messages = [{ role: 'system', content: `You are a helpful assistant.${schemaInstructions}` }, ...messages];
+      }
+    }
+
     const response = await env.AI.run(model as any, {
-      messages: body.messages,
+      messages,
       temperature: body.temperature ?? 0.7,
       max_tokens: body.max_tokens ?? 1024,
     });
+
+    let content = (response as any).response || '';
+    
+    // Validate JSON if response_format is json_object
+    if (body.response_format?.type === 'json_object') {
+      const extracted = extractJsonFromResponse(content);
+      if (!extracted.success) {
+        return jsonError(`Failed to parse JSON response: ${extracted.error}`, 422);
+      }
+      
+      if (body.response_format.schema) {
+        const validation = validateJsonSchema(extracted.data, body.response_format.schema);
+        if (!validation.valid) {
+          return jsonError(`JSON validation failed: ${validation.errors.join(', ')}`, 422);
+        }
+      }
+      
+      content = JSON.stringify(extracted.data);
+    }
 
     await trackUsage(env, keyInfo, model, body.messages, response);
 
@@ -425,13 +486,13 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
         index: 0,
         message: {
           role: 'assistant',
-          content: (response as any).response || '',
+          content,
         },
         finish_reason: 'stop',
       }],
       usage: {
         prompt_tokens: estimateTokens(body.messages),
-        completion_tokens: estimateTokens((response as any).response || ''),
+        completion_tokens: estimateTokens(content),
       },
     });
   } catch (error) {
@@ -441,6 +502,89 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
     }
     throw error;
   }
+}
+
+// ============ Structured Output Handler ============
+
+async function handleStructured(request: Request, env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
+  const body = await request.json() as StructuredRequest;
+  
+  if (!body.schema) {
+    return jsonError('Schema is required for structured output', 400);
+  }
+  
+  const model = body.model || MODEL_ROUTING[keyInfo.plan];
+  const maxRetries = body.retries ?? 2;
+  
+  const schemaInstructions = `You must respond with valid JSON that strictly conforms to this schema:
+${JSON.stringify(body.schema, null, 2)}
+
+IMPORTANT:
+- Output ONLY valid JSON, no markdown code blocks
+- Follow all type constraints exactly
+- Include all required fields
+- Do not add fields not in the schema`;
+
+  let messages = body.messages.map((msg, i) => 
+    i === 0 && msg.role === 'system' 
+      ? { ...msg, content: msg.content + '\n\n' + schemaInstructions }
+      : msg
+  );
+  
+  if (messages[0]?.role !== 'system') {
+    messages = [{ role: 'system', content: schemaInstructions }, ...messages];
+  }
+
+  let lastError = '';
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await env.AI.run(model as any, {
+        messages: attempt === 0 ? messages : [
+          ...messages,
+          { role: 'assistant', content: lastError },
+          { role: 'user', content: `Your previous response was invalid: ${lastError}. Please try again with valid JSON.` }
+        ],
+        temperature: body.temperature ?? 0.3, // Lower temperature for structured output
+        max_tokens: body.max_tokens ?? 2048,
+      });
+
+      const content = (response as any).response || '';
+      const extracted = extractJsonFromResponse(content);
+      
+      if (!extracted.success) {
+        lastError = `Failed to parse JSON: ${extracted.error}`;
+        console.log(`Structured output attempt ${attempt + 1} failed:`, lastError);
+        continue;
+      }
+      
+      const validation = validateJsonSchema(extracted.data, body.schema);
+      if (!validation.valid) {
+        lastError = `Schema validation failed: ${validation.errors.join(', ')}`;
+        console.log(`Structured output attempt ${attempt + 1} failed:`, lastError);
+        continue;
+      }
+      
+      await trackUsage(env, keyInfo, model, messages, response);
+      
+      return jsonResponse({
+        id: `structured-${Date.now()}`,
+        model,
+        data: extracted.data,
+        raw: content,
+        attempts: attempt + 1,
+        usage: {
+          prompt_tokens: estimateTokens(messages),
+          completion_tokens: estimateTokens(content),
+        },
+      });
+    } catch (error) {
+      lastError = (error as Error).message;
+      console.error(`Structured output attempt ${attempt + 1} error:`, error);
+    }
+  }
+  
+  return jsonError(`Failed to generate valid structured output after ${maxRetries + 1} attempts: ${lastError}`, 422);
 }
 
 async function handleChatStream(request: Request, env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
@@ -493,10 +637,22 @@ async function handleAgentRun(request: Request, env: Env, keyInfo: ApiKeyInfo): 
     prompt: string;
     tools?: any[];
     maxIterations?: number;
+    outputSchema?: JsonSchema;
   };
 
   const model = MODEL_ROUTING[keyInfo.plan];
+  
+  // Build system prompt with schema if provided
+  let systemPrompt = 'You are a helpful AI assistant that can use tools to help answer questions.';
+  if (body.outputSchema) {
+    systemPrompt += `\n\nWhen you provide your final answer (not tool calls), you must respond with valid JSON that conforms to this schema:
+${JSON.stringify(body.outputSchema, null, 2)}
+
+Output ONLY valid JSON for your final response, no markdown code blocks.`;
+  }
+  
   const messages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
     { role: 'user', content: body.prompt }
   ];
 
@@ -511,9 +667,27 @@ async function handleAgentRun(request: Request, env: Env, keyInfo: ApiKeyInfo): 
     }) as any;
 
     if (!response.tool_calls || response.tool_calls.length === 0) {
+      let result = response.response;
+      let structuredData = null;
+      
+      // Parse and validate output schema if provided
+      if (body.outputSchema) {
+        const extracted = extractJsonFromResponse(result);
+        if (extracted.success) {
+          const validation = validateJsonSchema(extracted.data, body.outputSchema);
+          if (validation.valid) {
+            structuredData = extracted.data;
+            result = JSON.stringify(extracted.data);
+          } else {
+            console.warn('Agent output schema validation failed:', validation.errors);
+          }
+        }
+      }
+      
       return jsonResponse({
         id: `agent-${Date.now()}`,
-        result: response.response,
+        result,
+        data: structuredData,
         toolResults,
         iterations,
       });
@@ -862,4 +1036,125 @@ function jsonError(message: string, status: number, extraHeaders: Record<string,
     status,
     headers: { ...corsHeaders, ...extraHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+// ============ JSON Schema Validation Utilities ============
+
+function extractJsonFromResponse(content: string): { success: true; data: any } | { success: false; error: string } {
+  try {
+    // Try to extract JSON from markdown code blocks
+    let jsonStr = content.trim();
+    
+    // Match ```json ... ``` or ``` ... ```
+    const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
+    }
+    
+    // Try to find JSON object or array
+    const jsonMatch = jsonStr.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+    
+    const parsed = JSON.parse(jsonStr);
+    return { success: true, data: parsed };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+function validateJsonSchema(data: any, schema: JsonSchema): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  function validate(value: any, schemaNode: JsonSchema, path: string): void {
+    if (schemaNode.type) {
+      const actualType = Array.isArray(value) ? 'array' : typeof value;
+      
+      if (schemaNode.type === 'integer') {
+        if (typeof value !== 'number' || !Number.isInteger(value)) {
+          errors.push(`${path}: expected integer, got ${actualType}`);
+        }
+      } else if (schemaNode.type === 'number') {
+        if (typeof value !== 'number') {
+          errors.push(`${path}: expected number, got ${actualType}`);
+        }
+      } else if (schemaNode.type !== actualType) {
+        errors.push(`${path}: expected ${schemaNode.type}, got ${actualType}`);
+      }
+    }
+    
+    // Validate enum
+    if (schemaNode.enum && !schemaNode.enum.includes(value)) {
+      errors.push(`${path}: value must be one of [${schemaNode.enum.join(', ')}]`);
+    }
+    
+    // Validate object properties
+    if (schemaNode.type === 'object' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      // Check required fields
+      if (schemaNode.required) {
+        for (const field of schemaNode.required) {
+          if (!(field in value)) {
+            errors.push(`${path}.${field}: required field is missing`);
+          }
+        }
+      }
+      
+      // Validate properties
+      if (schemaNode.properties) {
+        for (const [key, propSchema] of Object.entries(schemaNode.properties)) {
+          if (key in value) {
+            validate(value[key], propSchema as JsonSchema, `${path}.${key}`);
+          }
+        }
+      }
+    }
+    
+    // Validate array items
+    if (schemaNode.type === 'array' && Array.isArray(value)) {
+      if (schemaNode.items) {
+        value.forEach((item, index) => {
+          validate(item, schemaNode.items as JsonSchema, `${path}[${index}]`);
+        });
+      }
+      
+      // Min/max items
+      if (schemaNode.minItems !== undefined && value.length < schemaNode.minItems) {
+        errors.push(`${path}: array must have at least ${schemaNode.minItems} items`);
+      }
+      if (schemaNode.maxItems !== undefined && value.length > schemaNode.maxItems) {
+        errors.push(`${path}: array must have at most ${schemaNode.maxItems} items`);
+      }
+    }
+    
+    // Validate string constraints
+    if (schemaNode.type === 'string' && typeof value === 'string') {
+      if (schemaNode.minLength !== undefined && value.length < schemaNode.minLength) {
+        errors.push(`${path}: string must be at least ${schemaNode.minLength} characters`);
+      }
+      if (schemaNode.maxLength !== undefined && value.length > schemaNode.maxLength) {
+        errors.push(`${path}: string must be at most ${schemaNode.maxLength} characters`);
+      }
+      if (schemaNode.pattern) {
+        const regex = new RegExp(schemaNode.pattern);
+        if (!regex.test(value)) {
+          errors.push(`${path}: string must match pattern ${schemaNode.pattern}`);
+        }
+      }
+    }
+    
+    // Validate number constraints
+    if ((schemaNode.type === 'number' || schemaNode.type === 'integer') && typeof value === 'number') {
+      if (schemaNode.minimum !== undefined && value < schemaNode.minimum) {
+        errors.push(`${path}: number must be >= ${schemaNode.minimum}`);
+      }
+      if (schemaNode.maximum !== undefined && value > schemaNode.maximum) {
+        errors.push(`${path}: number must be <= ${schemaNode.maximum}`);
+      }
+    }
+  }
+  
+  validate(data, schema, '$');
+  
+  return { valid: errors.length === 0, errors };
 }
