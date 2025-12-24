@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig([
-  // Main entry (core + client)
+  // Main entry (core + client + memory + embeddings)
   {
     entry: ['src/index.ts'],
     format: ['cjs', 'esm'],
@@ -27,6 +27,17 @@ export default defineConfig([
   // Cloudflare utilities entry
   {
     entry: { cloudflare: 'src/cloudflare.ts' },
+    format: ['cjs', 'esm'],
+    dts: true,
+    splitting: false,
+    sourcemap: true,
+    treeshake: true,
+    minify: false,
+    external: ['react', 'zod'],
+  },
+  // Memory entry (standalone)
+  {
+    entry: { memory: 'src/memory/index.ts' },
     format: ['cjs', 'esm'],
     dts: true,
     splitting: false,
