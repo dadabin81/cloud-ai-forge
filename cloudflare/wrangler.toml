@@ -18,12 +18,11 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "binario-db"
-database_id = "YOUR_DATABASE_ID_HERE"
+database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
 
-# KV Namespace - Replace id after running: wrangler kv:namespace create CACHE
 [[kv_namespaces]]
 binding = "KV"
-id = "YOUR_KV_NAMESPACE_ID_HERE"
+id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
 # Development environment
 [env.development]
