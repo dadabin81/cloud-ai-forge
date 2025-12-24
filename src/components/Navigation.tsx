@@ -1,13 +1,22 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Menu, X, Github, BookOpen } from 'lucide-react';
+import { Menu, X, Github, LogOut, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 import binarioLogo from '@/assets/binario-logo.png';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
 
   const scrollToSection = (id: string) => {
     setIsMenuOpen(false);
@@ -15,6 +24,11 @@ export function Navigation() {
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
   };
 
   return (
@@ -74,20 +88,44 @@ export function Navigation() {
               <Github className="w-4 h-4" />
               GitHub
             </Button>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => navigate('/dashboard')}
-            >
-              Dashboard
-            </Button>
-            <Button 
-              variant="hero" 
-              size="sm"
-              onClick={() => navigate('/docs')}
-            >
-              Get Started
-            </Button>
+            
+            {isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <User className="w-4 h-4" />
+                    {user?.email?.split('@')[0]}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => navigate('/dashboard')}>
+                    Dashboard
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => navigate('/auth')}
+                >
+                  Login
+                </Button>
+                <Button 
+                  variant="hero" 
+                  size="sm"
+                  onClick={() => navigate('/auth')}
+                >
+                  Get Started
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -135,12 +173,14 @@ export function Navigation() {
           >
             Playground
           </Link>
-          <button 
-            onClick={() => scrollToSection('examples')} 
-            className="block w-full text-left text-muted-foreground hover:text-foreground transition-colors py-2"
+          <Link 
+            to="/pricing" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
           >
-            Examples
-          </button>
+            Pricing
+          </Link>
+          
           <div className="pt-4 flex flex-col gap-3">
             <Button 
               variant="outline" 
@@ -150,16 +190,43 @@ export function Navigation() {
               <Github className="w-4 h-4" />
               GitHub
             </Button>
-            <Button 
-              variant="hero" 
-              className="w-full"
-              onClick={() => {
-                setIsMenuOpen(false);
-                navigate('/docs');
-              }}
-            >
-              Get Started
-            </Button>
+            
+            {isAuthenticated ? (
+              <>
+                <Button 
+                  variant="outline" 
+                  className="w-full"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    navigate('/dashboard');
+                  }}
+                >
+                  Dashboard
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  className="w-full"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    handleLogout();
+                  }}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <Button 
+                variant="hero" 
+                className="w-full"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  navigate('/auth');
+                }}
+              >
+                Get Started
+              </Button>
+            )}
           </div>
         </div>
       </div>
