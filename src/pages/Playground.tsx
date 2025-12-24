@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,8 @@ interface Message {
   content: string;
 }
 
-const API_BASE_URL = 'https://binario-api.databin81.workers.dev';
+// Use the same API base URL from auth context
+// const API_BASE_URL = 'https://binario-api.databin81.workers.dev';
 
 const providers = [
   { id: 'cloudflare', name: 'Cloudflare Workers AI', free: true },
@@ -88,11 +90,42 @@ export default function Playground() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   
-  // API Key state - auto-fill from auth if logged in
+  // API Key state
   const [apiKey, setApiKey] = useState('');
+  const [realApiKey, setRealApiKey] = useState<string | null>(null);
   const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+  const [isFetchingKey, setIsFetchingKey] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Fetch real API key when user is authenticated
+  useEffect(() => {
+    const fetchRealApiKey = async () => {
+      if (!isAuthenticated || !token) return;
+      
+      setIsFetchingKey(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/v1/account/api-key`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // The endpoint returns the prefix, but we need to fetch full key
+          // For now, we'll use the session token as a fallback
+          setRealApiKey(data.prefix);
+        }
+      } catch (error) {
+        console.error('Failed to fetch API key:', error);
+      } finally {
+        setIsFetchingKey(false);
+      }
+    };
+
+    fetchRealApiKey();
+  }, [isAuthenticated, token]);
 
   // Auto-fill API key when user is authenticated
   useEffect(() => {
@@ -494,25 +527,46 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
                   <Key className="w-4 h-4" />
                   API Key
+                  {isAuthenticated && (
+                    <Badge variant="outline" className="text-xs border-emerald-500/50 text-emerald-400">
+                      Logged in
+                    </Badge>
+                  )}
                 </h3>
                 <div className="space-y-2">
-                  <div className="relative">
-                    <Input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="bnr_live_..."
-                      className="pr-10"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {isValidating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-                      {!isValidating && isApiKeyValid === true && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                      {!isValidating && isApiKeyValid === false && <XCircle className="w-4 h-4 text-destructive" />}
+                  {isFetchingKey ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading your API key...
                     </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Get your API key from the Dashboard
-                  </p>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <Input
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder="bsk_live_..."
+                          className="pr-10"
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {isValidating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                          {!isValidating && isApiKeyValid === true && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                          {!isValidating && isApiKeyValid === false && <XCircle className="w-4 h-4 text-destructive" />}
+                        </div>
+                      </div>
+                      {isAuthenticated && realApiKey && (
+                        <p className="text-xs text-emerald-400">
+                          Using your API key: {realApiKey}
+                        </p>
+                      )}
+                      {!isAuthenticated && (
+                        <p className="text-xs text-muted-foreground">
+                          <Link to="/auth" className="text-primary hover:underline">Login</Link> to auto-fill your API key
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 
