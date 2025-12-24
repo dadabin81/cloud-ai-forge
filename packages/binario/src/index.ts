@@ -13,6 +13,12 @@ export { Agent, createAgent, defineTool } from './agent';
 // Schema System (Pydantic-style)
 export { createSchema, zodToJsonSchema, createTool, parseStructuredOutput, z } from './schema';
 
+// Memory System
+export * from './memory';
+
+// Embeddings
+export * from './embeddings';
+
 // Types
 export type {
   Provider,
