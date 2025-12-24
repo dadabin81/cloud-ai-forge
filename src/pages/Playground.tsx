@@ -3,6 +3,7 @@ import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { 
   Select,
   SelectContent,
@@ -25,6 +26,9 @@ import {
   Settings,
   MessageSquare,
   Layers,
+  Key,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -33,6 +37,8 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
+
+const API_BASE_URL = 'https://binario-api.databin81.workers.dev';
 
 const providers = [
   { id: 'cloudflare', name: 'Cloudflare Workers AI', free: true },
@@ -44,6 +50,7 @@ const providers = [
 
 const models: Record<string, { id: string; name: string }[]> = {
   cloudflare: [
+    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (Default)' },
     { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B (Fast)' },
     { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision' },
     { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B' },
@@ -67,36 +74,9 @@ const models: Record<string, { id: string; name: string }[]> = {
   ],
 };
 
-// Simulated responses for demo
-const simulatedResponses: Record<string, string[]> = {
-  default: [
-    "I'm a demo response from Binario! In a real implementation, this would connect to your configured AI provider.",
-    "This playground demonstrates the Binario SDK interface. Connect your API keys to get real responses!",
-    "Binario makes it easy to switch between providers. Try selecting different models from the dropdown!",
-  ],
-  code: [
-    "```typescript\nimport { createBinario } from 'binario';\n\nconst ai = createBinario({\n  providers: {\n    cloudflare: { accountId: 'your-id', apiKey: 'your-key' }\n  }\n});\n\nconst response = await ai.chat([{ role: 'user', content: 'Hello!' }]);\nconsole.log(response.content);\n```",
-    "```typescript\n// Using structured output with Zod\nconst schema = z.object({\n  name: z.string(),\n  description: z.string(),\n});\n\nconst response = await ai.chat(messages, { outputSchema: schema });\n// response.data is fully typed!\n```",
-  ],
-  json: [
-    '```json\n{\n  "name": "Binario SDK",\n  "version": "1.0.0",\n  "features": ["streaming", "agents", "schemas"],\n  "providers": 7,\n  "free_tier": true\n}\n```',
-  ],
-};
-
-function getSimulatedResponse(input: string): string {
-  const lower = input.toLowerCase();
-  if (lower.includes('code') || lower.includes('example') || lower.includes('how to')) {
-    return simulatedResponses.code[Math.floor(Math.random() * simulatedResponses.code.length)];
-  }
-  if (lower.includes('json') || lower.includes('structured')) {
-    return simulatedResponses.json[0];
-  }
-  return simulatedResponses.default[Math.floor(Math.random() * simulatedResponses.default.length)];
-}
-
 export default function Playground() {
   const [selectedProvider, setSelectedProvider] = useState('cloudflare');
-  const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.1-8b-instruct');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -105,6 +85,12 @@ export default function Playground() {
   const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  
+  // API Key state
+  const [apiKey, setApiKey] = useState('');
+  const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -118,38 +104,160 @@ export default function Playground() {
     }
   }, [selectedProvider]);
 
-  const simulateStreaming = async (response: string) => {
-    setStreamingContent('');
-    const chars = response.split('');
-    for (let i = 0; i < chars.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 15 + Math.random() * 10));
-      setStreamingContent(prev => prev + chars[i]);
+  // Validate API key when it changes
+  useEffect(() => {
+    if (!apiKey.trim()) {
+      setIsApiKeyValid(null);
+      return;
     }
-    return response;
-  };
+
+    const validateKey = async () => {
+      setIsValidating(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/v1/models`, {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+          },
+        });
+        setIsApiKeyValid(response.ok);
+      } catch {
+        setIsApiKeyValid(false);
+      } finally {
+        setIsValidating(false);
+      }
+    };
+
+    const debounce = setTimeout(validateKey, 500);
+    return () => clearTimeout(debounce);
+  }, [apiKey]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+    
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key');
+      return;
+    }
 
     const userMessage: Message = { role: 'user', content: input.trim() };
+    const allMessages: Message[] = [
+      ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+      ...messages,
+      userMessage,
+    ];
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
     setStreamingContent('');
 
+    // Create abort controller for cancellation
+    abortControllerRef.current = new AbortController();
+
     try {
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const response = getSimulatedResponse(userMessage.content);
-      await simulateStreaming(response);
-      
-      setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+      const response = await fetch(`${API_BASE_URL}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          messages: allMessages,
+          model: selectedModel,
+          stream: true,
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast.error('Invalid API key');
+          setIsApiKeyValid(false);
+          return;
+        }
+        if (response.status === 429) {
+          toast.error('Rate limit exceeded. Please wait and try again.');
+          return;
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) {
+                  fullContent += content;
+                  setStreamingContent(fullContent);
+                }
+              } catch {
+                // Non-streaming response format
+                try {
+                  const parsed = JSON.parse(chunk);
+                  const content = parsed.choices?.[0]?.message?.content;
+                  if (content) {
+                    fullContent = content;
+                    setStreamingContent(fullContent);
+                  }
+                } catch {
+                  // Ignore parse errors for partial chunks
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // If no streaming content was captured, try parsing as regular JSON
+      if (!fullContent) {
+        const text = await response.text();
+        try {
+          const parsed = JSON.parse(text);
+          fullContent = parsed.choices?.[0]?.message?.content || '';
+        } catch {
+          fullContent = text;
+        }
+      }
+
+      setMessages(prev => [...prev, { role: 'assistant', content: fullContent }]);
       setStreamingContent('');
     } catch (error) {
-      toast.error('Failed to get response');
+      if ((error as Error).name === 'AbortError') {
+        // Request was cancelled
+        if (streamingContent) {
+          setMessages(prev => [...prev, { role: 'assistant', content: streamingContent }]);
+        }
+      } else {
+        console.error('Chat error:', error);
+        toast.error('Failed to get response');
+      }
     } finally {
       setIsLoading(false);
+      setStreamingContent('');
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -178,15 +286,16 @@ export default function Playground() {
   const codeSnippet = `import { createBinario, useBinarioStream } from 'binario';
 
 const ai = createBinario({
-  providers: {
-    ${selectedProvider}: { 
-      ${selectedProvider === 'cloudflare' ? "accountId: 'your-account-id',\n      apiKey: 'your-api-key'" : "apiKey: 'your-api-key'"}
-    }
-  },
-  defaultProvider: '${selectedProvider}',
+  baseUrl: '${API_BASE_URL}',
+  apiKey: 'your-api-key', // Get from dashboard
 });
 
-// In your React component
+// Simple chat
+const response = await ai.chat([
+  { role: 'user', content: 'Hello!' }
+], { model: '${selectedModel}' });
+
+// With streaming
 const { messages, send, isStreaming } = useBinarioStream(ai, {
   model: '${selectedModel}',
 });`;
@@ -207,7 +316,7 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
               Binario <span className="gradient-text">Playground</span>
             </h1>
             <p className="text-muted-foreground">
-              Test the Binario SDK interface. Connect your API keys for real responses.
+              Test the Binario API with real AI responses. Enter your API key to get started.
             </p>
           </div>
 
@@ -234,10 +343,10 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                         <div className="space-y-2">
                           <Bot className="w-12 h-12 mx-auto text-muted-foreground/50" />
                           <p className="text-muted-foreground">
-                            Start a conversation to test Binario
+                            Start a conversation with Binario AI
                           </p>
                           <p className="text-sm text-muted-foreground/70">
-                            Try: "Show me a code example" or "Give me structured JSON"
+                            Enter your API key and send a message
                           </p>
                         </div>
                       </div>
@@ -304,17 +413,19 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                         className="min-h-[60px] resize-none"
                         disabled={isLoading}
                       />
-                      <Button
-                        onClick={handleSend}
-                        disabled={!input.trim() || isLoading}
-                        className="h-auto"
-                      >
-                        {isLoading ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
+                      {isLoading ? (
+                        <Button onClick={handleStop} variant="destructive" className="h-auto">
+                          Stop
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={handleSend}
+                          disabled={!input.trim() || !apiKey.trim()}
+                          className="h-auto"
+                        >
                           <Send className="w-5 h-5" />
-                        )}
-                      </Button>
+                        </Button>
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <div className="flex gap-2">
@@ -379,6 +490,33 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
 
             {/* Config Panel */}
             <div className="space-y-6">
+              {/* API Key Input */}
+              <div className="p-6 rounded-xl border border-border bg-secondary/20">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                  <Key className="w-4 h-4" />
+                  API Key
+                </h3>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="bnr_live_..."
+                      className="pr-10"
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isValidating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                      {!isValidating && isApiKeyValid === true && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                      {!isValidating && isApiKeyValid === false && <XCircle className="w-4 h-4 text-destructive" />}
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Get your API key from the Dashboard
+                  </p>
+                </div>
+              </div>
+
               {/* Provider Selection */}
               <div className="p-6 rounded-xl border border-border bg-secondary/20">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
@@ -433,6 +571,15 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                 <h3 className="font-semibold mb-4">Status</h3>
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">API</span>
+                    <Badge variant="outline" className={cn(
+                      "text-xs",
+                      isApiKeyValid ? "border-emerald-500/50 text-emerald-400" : "border-amber-500/50 text-amber-400"
+                    )}>
+                      {isApiKeyValid ? 'Connected' : 'Not connected'}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Provider</span>
                     <span className="font-medium">{selectedProviderData?.name}</span>
                   </div>
@@ -456,11 +603,10 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                 </div>
               </div>
 
-              {/* Note */}
-              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
-                <p className="text-sm text-amber-400/90">
-                  <strong>Demo Mode:</strong> This playground uses simulated responses. 
-                  Connect your API keys in a real implementation to get actual AI responses.
+              {/* Info */}
+              <div className="p-4 rounded-xl border border-primary/30 bg-primary/5">
+                <p className="text-sm text-primary/90">
+                  <strong>Live API:</strong> Connected to Binario at {API_BASE_URL.replace('https://', '')}
                 </p>
               </div>
             </div>
