@@ -163,10 +163,15 @@ export default function Playground() {
     setWsStatus('connecting');
 
     const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/v1/agent/ws/${conversationId}?apiKey=${effectiveApiKey}`;
+    console.log('🔵 Attempting WebSocket connection to:', wsUrl);
+    console.log('🔵 API_BASE_URL:', API_BASE_URL);
+    console.log('🔵 Conversation ID:', conversationId);
+    
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      console.log('🟢 WebSocket connected successfully!');
       setWsStatus('connected');
       toast.success('WebSocket connected!');
       
@@ -241,12 +246,22 @@ export default function Playground() {
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (error) => {
+      console.error('🔴 WebSocket error event:', error);
+      console.error('🔴 WebSocket URL was:', wsUrl);
+      console.error('🔴 WebSocket readyState:', ws.readyState);
+      console.error('🔴 API Key used (first 10 chars):', effectiveApiKey.substring(0, 10) + '...');
       setWsStatus('error');
-      toast.error('WebSocket connection error');
+      toast.error('WebSocket connection error - check console for details');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log('🟡 WebSocket closed:', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+        url: wsUrl
+      });
       setWsStatus('disconnected');
       wsRef.current = null;
     };
@@ -296,6 +311,51 @@ export default function Playground() {
       toast.error(result.error || 'Failed to regenerate API key');
     }
     setIsRegenerating(false);
+  };
+
+  // Test API key with detailed logging
+  const testApiKey = async () => {
+    const effectiveApiKey = getEffectiveApiKey();
+    if (!effectiveApiKey) {
+      toast.error('No API key to test');
+      return;
+    }
+
+    console.log('🧪 Testing API key...');
+    console.log('🧪 API_BASE_URL:', API_BASE_URL);
+    console.log('🧪 Key (first 10 chars):', effectiveApiKey.substring(0, 10) + '...');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/models`, {
+        headers: {
+          'Authorization': `Bearer ${effectiveApiKey}`,
+        },
+      });
+      
+      console.log('🧪 Response status:', response.status);
+      console.log('🧪 Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      const data = await response.json();
+      console.log('🧪 Response data:', data);
+      
+      if (response.ok) {
+        toast.success(`API key valid! Found ${data.data?.length || 0} models`);
+      } else {
+        toast.error(`API error: ${response.status} - ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('🧪 API test error:', error);
+      toast.error(`Network error: ${(error as Error).message}`);
+    }
+  };
+
+  // Manual WebSocket reconnect
+  const manualReconnect = () => {
+    console.log('🔄 Manual reconnect triggered');
+    disconnectWebSocket();
+    setTimeout(() => {
+      connectWebSocket();
+    }, 500);
   };
 
   // Send message via WebSocket
@@ -829,15 +889,54 @@ const response = await ai.chat([
                   )}
                   
                   {isAuthenticated && storedApiKey && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleRegenerateApiKey}
-                      disabled={isRegenerating}
-                      className="w-full text-xs"
-                    >
-                      {isRegenerating ? 'Regenerating...' : 'Regenerate API Key'}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleRegenerateApiKey}
+                        disabled={isRegenerating}
+                        className="flex-1 text-xs"
+                      >
+                        {isRegenerating ? 'Regenerating...' : 'Regenerate Key'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={testApiKey}
+                        className="flex-1 text-xs"
+                      >
+                        Test API
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Debug buttons for WebSocket issues */}
+                  {useWebSocket && wsStatus !== 'connected' && (
+                    <div className="pt-2 border-t border-border mt-2 space-y-2">
+                      <p className="text-xs text-amber-400">⚠️ WebSocket not connected</p>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={testApiKey}
+                          className="flex-1 text-xs"
+                        >
+                          Test HTTP
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={manualReconnect}
+                          className="flex-1 text-xs"
+                        >
+                          <RefreshCw className="w-3 h-3 mr-1" />
+                          Reconnect
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Check browser console (F12) for detailed errors
+                      </p>
+                    </div>
                   )}
                   
                   {!isAuthenticated && (
