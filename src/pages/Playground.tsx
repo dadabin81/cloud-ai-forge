@@ -78,7 +78,7 @@ const models: Record<string, { id: string; name: string }[]> = {
 };
 
 export default function Playground() {
-  const { token, isAuthenticated } = useAuth();
+  const { token, apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('cloudflare');
   const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.1-8b-instruct');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -89,51 +89,44 @@ export default function Playground() {
   const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   
   // API Key state
-  const [apiKey, setApiKey] = useState('');
-  const [realApiKey, setRealApiKey] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
-  const [isFetchingKey, setIsFetchingKey] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamStartTimeRef = useRef<number | null>(null);
+  const tokenCountRef = useRef<number>(0);
 
-  // Fetch real API key when user is authenticated
+  // Auto-fill API key when user is authenticated and has a stored key
   useEffect(() => {
-    const fetchRealApiKey = async () => {
-      if (!isAuthenticated || !token) return;
-      
-      setIsFetchingKey(true);
-      try {
-        const response = await fetch(`${API_BASE_URL}/v1/account/api-key`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          // The endpoint returns the prefix, but we need to fetch full key
-          // For now, we'll use the session token as a fallback
-          setRealApiKey(data.prefix);
-        }
-      } catch (error) {
-        console.error('Failed to fetch API key:', error);
-      } finally {
-        setIsFetchingKey(false);
-      }
-    };
-
-    fetchRealApiKey();
-  }, [isAuthenticated, token]);
-
-  // Auto-fill API key when user is authenticated
-  useEffect(() => {
-    if (isAuthenticated && token && !apiKey) {
-      setApiKey(token);
+    if (isAuthenticated && storedApiKey && !apiKeyInput) {
+      setApiKeyInput(storedApiKey);
       setIsApiKeyValid(true);
     }
-  }, [isAuthenticated, token, apiKey]);
+  }, [isAuthenticated, storedApiKey, apiKeyInput]);
+
+  // Handle regenerating API key
+  const handleRegenerateApiKey = async () => {
+    setIsRegenerating(true);
+    const result = await regenerateApiKey();
+    if (result.success && result.apiKey) {
+      setApiKeyInput(result.apiKey);
+      setIsApiKeyValid(true);
+      toast.success('New API key generated!');
+    } else {
+      toast.error(result.error || 'Failed to regenerate API key');
+    }
+    setIsRegenerating(false);
+  };
+
+  // Get the effective API key for requests
+  const getEffectiveApiKey = () => {
+    return apiKeyInput || storedApiKey || '';
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -149,7 +142,8 @@ export default function Playground() {
 
   // Validate API key when it changes
   useEffect(() => {
-    if (!apiKey.trim()) {
+    const keyToValidate = apiKeyInput || storedApiKey;
+    if (!keyToValidate?.trim()) {
       setIsApiKeyValid(null);
       return;
     }
@@ -159,7 +153,7 @@ export default function Playground() {
       try {
         const response = await fetch(`${API_BASE_URL}/v1/models`, {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            'Authorization': `Bearer ${keyToValidate}`,
           },
         });
         setIsApiKeyValid(response.ok);
@@ -172,13 +166,21 @@ export default function Playground() {
 
     const debounce = setTimeout(validateKey, 500);
     return () => clearTimeout(debounce);
-  }, [apiKey]);
+  }, [apiKeyInput, storedApiKey]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
     
-    if (!apiKey.trim()) {
+    const effectiveApiKey = getEffectiveApiKey();
+    if (!effectiveApiKey.trim()) {
       toast.error('Please enter your API key');
+      return;
+    }
+
+    // Validate provider/model compatibility
+    const isCloudflareModel = selectedModel.startsWith('@cf/');
+    if (!isCloudflareModel && selectedProvider === 'cloudflare') {
+      toast.error('Selected model is not a Cloudflare model');
       return;
     }
 
@@ -192,7 +194,11 @@ export default function Playground() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setIsThinking(true);
     setStreamingContent('');
+    setTokensPerSecond(null);
+    streamStartTimeRef.current = null;
+    tokenCountRef.current = 0;
 
     // Create abort controller for cancellation
     abortControllerRef.current = new AbortController();
@@ -202,11 +208,12 @@ export default function Playground() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${effectiveApiKey}`,
         },
         body: JSON.stringify({
           messages: allMessages,
           model: selectedModel,
+          provider: selectedProvider,
           stream: true,
         }),
         signal: abortControllerRef.current.signal,
@@ -214,12 +221,17 @@ export default function Playground() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          toast.error('Invalid API key');
+          toast.error('Invalid API key. Please check your API key or regenerate a new one.');
           setIsApiKeyValid(false);
           return;
         }
         if (response.status === 429) {
           toast.error('Rate limit exceeded. Please wait and try again.');
+          return;
+        }
+        if (response.status === 400) {
+          const errorData = await response.json().catch(() => ({}));
+          toast.error(errorData.error || 'Invalid request. Check your model selection.');
           return;
         }
         throw new Error(`API error: ${response.status}`);
@@ -251,8 +263,21 @@ export default function Playground() {
                   const parsed = JSON.parse(data);
                   const content = parsed.choices?.[0]?.delta?.content;
                   if (content) {
+                    // First token received - stop "thinking" indicator
+                    if (!streamStartTimeRef.current) {
+                      setIsThinking(false);
+                      streamStartTimeRef.current = Date.now();
+                    }
+                    
                     fullContent += content;
+                    tokenCountRef.current += 1; // Approximate token count
                     setStreamingContent(fullContent);
+                    
+                    // Calculate tokens per second
+                    const elapsed = (Date.now() - streamStartTimeRef.current) / 1000;
+                    if (elapsed > 0.5) {
+                      setTokensPerSecond(Math.round(tokenCountRef.current / elapsed));
+                    }
                   }
                 } catch {
                   // Ignore parse errors for partial chunks
@@ -263,6 +288,7 @@ export default function Playground() {
         }
       } else {
         // Handle regular JSON response
+        setIsThinking(false);
         const data = await response.json();
         fullContent = data.choices?.[0]?.message?.content || '';
         setStreamingContent(fullContent);
@@ -282,7 +308,9 @@ export default function Playground() {
       }
     } finally {
       setIsLoading(false);
+      setIsThinking(false);
       setStreamingContent('');
+      setTokensPerSecond(null);
       abortControllerRef.current = null;
     }
   };
@@ -370,7 +398,7 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                 <TabsContent value="chat" className="flex-1 flex flex-col mt-0">
                   {/* Messages */}
                   <div className="flex-1 min-h-[400px] max-h-[500px] overflow-y-auto rounded-xl border border-border bg-secondary/20 p-4 space-y-4">
-                    {messages.length === 0 && !streamingContent && (
+                    {messages.length === 0 && !streamingContent && !isThinking && (
                       <div className="h-full flex items-center justify-center text-center">
                         <div className="space-y-2">
                           <Bot className="w-12 h-12 mx-auto text-muted-foreground/50" />
@@ -380,6 +408,21 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                           <p className="text-sm text-muted-foreground/70">
                             Enter your API key and send a message
                           </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Thinking indicator */}
+                    {isThinking && !streamingContent && (
+                      <div className="flex gap-3 justify-start">
+                        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
+                          <Bot className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="max-w-[80%] rounded-xl px-4 py-3 bg-secondary">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>AI is thinking...</span>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -427,6 +470,11 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                             {streamingContent}
                             <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
                           </pre>
+                          {tokensPerSecond && (
+                            <div className="mt-2 text-xs text-muted-foreground">
+                              {tokensPerSecond} tokens/sec
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -452,7 +500,7 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                       ) : (
                         <Button
                           onClick={handleSend}
-                          disabled={!input.trim() || !apiKey.trim()}
+                          disabled={!input.trim() || !getEffectiveApiKey().trim()}
                           className="h-auto"
                         >
                           <Send className="w-5 h-5" />
@@ -534,39 +582,70 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                   )}
                 </h3>
                 <div className="space-y-2">
-                  {isFetchingKey ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Loading your API key...
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Input
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                      placeholder={storedApiKey ? 'Using stored key...' : 'bsk_live_...'}
+                      className="pr-10"
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isValidating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                      {!isValidating && isApiKeyValid === true && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                      {!isValidating && isApiKeyValid === false && <XCircle className="w-4 h-4 text-destructive" />}
                     </div>
-                  ) : (
-                    <>
-                      <div className="relative">
-                        <Input
-                          type="password"
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                          placeholder="bsk_live_..."
-                          className="pr-10"
-                        />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          {isValidating && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-                          {!isValidating && isApiKeyValid === true && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                          {!isValidating && isApiKeyValid === false && <XCircle className="w-4 h-4 text-destructive" />}
-                        </div>
-                      </div>
-                      {isAuthenticated && realApiKey && (
-                        <p className="text-xs text-emerald-400">
-                          Using your API key: {realApiKey}
-                        </p>
-                      )}
-                      {!isAuthenticated && (
-                        <p className="text-xs text-muted-foreground">
-                          <Link to="/auth" className="text-primary hover:underline">Login</Link> to auto-fill your API key
-                        </p>
-                      )}
-                    </>
+                  </div>
+                  
+                  {isAuthenticated && storedApiKey && (
+                    <p className="text-xs text-emerald-400">
+                      ✓ API key stored and ready
+                    </p>
                   )}
+                  
+                  {isAuthenticated && !storedApiKey && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-amber-400">
+                        No API key stored. Generate one to use the Playground.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleRegenerateApiKey}
+                        disabled={isRegenerating}
+                        className="w-full"
+                      >
+                        {isRegenerating ? (
+                          <>
+                            <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          'Generate API Key'
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {isAuthenticated && storedApiKey && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleRegenerateApiKey}
+                      disabled={isRegenerating}
+                      className="w-full text-xs"
+                    >
+                      {isRegenerating ? 'Regenerating...' : 'Regenerate API Key'}
+                    </Button>
+                  )}
+                  
+                  {!isAuthenticated && (
+                    <p className="text-xs text-muted-foreground">
+                      <Link to="/auth" className="text-primary hover:underline">Login</Link> to auto-fill your API key
+                    </p>
+                  )}
+                </div>
                 </div>
               </div>
 
