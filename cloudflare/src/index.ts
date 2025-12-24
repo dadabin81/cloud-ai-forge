@@ -8,6 +8,9 @@ export interface Env {
   DB: D1Database;
   KV: KVNamespace;
   OPENROUTER_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  GOOGLE_API_KEY?: string;
   ENVIRONMENT: string;
 }
 
@@ -48,11 +51,25 @@ interface JsonSchema {
 interface ChatRequest {
   messages: ChatMessage[];
   model?: string;
+  provider?: string;
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
   response_format?: { type: 'text' | 'json_object'; schema?: JsonSchema };
 }
+
+// Provider-specific model mappings
+const PROVIDER_MODELS: Record<string, string[]> = {
+  cloudflare: [
+    '@cf/meta/llama-3.1-8b-instruct',
+    '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    '@cf/meta/llama-3.2-11b-vision-instruct',
+    '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
+  ],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+  anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
+  google: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+};
 
 interface StructuredRequest {
   messages: ChatMessage[];
@@ -144,6 +161,15 @@ export default {
           return jsonError('Unauthorized', 401);
         }
         return await handleDeleteKey(env, sessionInfo, keyDeleteMatch[1]);
+      }
+
+      // Regenerate API key - creates new key and deactivates old ones
+      if (path === '/v1/keys/regenerate' && request.method === 'POST') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+        return await handleRegenerateKey(env, sessionInfo);
       }
 
       // ============ Account Usage (Session-Protected) ============
@@ -426,14 +452,56 @@ async function handleDeleteKey(env: Env, sessionInfo: SessionInfo, keyId: string
   return jsonResponse({ success: true });
 }
 
+// Regenerate API key - deactivates all existing keys and creates a new one
+async function handleRegenerateKey(env: Env, sessionInfo: SessionInfo): Promise<Response> {
+  // Deactivate all existing keys for the user
+  await env.DB.prepare(`
+    UPDATE api_keys SET is_active = 0 WHERE user_id = ?
+  `).bind(sessionInfo.userId).run();
+
+  // Create a new API key
+  const apiKeyValue = `bsk_live_${generateRandomString(32)}`;
+  const apiKeyHash = await hashKey(apiKeyValue);
+  const keyPrefix = apiKeyValue.substring(0, 12) + '...';
+  const keyId = crypto.randomUUID();
+
+  await env.DB.prepare(`
+    INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, is_active)
+    VALUES (?, ?, 'Default', ?, ?, 1)
+  `).bind(keyId, sessionInfo.userId, keyPrefix, apiKeyHash).run();
+
+  return jsonResponse({
+    id: keyId,
+    name: 'Default',
+    key: apiKeyValue,
+    prefix: keyPrefix,
+    createdAt: new Date().toISOString(),
+  }, 201);
+}
+
 // ============ Chat Handlers ============
 
 async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
   const body = await request.json() as ChatRequest;
   const model = body.model || MODEL_ROUTING[keyInfo.plan];
+  const provider = body.provider || detectProvider(model);
+
+  // Validate provider/model compatibility
+  if (provider !== 'cloudflare' && !isProviderConfigured(env, provider)) {
+    // Try to use OpenRouter as a fallback for external models
+    if (env.OPENROUTER_API_KEY) {
+      return await handleChatWithOpenRouter(env, body, model);
+    }
+    return jsonError(`Provider '${provider}' is not configured. Add the required API key or use Cloudflare models.`, 400);
+  }
 
   try {
-    // Prepare messages with JSON instruction if response_format is json_object
+    // Route to the appropriate provider
+    if (provider !== 'cloudflare') {
+      return await handleExternalProviderChat(env, body, provider, model, keyInfo);
+    }
+
+    // Cloudflare Workers AI path
     let messages = body.messages;
     if (body.response_format?.type === 'json_object') {
       const schemaInstructions = body.response_format.schema 
@@ -446,7 +514,6 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
           : msg
       );
       
-      // If no system message, add one
       if (messages[0]?.role !== 'system') {
         messages = [{ role: 'system', content: `You are a helpful assistant.${schemaInstructions}` }, ...messages];
       }
@@ -460,7 +527,6 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
 
     let content = (response as any).response || '';
     
-    // Validate JSON if response_format is json_object
     if (body.response_format?.type === 'json_object') {
       const extracted = extractJsonFromResponse(content);
       if (!extracted.success) {
@@ -496,11 +562,167 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
       },
     });
   } catch (error) {
+    console.error('Chat error:', error);
     // Fallback to OpenRouter if available
     if (env.OPENROUTER_API_KEY) {
-      return await handleChatWithOpenRouter(env, body);
+      return await handleChatWithOpenRouter(env, body, model);
     }
     throw error;
+  }
+}
+
+// Handle external provider chat (OpenAI, Anthropic, Google)
+async function handleExternalProviderChat(
+  env: Env, 
+  body: ChatRequest, 
+  provider: string, 
+  model: string,
+  keyInfo: ApiKeyInfo
+): Promise<Response> {
+  let apiUrl: string;
+  let apiKey: string;
+  let requestBody: any;
+
+  switch (provider) {
+    case 'openai':
+      apiUrl = 'https://api.openai.com/v1/chat/completions';
+      apiKey = env.OPENAI_API_KEY!;
+      requestBody = {
+        model,
+        messages: body.messages,
+        temperature: body.temperature ?? 0.7,
+        max_tokens: body.max_tokens ?? 1024,
+        stream: false,
+      };
+      break;
+
+    case 'anthropic':
+      apiUrl = 'https://api.anthropic.com/v1/messages';
+      apiKey = env.ANTHROPIC_API_KEY!;
+      // Convert messages format for Anthropic
+      const systemMessage = body.messages.find(m => m.role === 'system');
+      const nonSystemMessages = body.messages.filter(m => m.role !== 'system');
+      requestBody = {
+        model,
+        system: systemMessage?.content,
+        messages: nonSystemMessages.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
+        max_tokens: body.max_tokens ?? 1024,
+      };
+      break;
+
+    case 'google':
+      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_API_KEY}`;
+      apiKey = ''; // Key is in URL for Google
+      // Convert messages format for Google
+      const contents = body.messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+      const googleSystemMessage = body.messages.find(m => m.role === 'system');
+      requestBody = {
+        contents,
+        systemInstruction: googleSystemMessage ? { parts: [{ text: googleSystemMessage.content }] } : undefined,
+        generationConfig: {
+          temperature: body.temperature ?? 0.7,
+          maxOutputTokens: body.max_tokens ?? 1024,
+        },
+      };
+      break;
+
+    default:
+      return jsonError(`Unsupported provider: ${provider}`, 400);
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (provider === 'openai') {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  } else if (provider === 'anthropic') {
+    headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  }
+  // Google uses key in URL
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${provider} API error:`, errorText);
+      return jsonError(`${provider} API error: ${response.status}`, response.status);
+    }
+
+    const data = await response.json() as any;
+    let content: string;
+
+    // Parse response based on provider format
+    switch (provider) {
+      case 'openai':
+        content = data.choices?.[0]?.message?.content || '';
+        break;
+      case 'anthropic':
+        content = data.content?.[0]?.text || '';
+        break;
+      case 'google':
+        content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        break;
+      default:
+        content = '';
+    }
+
+    await trackUsage(env, keyInfo, model, body.messages, { response: content });
+
+    return jsonResponse({
+      id: `chat-${Date.now()}`,
+      model,
+      provider,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content,
+        },
+        finish_reason: 'stop',
+      }],
+      usage: {
+        prompt_tokens: estimateTokens(body.messages),
+        completion_tokens: estimateTokens(content),
+      },
+    });
+  } catch (error) {
+    console.error(`${provider} chat error:`, error);
+    return jsonError(`Failed to call ${provider} API`, 500);
+  }
+}
+
+// Detect provider from model name
+function detectProvider(model: string): string {
+  if (model.startsWith('@cf/')) return 'cloudflare';
+  if (model.startsWith('gpt-')) return 'openai';
+  if (model.startsWith('claude-')) return 'anthropic';
+  if (model.startsWith('gemini-')) return 'google';
+  return 'cloudflare'; // default
+}
+
+// Check if provider is configured
+function isProviderConfigured(env: Env, provider: string): boolean {
+  switch (provider) {
+    case 'cloudflare': return true;
+    case 'openai': return !!env.OPENAI_API_KEY;
+    case 'anthropic': return !!env.ANTHROPIC_API_KEY;
+    case 'google': return !!env.GOOGLE_API_KEY;
+    default: return false;
   }
 }
 
@@ -880,7 +1102,12 @@ async function handleGetFirstApiKey(env: Env, sessionInfo: SessionInfo): Promise
 
 // ============ OpenRouter Fallback ============
 
-async function handleChatWithOpenRouter(env: Env, body: ChatRequest): Promise<Response> {
+async function handleChatWithOpenRouter(env: Env, body: ChatRequest, model?: string): Promise<Response> {
+  // Map model to OpenRouter format if needed
+  const openRouterModel = model?.startsWith('@cf/') 
+    ? 'meta-llama/llama-3.1-8b-instruct:free' 
+    : model || 'meta-llama/llama-3.1-8b-instruct:free';
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -888,7 +1115,7 @@ async function handleChatWithOpenRouter(env: Env, body: ChatRequest): Promise<Re
       'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'meta-llama/llama-3.1-8b-instruct:free',
+      model: openRouterModel,
       messages: body.messages,
       temperature: body.temperature ?? 0.7,
       max_tokens: body.max_tokens ?? 1024,
