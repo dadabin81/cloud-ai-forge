@@ -81,6 +81,12 @@ export function Navigation() {
             >
               Pricing
             </Link>
+            <Link 
+              to="/about" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              About
+            </Link>
           </div>
 
           {/* Desktop CTAs */}

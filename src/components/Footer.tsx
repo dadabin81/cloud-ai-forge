@@ -14,10 +14,10 @@ const links = {
     { name: 'Examples', href: '/#examples' },
   ],
   company: [
-    { name: 'About', href: '#' },
-    { name: 'Contact', href: '#' },
-    { name: 'Privacy', href: '#' },
-    { name: 'Terms', href: '#' },
+    { name: 'About', href: '/about' },
+    { name: 'Contact', href: '/contact' },
+    { name: 'Privacy', href: '/privacy' },
+    { name: 'Terms', href: '/terms' },
   ],
 };
 
