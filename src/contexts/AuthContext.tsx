@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-const API_BASE_URL = 'https://binario-api.your-worker.workers.dev'; // Update with actual URL
+const API_BASE_URL = 'https://binario-api.databin81.workers.dev';
 
 interface User {
   id: string;
