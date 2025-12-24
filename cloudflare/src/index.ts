@@ -125,6 +125,15 @@ export default {
         return await handleDeleteKey(env, sessionInfo, keyDeleteMatch[1]);
       }
 
+      // ============ Account Usage (Session-Protected) ============
+      if (path === '/v1/account/usage' && request.method === 'GET') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+        return await handleAccountUsage(env, sessionInfo);
+      }
+
       // ============ API Key Protected Endpoints ============
       const apiKey = request.headers.get('X-API-Key') || 
                      request.headers.get('Authorization')?.replace('Bearer ', '');
@@ -553,6 +562,64 @@ async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
       requestsPerDay: limits.requestsPerDay,
     },
     dailyUsage: dailyUsage.results,
+    resetAt: getNextResetDate(),
+  });
+}
+
+// ============ Account Usage Handler (Session-Protected) ============
+
+async function handleAccountUsage(env: Env, sessionInfo: SessionInfo): Promise<Response> {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Get today's usage
+  const todayUsage = await env.DB.prepare(`
+    SELECT 
+      COALESCE(SUM(tokens_used), 0) as total_tokens,
+      COUNT(*) as total_requests
+    FROM usage 
+    WHERE user_id = ? AND date = ?
+  `).bind(sessionInfo.userId, today).first();
+
+  // Get daily usage for last 7 days
+  const dailyUsage = await env.DB.prepare(`
+    SELECT date, COALESCE(SUM(tokens_used), 0) as tokens, COUNT(*) as requests
+    FROM usage
+    WHERE user_id = ? AND date >= date('now', '-7 days')
+    GROUP BY date
+    ORDER BY date ASC
+  `).bind(sessionInfo.userId).all();
+
+  // Get total usage (all time)
+  const totalUsage = await env.DB.prepare(`
+    SELECT 
+      COALESCE(SUM(tokens_used), 0) as total_tokens,
+      COUNT(*) as total_requests
+    FROM usage 
+    WHERE user_id = ?
+  `).bind(sessionInfo.userId).first();
+
+  const limits = RATE_LIMITS[sessionInfo.plan];
+
+  return jsonResponse({
+    plan: sessionInfo.plan,
+    usage: {
+      tokensUsed: Number(todayUsage?.total_tokens) || 0,
+      requestsUsed: Number(todayUsage?.total_requests) || 0,
+    },
+    totalUsage: {
+      tokensUsed: Number(totalUsage?.total_tokens) || 0,
+      requestsUsed: Number(totalUsage?.total_requests) || 0,
+    },
+    limits: {
+      tokensPerDay: limits.tokensPerDay,
+      requestsPerDay: limits.requestsPerDay,
+      requestsPerMinute: limits.requestsPerMinute,
+    },
+    dailyUsage: dailyUsage.results.map(d => ({
+      date: d.date,
+      tokens: Number(d.tokens) || 0,
+      requests: Number(d.requests) || 0,
+    })),
     resetAt: getNextResetDate(),
   });
 }

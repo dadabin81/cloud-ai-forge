@@ -118,16 +118,39 @@ export default function Dashboard() {
   const fetchUsage = async () => {
     if (!token) return;
     
-    // For usage, we need an API key. For now, we'll use mock data
-    // since /v1/usage requires an API key, not a session token
-    setUsageData({
-      plan: user?.plan || 'free',
-      usage: { tokensUsed: 0, requestsUsed: 0 },
-      limits: { tokensPerDay: 50000, requestsPerDay: 100 },
-      dailyUsage: [],
-      resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    });
-    setIsLoadingUsage(false);
+    try {
+      const response = await fetch(`${API_BASE_URL}/v1/account/usage`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUsageData(data);
+      } else {
+        // Fallback to defaults if endpoint fails
+        setUsageData({
+          plan: user?.plan || 'free',
+          usage: { tokensUsed: 0, requestsUsed: 0 },
+          limits: { tokensPerDay: 50000, requestsPerDay: 100 },
+          dailyUsage: [],
+          resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch usage:', error);
+      // Fallback to defaults
+      setUsageData({
+        plan: user?.plan || 'free',
+        usage: { tokensUsed: 0, requestsUsed: 0 },
+        limits: { tokensPerDay: 50000, requestsPerDay: 100 },
+        dailyUsage: [],
+        resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    } finally {
+      setIsLoadingUsage(false);
+    }
   };
 
   const copyToClipboard = (text: string, id: string) => {
