@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { 
   Send, 
   Bot, 
@@ -31,6 +32,9 @@ import {
   Key,
   CheckCircle,
   XCircle,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -38,10 +42,8 @@ import { cn } from '@/lib/utils';
 interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  timestamp?: number;
 }
-
-// Use the same API base URL from auth context
-// const API_BASE_URL = 'https://binario-api.databin81.workers.dev';
 
 const providers = [
   { id: 'cloudflare', name: 'Cloudflare Workers AI', free: true },
@@ -77,13 +79,14 @@ const models: Record<string, { id: string; name: string }[]> = {
   ],
 };
 
+type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
 export default function Playground() {
-  const { token, apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
+  const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('cloudflare');
   const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.1-8b-instruct');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('You are a helpful AI assistant.');
   const [showSettings, setShowSettings] = useState(false);
@@ -92,14 +95,29 @@ export default function Playground() {
   const [isThinking, setIsThinking] = useState(false);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   
+  // WebSocket mode
+  const [useWebSocket, setUseWebSocket] = useState(true);
+  const [wsStatus, setWsStatus] = useState<ConnectionStatus>('disconnected');
+  const [conversationId] = useState(() => crypto.randomUUID());
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamingContentRef = useRef('');
+  const tokenCountRef = useRef(0);
+  const streamStartTimeRef = useRef<number | null>(null);
+  
   // API Key state
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  
+  // HTTP mode state
+  const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const streamStartTimeRef = useRef<number | null>(null);
-  const tokenCountRef = useRef<number>(0);
+
+  // Get the effective API key for requests
+  const getEffectiveApiKey = useCallback(() => {
+    return apiKeyInput || storedApiKey || '';
+  }, [apiKeyInput, storedApiKey]);
 
   // Auto-fill API key when user is authenticated and has a stored key
   useEffect(() => {
@@ -108,37 +126,6 @@ export default function Playground() {
       setIsApiKeyValid(true);
     }
   }, [isAuthenticated, storedApiKey, apiKeyInput]);
-
-  // Handle regenerating API key
-  const handleRegenerateApiKey = async () => {
-    setIsRegenerating(true);
-    const result = await regenerateApiKey();
-    if (result.success && result.apiKey) {
-      setApiKeyInput(result.apiKey);
-      setIsApiKeyValid(true);
-      toast.success('New API key generated!');
-    } else {
-      toast.error(result.error || 'Failed to regenerate API key');
-    }
-    setIsRegenerating(false);
-  };
-
-  // Get the effective API key for requests
-  const getEffectiveApiKey = () => {
-    return apiKeyInput || storedApiKey || '';
-  };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
-
-  // Update model when provider changes
-  useEffect(() => {
-    const providerModels = models[selectedProvider];
-    if (providerModels?.length) {
-      setSelectedModel(providerModels[0].id);
-    }
-  }, [selectedProvider]);
 
   // Validate API key when it changes
   useEffect(() => {
@@ -168,39 +155,190 @@ export default function Playground() {
     return () => clearTimeout(debounce);
   }, [apiKeyInput, storedApiKey]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  // WebSocket connection management
+  const connectWebSocket = useCallback(() => {
+    const effectiveApiKey = getEffectiveApiKey();
+    if (!effectiveApiKey || wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    setWsStatus('connecting');
+
+    const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/v1/agent/ws/${conversationId}?apiKey=${effectiveApiKey}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsStatus('connected');
+      toast.success('WebSocket connected!');
+      
+      // Send system prompt configuration
+      ws.send(JSON.stringify({ 
+        type: 'set_system_prompt', 
+        systemPrompt 
+      }));
+      
+      // Set model
+      ws.send(JSON.stringify({ 
+        type: 'set_model', 
+        model: selectedModel 
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case 'history':
+            if (data.messages) {
+              setMessages(data.messages);
+            }
+            break;
+            
+          case 'token':
+            if (data.content) {
+              setIsThinking(false);
+              if (!streamStartTimeRef.current) {
+                streamStartTimeRef.current = Date.now();
+              }
+              streamingContentRef.current += data.content;
+              tokenCountRef.current += 1;
+              setStreamingContent(streamingContentRef.current);
+              
+              const elapsed = (Date.now() - streamStartTimeRef.current) / 1000;
+              if (elapsed > 0.5) {
+                setTokensPerSecond(Math.round(tokenCountRef.current / elapsed));
+              }
+            }
+            break;
+            
+          case 'complete':
+            setIsThinking(false);
+            if (streamingContentRef.current) {
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: streamingContentRef.current,
+                timestamp: Date.now(),
+              }]);
+              streamingContentRef.current = '';
+              setStreamingContent('');
+            }
+            setTokensPerSecond(null);
+            streamStartTimeRef.current = null;
+            tokenCountRef.current = 0;
+            break;
+            
+          case 'error':
+            toast.error(data.error || 'Agent error');
+            setIsThinking(false);
+            break;
+            
+          case 'pong':
+            // Heartbeat acknowledged
+            break;
+        }
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+
+    ws.onerror = () => {
+      setWsStatus('error');
+      toast.error('WebSocket connection error');
+    };
+
+    ws.onclose = () => {
+      setWsStatus('disconnected');
+      wsRef.current = null;
+    };
+  }, [conversationId, getEffectiveApiKey, selectedModel, systemPrompt]);
+
+  const disconnectWebSocket = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    setWsStatus('disconnected');
+  }, []);
+
+  // Auto-connect when WebSocket mode is enabled and API key is valid
+  useEffect(() => {
+    if (useWebSocket && isApiKeyValid && wsStatus === 'disconnected') {
+      connectWebSocket();
+    } else if (!useWebSocket && wsStatus === 'connected') {
+      disconnectWebSocket();
+    }
     
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [useWebSocket, isApiKeyValid, wsStatus, connectWebSocket, disconnectWebSocket]);
+
+  // Update model when provider changes
+  useEffect(() => {
+    const providerModels = models[selectedProvider];
+    if (providerModels?.length) {
+      setSelectedModel(providerModels[0].id);
+    }
+  }, [selectedProvider]);
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingContent]);
+
+  // Handle regenerating API key
+  const handleRegenerateApiKey = async () => {
+    setIsRegenerating(true);
+    const result = await regenerateApiKey();
+    if (result.success && result.apiKey) {
+      setApiKeyInput(result.apiKey);
+      setIsApiKeyValid(true);
+      toast.success('New API key generated!');
+    } else {
+      toast.error(result.error || 'Failed to regenerate API key');
+    }
+    setIsRegenerating(false);
+  };
+
+  // Send message via WebSocket
+  const sendWebSocket = useCallback((content: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      toast.error('WebSocket not connected');
+      return;
+    }
+
+    // Add user message immediately
+    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
+    setIsThinking(true);
+    streamingContentRef.current = '';
+    setStreamingContent('');
+    tokenCountRef.current = 0;
+    streamStartTimeRef.current = null;
+
+    wsRef.current.send(JSON.stringify({ type: 'chat', content }));
+  }, []);
+
+  // Send message via HTTP (SSE)
+  const sendHttp = async (content: string) => {
     const effectiveApiKey = getEffectiveApiKey();
     if (!effectiveApiKey.trim()) {
       toast.error('Please enter your API key');
       return;
     }
 
-    // Validate provider/model compatibility
-    const isCloudflareModel = selectedModel.startsWith('@cf/');
-    if (!isCloudflareModel && selectedProvider === 'cloudflare') {
-      toast.error('Selected model is not a Cloudflare model');
-      return;
-    }
-
-    const userMessage: Message = { role: 'user', content: input.trim() };
-    const allMessages: Message[] = [
+    const userMessage: Message = { role: 'user', content };
+    const allMessages = [
       ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
       ...messages,
       userMessage,
     ];
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
     setIsLoading(true);
     setIsThinking(true);
+    streamingContentRef.current = '';
     setStreamingContent('');
-    setTokensPerSecond(null);
-    streamStartTimeRef.current = null;
     tokenCountRef.current = 0;
+    streamStartTimeRef.current = null;
 
-    // Create abort controller for cancellation
     abortControllerRef.current = new AbortController();
 
     try {
@@ -221,28 +359,20 @@ export default function Playground() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          toast.error('Invalid API key. Please check your API key or regenerate a new one.');
+          toast.error('Invalid API key');
           setIsApiKeyValid(false);
           return;
         }
         if (response.status === 429) {
-          toast.error('Rate limit exceeded. Please wait and try again.');
-          return;
-        }
-        if (response.status === 400) {
-          const errorData = await response.json().catch(() => ({}));
-          toast.error(errorData.error || 'Invalid request. Check your model selection.');
+          toast.error('Rate limit exceeded');
           return;
         }
         throw new Error(`API error: ${response.status}`);
       }
 
       const contentType = response.headers.get('content-type') || '';
-      let fullContent = '';
 
-      // Check if response is streaming (text/event-stream) or regular JSON
       if (contentType.includes('text/event-stream')) {
-        // Handle streaming response
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
 
@@ -261,63 +391,75 @@ export default function Playground() {
 
                 try {
                   const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content;
-                  if (content) {
-                    // First token received - stop "thinking" indicator
+                  const token = parsed.choices?.[0]?.delta?.content;
+                  if (token) {
                     if (!streamStartTimeRef.current) {
                       setIsThinking(false);
                       streamStartTimeRef.current = Date.now();
                     }
+                    streamingContentRef.current += token;
+                    tokenCountRef.current += 1;
+                    setStreamingContent(streamingContentRef.current);
                     
-                    fullContent += content;
-                    tokenCountRef.current += 1; // Approximate token count
-                    setStreamingContent(fullContent);
-                    
-                    // Calculate tokens per second
                     const elapsed = (Date.now() - streamStartTimeRef.current) / 1000;
                     if (elapsed > 0.5) {
                       setTokensPerSecond(Math.round(tokenCountRef.current / elapsed));
                     }
                   }
                 } catch {
-                  // Ignore parse errors for partial chunks
+                  // Ignore parse errors
                 }
               }
             }
           }
         }
       } else {
-        // Handle regular JSON response
         setIsThinking(false);
         const data = await response.json();
-        fullContent = data.choices?.[0]?.message?.content || '';
-        setStreamingContent(fullContent);
+        streamingContentRef.current = data.choices?.[0]?.message?.content || '';
+        setStreamingContent(streamingContentRef.current);
       }
 
-      setMessages(prev => [...prev, { role: 'assistant', content: fullContent }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current }]);
       setStreamingContent('');
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        // Request was cancelled
-        if (streamingContent) {
-          setMessages(prev => [...prev, { role: 'assistant', content: streamingContent }]);
-        }
-      } else {
+      if ((error as Error).name !== 'AbortError') {
         console.error('Chat error:', error);
         toast.error('Failed to get response');
       }
     } finally {
       setIsLoading(false);
       setIsThinking(false);
+      streamingContentRef.current = '';
       setStreamingContent('');
       setTokensPerSecond(null);
       abortControllerRef.current = null;
     }
   };
 
+  const handleSend = () => {
+    if (!input.trim()) return;
+    const content = input.trim();
+    setInput('');
+
+    if (useWebSocket) {
+      sendWebSocket(content);
+    } else {
+      sendHttp(content);
+    }
+  };
+
   const handleStop = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (useWebSocket) {
+      // WebSocket doesn't support abort, but we can clear state
+      setIsThinking(false);
+      if (streamingContentRef.current) {
+        setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current }]);
+        streamingContentRef.current = '';
+        setStreamingContent('');
+      }
+    } else {
+      abortControllerRef.current?.abort();
     }
   };
 
@@ -339,25 +481,44 @@ export default function Playground() {
   const clearChat = () => {
     setMessages([]);
     setStreamingContent('');
+    streamingContentRef.current = '';
+    
+    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'clear' }));
+    }
   };
 
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
+  const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
 
-  const codeSnippet = `import { createBinario, useBinarioStream } from 'binario';
+  const codeSnippet = useWebSocket 
+    ? `import { useAgent } from 'binario';
+
+// WebSocket-based real-time chat
+const { messages, send, status, isStreaming } = useAgent({
+  baseUrl: '${API_BASE_URL}',
+  apiKey: 'your-api-key',
+  conversationId: '${conversationId}',
+  onToken: (token) => console.log('Token:', token),
+});
+
+// Send a message
+send('Hello!');
+
+// Messages are persisted and sync across devices`
+    : `import { createBinario } from 'binario';
 
 const ai = createBinario({
   baseUrl: '${API_BASE_URL}',
-  apiKey: 'your-api-key', // Get from dashboard
+  apiKey: 'your-api-key',
 });
 
-// Simple chat
+// HTTP streaming chat
 const response = await ai.chat([
   { role: 'user', content: 'Hello!' }
-], { model: '${selectedModel}' });
-
-// With streaming
-const { messages, send, isStreaming } = useBinarioStream(ai, {
+], { 
   model: '${selectedModel}',
+  stream: true,
 });`;
 
   return (
@@ -371,12 +532,18 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
               <Sparkles className="w-4 h-4" />
               <span>Interactive Demo</span>
+              {useWebSocket && (
+                <Badge variant="outline" className="text-xs border-cyan-500/50 text-cyan-400">
+                  <Wifi className="w-3 h-3 mr-1" />
+                  WebSocket
+                </Badge>
+              )}
             </div>
             <h1 className="text-3xl font-bold mb-2">
               Binario <span className="gradient-text">Playground</span>
             </h1>
             <p className="text-muted-foreground">
-              Test the Binario API with real AI responses. Enter your API key to get started.
+              Test the Binario API with real AI responses. {useWebSocket ? 'Using real-time WebSocket connection with persistent state.' : 'Using HTTP streaming.'}
             </p>
           </div>
 
@@ -406,13 +573,14 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                             Start a conversation with Binario AI
                           </p>
                           <p className="text-sm text-muted-foreground/70">
-                            Enter your API key and send a message
+                            {useWebSocket 
+                              ? 'WebSocket mode: Real-time streaming with persistent history'
+                              : 'HTTP mode: Standard streaming response'}
                           </p>
                         </div>
                       </div>
                     )}
 
-                    {/* Thinking indicator */}
                     {isThinking && !streamingContent && (
                       <div className="flex gap-3 justify-start">
                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
@@ -491,16 +659,16 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                         onKeyDown={handleKeyDown}
                         placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                         className="min-h-[60px] resize-none"
-                        disabled={isLoading}
+                        disabled={isStreamingOrLoading}
                       />
-                      {isLoading ? (
+                      {isStreamingOrLoading ? (
                         <Button onClick={handleStop} variant="destructive" className="h-auto">
                           Stop
                         </Button>
                       ) : (
                         <Button
                           onClick={handleSend}
-                          disabled={!input.trim() || !getEffectiveApiKey().trim()}
+                          disabled={!input.trim() || !getEffectiveApiKey().trim() || (useWebSocket && wsStatus !== 'connected')}
                           className="h-auto"
                         >
                           <Send className="w-5 h-5" />
@@ -562,7 +730,9 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                     </pre>
                   </div>
                   <p className="text-sm text-muted-foreground mt-4">
-                    This is the code to replicate this chat configuration in your app.
+                    {useWebSocket 
+                      ? 'WebSocket mode provides real-time streaming and persistent conversation history.'
+                      : 'HTTP mode uses standard streaming for responses.'}
                   </p>
                 </TabsContent>
               </Tabs>
@@ -570,6 +740,50 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
 
             {/* Config Panel */}
             <div className="space-y-6">
+              {/* Connection Mode */}
+              <div className="p-6 rounded-xl border border-border bg-secondary/20">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                  {useWebSocket ? <Wifi className="w-4 h-4 text-cyan-400" /> : <WifiOff className="w-4 h-4" />}
+                  Connection Mode
+                </h3>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{useWebSocket ? 'WebSocket (Real-time)' : 'HTTP (Streaming)'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {useWebSocket ? 'Persistent state, low latency' : 'Standard streaming'}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={useWebSocket}
+                    onCheckedChange={setUseWebSocket}
+                  />
+                </div>
+                
+                {useWebSocket && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          wsStatus === 'connected' ? 'bg-emerald-500' :
+                          wsStatus === 'connecting' ? 'bg-amber-500 animate-pulse' :
+                          wsStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
+                        )} />
+                        <span className="text-sm capitalize">{wsStatus}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={wsStatus === 'connected' ? disconnectWebSocket : connectWebSocket}
+                        disabled={wsStatus === 'connecting' || !isApiKeyValid}
+                      >
+                        <RefreshCw className={cn("w-3 h-3", wsStatus === 'connecting' && 'animate-spin')} />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* API Key Input */}
               <div className="p-6 rounded-xl border border-border bg-secondary/20">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
@@ -581,7 +795,6 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                     </Badge>
                   )}
                 </h3>
-                <div className="space-y-2">
                 <div className="space-y-3">
                   <div className="relative">
                     <Input
@@ -599,33 +812,20 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                   </div>
                   
                   {isAuthenticated && storedApiKey && (
-                    <p className="text-xs text-emerald-400">
-                      ✓ API key stored and ready
-                    </p>
+                    <p className="text-xs text-emerald-400">✓ API key stored and ready</p>
                   )}
                   
                   {isAuthenticated && !storedApiKey && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-amber-400">
-                        No API key stored. Generate one to use the Playground.
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleRegenerateApiKey}
-                        disabled={isRegenerating}
-                        className="w-full"
-                      >
-                        {isRegenerating ? (
-                          <>
-                            <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          'Generate API Key'
-                        )}
-                      </Button>
-                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRegenerateApiKey}
+                      disabled={isRegenerating}
+                      className="w-full"
+                    >
+                      {isRegenerating ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : null}
+                      {isRegenerating ? 'Generating...' : 'Generate API Key'}
+                    </Button>
                   )}
                   
                   {isAuthenticated && storedApiKey && (
@@ -645,7 +845,6 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                       <Link to="/auth" className="text-primary hover:underline">Login</Link> to auto-fill your API key
                     </p>
                   )}
-                </div>
                 </div>
               </div>
 
@@ -727,9 +926,12 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Mode</span>
-                    <Badge variant="outline" className="text-xs">
-                      <Zap className="w-3 h-3 mr-1" />
-                      Streaming
+                    <Badge variant="outline" className={cn(
+                      "text-xs",
+                      useWebSocket ? "border-cyan-500/50 text-cyan-400" : ""
+                    )}>
+                      {useWebSocket ? <Wifi className="w-3 h-3 mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
+                      {useWebSocket ? 'WebSocket' : 'HTTP'}
                     </Badge>
                   </div>
                 </div>
@@ -740,6 +942,11 @@ const { messages, send, isStreaming } = useBinarioStream(ai, {
                 <p className="text-sm text-primary/90">
                   <strong>Live API:</strong> Connected to Binario at {API_BASE_URL.replace('https://', '')}
                 </p>
+                {useWebSocket && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Conversation ID: {conversationId.slice(0, 8)}...
+                  </p>
+                )}
               </div>
             </div>
           </div>
