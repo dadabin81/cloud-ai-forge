@@ -26,14 +26,22 @@ import {
   CheckCircle,
   Copy,
   Check,
+  Upload,
+  File,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface Document {
   id: string;
   content: string;
   embedding?: number[];
+  filename?: string;
+  type?: 'text' | 'pdf' | 'txt';
 }
 
 interface Message {
@@ -46,6 +54,29 @@ interface SearchResult {
   id: string;
   content: string;
   score: number;
+}
+
+// Extract text from PDF file
+async function extractTextFromPDF(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str)
+      .join(' ');
+    fullText += pageText + '\n\n';
+  }
+  
+  return fullText.trim();
+}
+
+// Extract text from TXT file  
+async function extractTextFromTXT(file: File): Promise<string> {
+  return await file.text();
 }
 
 // Cloudflare Workers AI Embeddings API
@@ -149,6 +180,8 @@ export default function RAGExample() {
   const [retrievedContext, setRetrievedContext] = useState<SearchResult[]>([]);
   const [copied, setCopied] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -204,6 +237,71 @@ export default function RAGExample() {
       toast.error(error instanceof Error ? error.message : 'Failed to generate embedding');
     } finally {
       setIsIndexing(false);
+    }
+  };
+
+  // Handle file upload (PDF or TXT)
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    
+    if (!apiKey.trim()) {
+      toast.error('Please enter your API key first');
+      return;
+    }
+
+    setIsUploadingFile(true);
+    
+    for (const file of Array.from(files)) {
+      try {
+        let content = '';
+        let docType: 'pdf' | 'txt' = 'txt';
+        
+        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+          docType = 'pdf';
+          toast.info(`Extracting text from ${file.name}...`);
+          content = await extractTextFromPDF(file);
+        } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+          docType = 'txt';
+          content = await extractTextFromTXT(file);
+        } else {
+          toast.error(`Unsupported file type: ${file.name}. Only PDF and TXT files are supported.`);
+          continue;
+        }
+
+        if (!content.trim()) {
+          toast.error(`No text content found in ${file.name}`);
+          continue;
+        }
+
+        // Truncate very long documents for embedding (limit to ~8000 chars)
+        const truncatedContent = content.length > 8000 
+          ? content.substring(0, 8000) + '... [truncated]' 
+          : content;
+
+        toast.info(`Generating embedding for ${file.name}...`);
+        const embedding = await generateEmbedding(truncatedContent, apiKey);
+        
+        const newDoc: Document = {
+          id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          content: truncatedContent,
+          embedding,
+          filename: file.name,
+          type: docType,
+        };
+        
+        setDocuments(prev => [...prev, newDoc]);
+        toast.success(`Indexed ${file.name} (${docType.toUpperCase()})`);
+      } catch (error) {
+        console.error(`Error processing ${file.name}:`, error);
+        toast.error(`Failed to process ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
+    setIsUploadingFile(false);
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -466,6 +564,44 @@ async function queryWithRAG(question: string) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* File Upload */}
+                  <div className="space-y-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.txt,application/pdf,text/plain"
+                      multiple
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingFile || isIndexing || !apiKey.trim()}
+                      className="w-full border-dashed"
+                    >
+                      {isUploadingFile ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4 mr-2" />
+                      )}
+                      {isUploadingFile ? 'Processing...' : 'Upload PDF or TXT'}
+                    </Button>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Supports PDF and TXT files
+                    </p>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">or paste text</span>
+                    </div>
+                  </div>
+
                   {/* Add Document */}
                   <div className="space-y-2">
                     <Textarea
@@ -477,7 +613,7 @@ async function queryWithRAG(question: string) {
                     <div className="flex gap-2">
                       <Button
                         onClick={addDocument}
-                        disabled={!newDocContent.trim() || isIndexing}
+                        disabled={!newDocContent.trim() || isIndexing || !apiKey.trim()}
                         className="flex-1"
                         size="sm"
                       >
@@ -496,7 +632,7 @@ async function queryWithRAG(question: string) {
                       variant="outline"
                       size="sm"
                       onClick={loadSampleDocs}
-                      disabled={isIndexing}
+                      disabled={isIndexing || !apiKey.trim()}
                       className="flex-1"
                     >
                       Load Samples
@@ -528,29 +664,47 @@ async function queryWithRAG(question: string) {
                             key={doc.id}
                             className="p-3 rounded-lg bg-secondary/50 border border-border/50 group"
                           >
+                            {doc.filename && (
+                              <div className="flex items-center gap-2 mb-2">
+                                <File className="w-4 h-4 text-primary" />
+                                <span className="text-xs font-medium text-foreground truncate">
+                                  {doc.filename}
+                                </span>
+                                <Badge variant="outline" className="text-[10px] ml-auto">
+                                  {doc.type?.toUpperCase()}
+                                </Badge>
+                              </div>
+                            )}
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs text-foreground line-clamp-3">
-                                {doc.content}
+                              <p className="text-xs text-muted-foreground line-clamp-3">
+                                {doc.content.length > 200 
+                                  ? doc.content.substring(0, 200) + '...' 
+                                  : doc.content}
                               </p>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                                 onClick={() => removeDocument(doc.id)}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
                             <div className="flex items-center gap-2 mt-2">
-                              <Badge variant="secondary" className="text-[10px]">
-                                {doc.id}
-                              </Badge>
+                              {!doc.filename && (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {doc.id}
+                                </Badge>
+                              )}
                               {doc.embedding && (
                                 <Badge variant="outline" className="text-[10px]">
                                   <CheckCircle className="w-3 h-3 mr-1" />
                                   Indexed
                                 </Badge>
                               )}
+                              <span className="text-[10px] text-muted-foreground ml-auto">
+                                {doc.content.length} chars
+                              </span>
                             </div>
                           </div>
                         ))}
