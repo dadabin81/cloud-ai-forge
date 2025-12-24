@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
   Key, 
   BarChart3, 
@@ -22,8 +23,9 @@ import {
   ArrowRight,
   Zap,
   Code,
-  CheckCircle,
-  TrendingUp
+  TrendingUp,
+  AlertTriangle,
+  Calendar
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -45,7 +47,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend
 } from 'recharts';
 
 interface ApiKey {
@@ -61,6 +62,11 @@ interface Usage {
   requestsUsed: number;
 }
 
+interface TotalUsage {
+  tokensUsed: number;
+  requestsUsed: number;
+}
+
 interface DailyUsage {
   date: string;
   tokens: number;
@@ -70,9 +76,10 @@ interface DailyUsage {
 interface UsageData {
   plan: 'free' | 'pro' | 'enterprise';
   usage: Usage;
+  totalUsage?: TotalUsage;
   limits: {
-    tokensPerDay: number;
-    requestsPerDay: number;
+    tokensPerMonth: number;
+    requestsPerMonth: number;
   };
   dailyUsage: DailyUsage[];
   resetAt: string;
@@ -146,9 +153,10 @@ export default function Dashboard() {
         setUsageData({
           plan: user?.plan || 'free',
           usage: { tokensUsed: 0, requestsUsed: 0 },
-          limits: { tokensPerDay: 50000, requestsPerDay: 100 },
+          totalUsage: { tokensUsed: 0, requestsUsed: 0 },
+          limits: { tokensPerMonth: 1000, requestsPerMonth: 1000 },
           dailyUsage: [],
-          resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          resetAt: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
         });
       }
     } catch (error) {
@@ -157,9 +165,10 @@ export default function Dashboard() {
       setUsageData({
         plan: user?.plan || 'free',
         usage: { tokensUsed: 0, requestsUsed: 0 },
-        limits: { tokensPerDay: 50000, requestsPerDay: 100 },
+        totalUsage: { tokensUsed: 0, requestsUsed: 0 },
+        limits: { tokensPerMonth: 1000, requestsPerMonth: 1000 },
         dailyUsage: [],
-        resetAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        resetAt: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
       });
     } finally {
       setIsLoadingUsage(false);
@@ -241,20 +250,32 @@ export default function Dashboard() {
     localStorage.setItem('binario_quickstart_completed', 'true');
   };
 
-  const usagePercentage = usageData 
-    ? (usageData.usage.requestsUsed / usageData.limits.requestsPerDay) * 100 
+  const usagePercentage = usageData && usageData.limits.requestsPerMonth > 0
+    ? (usageData.usage.requestsUsed / usageData.limits.requestsPerMonth) * 100 
     : 0;
 
+  const tokenPercentage = usageData && usageData.limits.tokensPerMonth > 0
+    ? (usageData.usage.tokensUsed / usageData.limits.tokensPerMonth) * 100
+    : 0;
+
+  const showWarning = usagePercentage >= 80 || tokenPercentage >= 80;
+  const showCritical = usagePercentage >= 95 || tokenPercentage >= 95;
+
+  // Get the first API key prefix for the quick start code
+  const firstKeyPrefix = apiKeys[0]?.prefix || 'bsk_live_xxxxx...';
+  
   const quickCode = `import { createBinario } from 'binario';
 
 const ai = createBinario({
   baseUrl: '${API_BASE_URL}',
-  apiKey: '${apiKeys[0]?.prefix || 'YOUR_API_KEY'}...',
+  apiKey: '${firstKeyPrefix}', // Your API Key
 });
 
 const response = await ai.chat([
   { role: 'user', content: 'Hello!' }
-]);`;
+]);
+
+console.log(response);`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -274,6 +295,27 @@ const response = await ai.chat([
               {user?.plan || 'free'} Plan
             </Badge>
           </div>
+
+          {/* Usage Alerts */}
+          {showWarning && (
+            <Alert variant={showCritical ? "destructive" : "default"} className={showCritical ? "" : "border-amber-500/50 bg-amber-500/10"}>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>{showCritical ? "Critical Usage Warning" : "Usage Warning"}</AlertTitle>
+              <AlertDescription className="flex items-center justify-between">
+                <span>
+                  {showCritical 
+                    ? `You've used ${Math.max(usagePercentage, tokenPercentage).toFixed(0)}% of your monthly limit. Service may be interrupted.`
+                    : `You've used ${Math.max(usagePercentage, tokenPercentage).toFixed(0)}% of your monthly limit. Consider upgrading.`
+                  }
+                </span>
+                <Button variant={showCritical ? "destructive" : "outline"} size="sm" asChild>
+                  <Link to="/pricing">
+                    {showCritical ? "Upgrade Now" : "View Plans"}
+                  </Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Quick Start Card - Only show if not completed and has API keys */}
           {!quickStartCompleted && apiKeys.length > 0 && (
@@ -357,7 +399,10 @@ const response = await ai.chat([
           <div className="grid md:grid-cols-3 gap-6 mb-8">
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Requests Today</CardDescription>
+                <CardDescription className="flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  Requests This Month
+                </CardDescription>
                 <CardTitle className="text-3xl">
                   {isLoadingUsage ? (
                     <Loader2 className="w-6 h-6 animate-spin" />
@@ -365,7 +410,7 @@ const response = await ai.chat([
                     <>
                       {usageData?.usage.requestsUsed.toLocaleString() || 0}
                       <span className="text-lg text-muted-foreground font-normal">
-                        /{usageData?.limits.requestsPerDay.toLocaleString() || 100}
+                        /{usageData?.limits.requestsPerMonth === -1 ? '∞' : usageData?.limits.requestsPerMonth.toLocaleString() || 1000}
                       </span>
                     </>
                   )}
@@ -374,31 +419,44 @@ const response = await ai.chat([
               <CardContent>
                 <div className="w-full bg-secondary rounded-full h-2">
                   <div 
-                    className="bg-primary h-2 rounded-full transition-all"
+                    className={`h-2 rounded-full transition-all ${showCritical ? 'bg-destructive' : showWarning ? 'bg-amber-500' : 'bg-primary'}`}
                     style={{ width: `${Math.min(usagePercentage, 100)}%` }}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Resets {usageData?.resetAt ? new Date(usageData.resetAt).toLocaleDateString() : 'tomorrow'}
+                  Resets {usageData?.resetAt ? new Date(usageData.resetAt).toLocaleDateString('en', { month: 'short', day: 'numeric' }) : 'next month'}
                 </p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Tokens Used</CardDescription>
+                <CardDescription>Tokens This Month</CardDescription>
                 <CardTitle className="text-3xl">
                   {isLoadingUsage ? (
                     <Loader2 className="w-6 h-6 animate-spin" />
                   ) : (
-                    `${((usageData?.usage.tokensUsed || 0) / 1000).toFixed(1)}K`
+                    <>
+                      {((usageData?.usage.tokensUsed || 0) / 1000).toFixed(1)}K
+                      <span className="text-lg text-muted-foreground font-normal">
+                        /{usageData?.limits.tokensPerMonth === -1 ? '∞' : `${((usageData?.limits.tokensPerMonth || 50000) / 1000)}K`}
+                      </span>
+                    </>
                   )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Across all API requests
-                </p>
+                <div className="w-full bg-secondary rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full transition-all ${tokenPercentage >= 95 ? 'bg-destructive' : tokenPercentage >= 80 ? 'bg-amber-500' : 'bg-primary'}`}
+                    style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
+                  />
+                </div>
+                {usageData?.totalUsage && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    All time: {usageData.totalUsage.tokensUsed.toLocaleString()} tokens
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -738,27 +796,36 @@ const response = await ai.chat([
               </div>
 
               {/* Plan Upgrade Card */}
-              <Card className="mt-6 border-primary/20">
-                <CardContent className="py-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <Zap className="w-8 h-8 text-primary" />
-                      <div>
-                        <h3 className="font-semibold">Need more requests?</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Upgrade to Pro for 10,000 requests/day and priority support
-                        </p>
+              {usageData?.plan !== 'enterprise' && (
+                <Card className="mt-6 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+                  <CardContent className="py-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                          <Zap className="w-6 h-6 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">
+                            {usageData?.plan === 'free' ? 'Upgrade to Pro' : 'Go Enterprise'}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            {usageData?.plan === 'free' 
+                              ? 'Get 50,000 requests/month and 500K tokens for $29/mo'
+                              : 'Unlimited requests, priority support, and custom SLAs'
+                            }
+                          </p>
+                        </div>
                       </div>
+                      <Button asChild className="shrink-0">
+                        <Link to="/pricing">
+                          View Plans
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Link>
+                      </Button>
                     </div>
-                    <Button asChild>
-                      <Link to="/pricing">
-                        Upgrade Plan
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </div>

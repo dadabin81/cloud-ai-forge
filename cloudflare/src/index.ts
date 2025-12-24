@@ -17,10 +17,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
 };
 
+// Rate limits aligned with pricing page (monthly)
 const RATE_LIMITS = {
-  free: { requestsPerMinute: 10, requestsPerDay: 100, tokensPerDay: 50000 },
-  pro: { requestsPerMinute: 60, requestsPerDay: 1000, tokensPerDay: 500000 },
-  enterprise: { requestsPerMinute: 300, requestsPerDay: 10000, tokensPerDay: 5000000 },
+  free: { requestsPerMinute: 10, requestsPerMonth: 1000, tokensPerMonth: 50000 },
+  pro: { requestsPerMinute: 100, requestsPerMonth: 50000, tokensPerMonth: 500000 },
+  enterprise: { requestsPerMinute: 300, requestsPerMonth: -1, tokensPerMonth: -1 }, // unlimited
 };
 
 const MODEL_ROUTING = {
@@ -132,6 +133,15 @@ export default {
           return jsonError('Unauthorized', 401);
         }
         return await handleAccountUsage(env, sessionInfo);
+      }
+
+      // ============ Get First API Key (Session-Protected) ============
+      if (path === '/v1/account/api-key' && request.method === 'GET') {
+        const sessionInfo = await validateSession(request, env);
+        if (!sessionInfo) {
+          return jsonError('Unauthorized', 401);
+        }
+        return await handleGetFirstApiKey(env, sessionInfo);
       }
 
       // ============ API Key Protected Endpoints ============
@@ -569,16 +579,18 @@ async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
 // ============ Account Usage Handler (Session-Protected) ============
 
 async function handleAccountUsage(env: Env, sessionInfo: SessionInfo): Promise<Response> {
-  const today = new Date().toISOString().split('T')[0];
+  // Get current month start
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
   
-  // Get today's usage
-  const todayUsage = await env.DB.prepare(`
+  // Get this month's usage
+  const monthUsage = await env.DB.prepare(`
     SELECT 
       COALESCE(SUM(tokens_used), 0) as total_tokens,
       COUNT(*) as total_requests
     FROM usage 
-    WHERE user_id = ? AND date = ?
-  `).bind(sessionInfo.userId, today).first();
+    WHERE user_id = ? AND date >= ?
+  `).bind(sessionInfo.userId, monthStart).first();
 
   // Get daily usage for last 7 days
   const dailyUsage = await env.DB.prepare(`
@@ -603,16 +615,16 @@ async function handleAccountUsage(env: Env, sessionInfo: SessionInfo): Promise<R
   return jsonResponse({
     plan: sessionInfo.plan,
     usage: {
-      tokensUsed: Number(todayUsage?.total_tokens) || 0,
-      requestsUsed: Number(todayUsage?.total_requests) || 0,
+      tokensUsed: Number(monthUsage?.total_tokens) || 0,
+      requestsUsed: Number(monthUsage?.total_requests) || 0,
     },
     totalUsage: {
       tokensUsed: Number(totalUsage?.total_tokens) || 0,
       requestsUsed: Number(totalUsage?.total_requests) || 0,
     },
     limits: {
-      tokensPerDay: limits.tokensPerDay,
-      requestsPerDay: limits.requestsPerDay,
+      tokensPerMonth: limits.tokensPerMonth,
+      requestsPerMonth: limits.requestsPerMonth,
       requestsPerMinute: limits.requestsPerMinute,
     },
     dailyUsage: dailyUsage.results.map(d => ({
@@ -620,7 +632,29 @@ async function handleAccountUsage(env: Env, sessionInfo: SessionInfo): Promise<R
       tokens: Number(d.tokens) || 0,
       requests: Number(d.requests) || 0,
     })),
-    resetAt: getNextResetDate(),
+    resetAt: getNextMonthResetDate(),
+  });
+}
+
+// ============ Get First API Key Handler ============
+
+async function handleGetFirstApiKey(env: Env, sessionInfo: SessionInfo): Promise<Response> {
+  const key = await env.DB.prepare(`
+    SELECT id, name, key_prefix
+    FROM api_keys
+    WHERE user_id = ? AND is_active = 1
+    ORDER BY created_at ASC
+    LIMIT 1
+  `).bind(sessionInfo.userId).first();
+
+  if (!key) {
+    return jsonError('No API key found', 404);
+  }
+
+  return jsonResponse({
+    id: key.id,
+    name: key.name,
+    prefix: key.key_prefix,
   });
 }
 
@@ -674,23 +708,34 @@ async function validateApiKey(env: Env, key: string): Promise<ApiKeyInfo | null>
 async function checkRateLimit(env: Env, keyInfo: ApiKeyInfo): Promise<{ allowed: boolean; resetAt: number }> {
   const limits = RATE_LIMITS[keyInfo.plan];
   const minuteKey = `rate:${keyInfo.keyId}:minute:${Math.floor(Date.now() / 60000)}`;
-  const dayKey = `rate:${keyInfo.keyId}:day:${new Date().toISOString().split('T')[0]}`;
+  const monthKey = `rate:${keyInfo.keyId}:month:${new Date().toISOString().slice(0, 7)}`; // YYYY-MM
 
-  const [minuteCount, dayCount] = await Promise.all([
+  const [minuteCount, monthCount] = await Promise.all([
     env.KV.get(minuteKey),
-    env.KV.get(dayKey),
+    env.KV.get(monthKey),
   ]);
 
   const currentMinute = parseInt(minuteCount || '0');
-  const currentDay = parseInt(dayCount || '0');
+  const currentMonth = parseInt(monthCount || '0');
 
-  if (currentMinute >= limits.requestsPerMinute || currentDay >= limits.requestsPerDay) {
+  // Check minute limit
+  if (currentMinute >= limits.requestsPerMinute) {
     return { allowed: false, resetAt: Date.now() + 60000 };
   }
 
+  // Check monthly limit (skip if unlimited = -1)
+  if (limits.requestsPerMonth !== -1 && currentMonth >= limits.requestsPerMonth) {
+    return { allowed: false, resetAt: getNextMonthResetTimestamp() };
+  }
+
+  // Calculate TTL for month key (until end of month)
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthTtl = Math.ceil((endOfMonth.getTime() - now.getTime()) / 1000);
+
   await Promise.all([
     env.KV.put(minuteKey, String(currentMinute + 1), { expirationTtl: 60 }),
-    env.KV.put(dayKey, String(currentDay + 1), { expirationTtl: 86400 }),
+    env.KV.put(monthKey, String(currentMonth + 1), { expirationTtl: monthTtl }),
   ]);
 
   return { allowed: true, resetAt: Date.now() + 60000 };
@@ -737,6 +782,17 @@ function getNextResetDate(): string {
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0);
   return tomorrow.toISOString();
+}
+
+function getNextMonthResetDate(): string {
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return nextMonth.toISOString();
+}
+
+function getNextMonthResetTimestamp(): number {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
 }
 
 function getAvailableModels() {

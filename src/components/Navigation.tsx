@@ -186,11 +186,25 @@ export function Navigation() {
             Playground
           </Link>
           <Link 
+            to="/use-cases" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Use Cases
+          </Link>
+          <Link 
             to="/pricing" 
             className="block text-muted-foreground hover:text-foreground transition-colors py-2"
             onClick={() => setIsMenuOpen(false)}
           >
             Pricing
+          </Link>
+          <Link 
+            to="/about" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            About
           </Link>
           
           <div className="pt-4 flex flex-col gap-3">
