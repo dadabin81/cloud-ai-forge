@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -6,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { 
   Key, 
   BarChart3, 
@@ -13,9 +15,14 @@ import {
   Check, 
   Plus, 
   Trash2,
-  Eye,
-  EyeOff,
-  Loader2
+  Loader2,
+  Rocket,
+  Play,
+  BookOpen,
+  ArrowRight,
+  Zap,
+  Code,
+  CheckCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -59,9 +66,9 @@ interface UsageData {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { user, token } = useAuth();
   const [copied, setCopied] = useState<string | null>(null);
-  const [showKey, setShowKey] = useState<string | null>(null);
   
   // API Keys state
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -74,6 +81,11 @@ export default function Dashboard() {
   // Usage state
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(true);
+
+  // Quick start state
+  const [quickStartCompleted, setQuickStartCompleted] = useState(() => {
+    return localStorage.getItem('binario_quickstart_completed') === 'true';
+  });
 
   // Fetch API keys
   useEffect(() => {
@@ -188,9 +200,25 @@ export default function Dashboard() {
     }
   };
 
+  const dismissQuickStart = () => {
+    setQuickStartCompleted(true);
+    localStorage.setItem('binario_quickstart_completed', 'true');
+  };
+
   const usagePercentage = usageData 
     ? (usageData.usage.requestsUsed / usageData.limits.requestsPerDay) * 100 
     : 0;
+
+  const quickCode = `import { createBinario } from 'binario';
+
+const ai = createBinario({
+  baseUrl: '${API_BASE_URL}',
+  apiKey: '${apiKeys[0]?.prefix || 'YOUR_API_KEY'}...',
+});
+
+const response = await ai.chat([
+  { role: 'user', content: 'Hello!' }
+]);`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -199,12 +227,95 @@ export default function Dashboard() {
       <main className="pt-24 pb-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-            <p className="text-muted-foreground">
-              Welcome back, {user?.email}
-            </p>
+          <div className="mb-8 flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
+              <p className="text-muted-foreground">
+                Welcome back, {user?.email}
+              </p>
+            </div>
+            <Badge variant="outline" className="text-sm capitalize">
+              {user?.plan || 'free'} Plan
+            </Badge>
           </div>
+
+          {/* Quick Start Card - Only show if not completed and has API keys */}
+          {!quickStartCompleted && apiKeys.length > 0 && (
+            <Card className="mb-8 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Rocket className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle>Quick Start</CardTitle>
+                      <CardDescription>Get started with Binario in seconds</CardDescription>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={dismissQuickStart}>
+                    Dismiss
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {/* Code Example */}
+                  <div className="relative">
+                    <pre className="p-4 bg-[#1a1a2e] rounded-lg font-mono text-xs overflow-x-auto text-gray-300">
+                      {quickCode}
+                    </pre>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-2"
+                      onClick={() => copyToClipboard(quickCode, 'quick-code')}
+                    >
+                      {copied === 'quick-code' ? (
+                        <Check className="w-4 h-4 text-primary" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-sm">Next Steps:</h4>
+                    <div className="grid gap-2">
+                      <Button variant="outline" className="justify-start h-auto py-3" asChild>
+                        <Link to="/playground">
+                          <Play className="w-4 h-4 mr-3 text-primary" />
+                          <div className="text-left">
+                            <div className="font-medium">Try the Playground</div>
+                            <div className="text-xs text-muted-foreground">Test API with your key</div>
+                          </div>
+                        </Link>
+                      </Button>
+                      <Button variant="outline" className="justify-start h-auto py-3" asChild>
+                        <Link to="/docs">
+                          <BookOpen className="w-4 h-4 mr-3 text-primary" />
+                          <div className="text-left">
+                            <div className="font-medium">Read Documentation</div>
+                            <div className="text-xs text-muted-foreground">Learn all features</div>
+                          </div>
+                        </Link>
+                      </Button>
+                      <Button variant="outline" className="justify-start h-auto py-3" asChild>
+                        <Link to="/use-cases">
+                          <Code className="w-4 h-4 mr-3 text-primary" />
+                          <div className="text-left">
+                            <div className="font-medium">Explore Use Cases</div>
+                            <div className="text-xs text-muted-foreground">See real-world examples</div>
+                          </div>
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Usage Overview Cards */}
           <div className="grid md:grid-cols-3 gap-6 mb-8">
@@ -257,14 +368,19 @@ export default function Dashboard() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Current Plan</CardDescription>
-                <CardTitle className="text-3xl capitalize">
-                  {user?.plan || 'free'}
+                <CardDescription>API Keys</CardDescription>
+                <CardTitle className="text-3xl">
+                  {isLoadingKeys ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    apiKeys.length
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Button variant="outline" size="sm" asChild>
-                  <a href="/pricing">Upgrade Plan</a>
+                <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(true)}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Create Key
                 </Button>
               </CardContent>
             </Card>
@@ -304,8 +420,13 @@ export default function Dashboard() {
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                     </div>
                   ) : apiKeys.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No API keys yet. Create one to get started.
+                    <div className="text-center py-8">
+                      <Key className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground mb-4">No API keys yet. Create one to get started.</p>
+                      <Button onClick={() => setShowCreateDialog(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Your First Key
+                      </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -315,11 +436,23 @@ export default function Dashboard() {
                           className="flex items-center justify-between p-4 rounded-lg border border-border bg-card"
                         >
                           <div className="flex-1">
-                            <div className="font-medium">{key.name}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{key.name}</span>
+                              <Badge variant="secondary" className="text-xs">Active</Badge>
+                            </div>
                             <div className="flex items-center gap-2 mt-1">
                               <code className="text-sm text-muted-foreground bg-secondary px-2 py-0.5 rounded">
-                                {key.prefix}
+                                {key.prefix}...
                               </code>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2"
+                                onClick={() => navigate('/playground')}
+                              >
+                                Test in Playground
+                                <ArrowRight className="w-3 h-3 ml-1" />
+                              </Button>
                             </div>
                             <div className="text-xs text-muted-foreground mt-2">
                               Created {new Date(key.createdAt).toLocaleDateString()}
@@ -413,10 +546,43 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No usage data yet. Start making API requests to see your usage.
+                    <div className="text-center py-8">
+                      <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground mb-2">No usage data yet</p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Start making API requests to see your usage statistics
+                      </p>
+                      <Button variant="outline" asChild>
+                        <Link to="/playground">
+                          <Play className="w-4 h-4 mr-2" />
+                          Try the Playground
+                        </Link>
+                      </Button>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Plan Upgrade Card */}
+              <Card className="mt-6 border-primary/20">
+                <CardContent className="py-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <Zap className="w-8 h-8 text-primary" />
+                      <div>
+                        <h3 className="font-semibold">Need more requests?</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Upgrade to Pro for 10,000 requests/day and priority support
+                        </p>
+                      </div>
+                    </div>
+                    <Button asChild>
+                      <Link to="/pricing">
+                        Upgrade Plan
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -463,15 +629,28 @@ export default function Dashboard() {
                   <strong>Save this key!</strong> You won't be able to see it again.
                 </p>
               </div>
-              <Button 
-                onClick={() => {
-                  setNewlyCreatedKey(null);
-                  setShowCreateDialog(false);
-                }} 
-                className="w-full"
-              >
-                Done
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setNewlyCreatedKey(null);
+                    setShowCreateDialog(false);
+                  }} 
+                  className="flex-1"
+                >
+                  Done
+                </Button>
+                <Button 
+                  onClick={() => {
+                    copyToClipboard(newlyCreatedKey, 'new-key');
+                    navigate('/playground');
+                  }} 
+                  className="flex-1"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Test in Playground
+                </Button>
+              </div>
             </div>
           ) : (
             <>
