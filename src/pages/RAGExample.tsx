@@ -362,22 +362,23 @@ export default function RAGExample() {
     }
 
     setIsLoading(true);
+    const userInput = input.trim();
+    setInput('');
     
     try {
       // Step 1: Retrieve relevant context using real embeddings
-      const relevantDocs = await searchDocuments(input, 3);
+      const relevantDocs = await searchDocuments(userInput, 3);
       setRetrievedContext(relevantDocs);
       
-      const userMessage: Message = { role: 'user', content: input.trim() };
+      const userMessage: Message = { role: 'user', content: userInput };
       setMessages(prev => [...prev, userMessage]);
-      setInput('');
 
       // Step 2: Build context from retrieved documents
       const contextText = relevantDocs.length > 0
         ? relevantDocs.map((doc, i) => `[Document ${i + 1} (similarity: ${(doc.score * 100).toFixed(1)}%)]\n${doc.content}`).join('\n\n')
         : 'No relevant documents found.';
 
-      // Step 3: Call real AI chat API with RAG context
+      // Step 3: Call real AI chat API with RAG context (streaming)
       const systemPrompt = `You are a helpful AI assistant with access to a knowledge base. Answer the user's question based on the provided context. If the context doesn't contain relevant information, say so honestly.
 
 Context from knowledge base:
@@ -393,9 +394,9 @@ ${contextText}`;
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages.map(m => ({ role: m.role, content: m.content })),
-            { role: 'user', content: input.trim() },
+            { role: 'user', content: userInput },
           ],
-          stream: false,
+          stream: true,
         }),
       });
 
@@ -404,16 +405,92 @@ ${contextText}`;
         throw new Error(errorData.error || `Chat API error: ${chatResponse.status}`);
       }
 
-      const chatData = await chatResponse.json();
-      const aiResponse = chatData.choices?.[0]?.message?.content || 'No response generated.';
-
+      // Create initial assistant message for streaming
       const assistantMessage: Message = {
         role: 'assistant',
-        content: aiResponse,
+        content: '',
         context: relevantDocs.map(d => d.content),
       };
-      
       setMessages(prev => [...prev, assistantMessage]);
+
+      // Process SSE stream
+      const reader = chatResponse.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+
+          if (line.endsWith('\r')) line = line.slice(0, -1);
+          if (line.startsWith(':') || line.trim() === '') continue;
+          if (!line.startsWith('data: ')) continue;
+
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') break;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              // Update the last message with streamed content
+              setMessages(prev => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                  updated[lastIdx] = {
+                    ...updated[lastIdx],
+                    content: fullContent,
+                  };
+                }
+                return updated;
+              });
+            }
+          } catch {
+            // Incomplete JSON, put back and wait for more data
+            buffer = line + '\n' + buffer;
+            break;
+          }
+        }
+      }
+
+      // Final flush for any remaining buffer
+      if (buffer.trim()) {
+        for (let raw of buffer.split('\n')) {
+          if (!raw || raw.startsWith(':') || raw.trim() === '') continue;
+          if (!raw.startsWith('data: ')) continue;
+          const jsonStr = raw.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              setMessages(prev => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                  updated[lastIdx] = { ...updated[lastIdx], content: fullContent };
+                }
+                return updated;
+              });
+            }
+          } catch { /* ignore */ }
+        }
+      }
+
     } catch (error) {
       console.error('RAG chat error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to process query');
