@@ -39,14 +39,16 @@ class_name = "BinarioAgent"
 name = "SANDBOX_PROJECT"
 class_name = "SandboxProject"
 
-# Durable Object migrations - enables SQLite storage
+# Durable Object migrations
+# v1: Create the Durable Object classes first
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["BinarioAgent"]
+new_classes = ["BinarioAgent", "SandboxProject"]
 
+# v2: Enable SQLite storage for the classes
 [[migrations]]
 tag = "v2"
-new_sqlite_classes = ["SandboxProject"]
+new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 
 # ============ Workflows for Multi-step Agents ============
 [[workflows]]
