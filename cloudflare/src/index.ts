@@ -180,7 +180,22 @@ export default {
       }
 
       if (path === '/v1/models') {
-        return jsonResponse({ models: getAvailableModels() });
+        return jsonResponse({ models: getAvailableModels(env) });
+      }
+
+      // Providers status endpoint (public)
+      if (path === '/v1/providers/status') {
+        return jsonResponse({
+          providers: {
+            cloudflare: { available: true, configured: true, name: 'Cloudflare Workers AI' },
+            openai: { available: true, configured: !!env.OPENAI_API_KEY, name: 'OpenAI' },
+            anthropic: { available: true, configured: !!env.ANTHROPIC_API_KEY, name: 'Anthropic' },
+            google: { available: true, configured: !!env.GOOGLE_API_KEY, name: 'Google' },
+            openrouter: { available: true, configured: !!env.OPENROUTER_API_KEY, name: 'OpenRouter' },
+          },
+          defaultProvider: 'cloudflare',
+          websocket: { enabled: true, durableObjects: true },
+        });
       }
 
       // ============ Auth Endpoints (Public) ============
@@ -1355,13 +1370,39 @@ function getNextMonthResetTimestamp(): number {
   return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
 }
 
-function getAvailableModels() {
-  return [
-    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free' },
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro' },
-    { id: '@cf/mistral/mistral-7b-instruct-v0.2', name: 'Mistral 7B', tier: 'free' },
-    { id: '@cf/qwen/qwen1.5-14b-chat-awq', name: 'Qwen 1.5 14B', tier: 'pro' },
+function getAvailableModels(env?: Env) {
+  const models: Array<{ id: string; name: string; tier: string; provider: string }> = [
+    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare' },
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare' },
+    { id: '@cf/mistral/mistral-7b-instruct-v0.2', name: 'Mistral 7B', tier: 'free', provider: 'cloudflare' },
+    { id: '@cf/qwen/qwen1.5-14b-chat-awq', name: 'Qwen 1.5 14B', tier: 'pro', provider: 'cloudflare' },
+    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', tier: 'pro', provider: 'cloudflare' },
+    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare' },
   ];
+
+  // Add external provider models only if configured
+  if (env?.OPENAI_API_KEY) {
+    models.push(
+      { id: 'gpt-4o', name: 'GPT-4o', tier: 'pro', provider: 'openai' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', tier: 'free', provider: 'openai' },
+    );
+  }
+
+  if (env?.ANTHROPIC_API_KEY) {
+    models.push(
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', tier: 'pro', provider: 'anthropic' },
+      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', tier: 'enterprise', provider: 'anthropic' },
+    );
+  }
+
+  if (env?.GOOGLE_API_KEY) {
+    models.push(
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', tier: 'free', provider: 'google' },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', tier: 'pro', provider: 'google' },
+    );
+  }
+
+  return models;
 }
 
 function jsonResponse(data: any, status = 200): Response {
