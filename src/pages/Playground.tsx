@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
+import { useProviders } from '@/hooks/useProviders';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,6 +37,7 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -45,50 +48,37 @@ interface Message {
   timestamp?: number;
 }
 
-const providers = [
-  { id: 'cloudflare', name: 'Cloudflare Workers AI', free: true },
-  { id: 'lovable', name: 'Lovable AI', free: false },
-  { id: 'openai', name: 'OpenAI', free: false },
-  { id: 'anthropic', name: 'Anthropic', free: false },
-  { id: 'google', name: 'Google', free: false },
-];
+type WsConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-const models: Record<string, { id: string; name: string }[]> = {
-  cloudflare: [
-    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (Default)' },
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B (Fast)' },
-    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision' },
-    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B' },
-  ],
-  lovable: [
-    { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-    { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-    { id: 'openai/gpt-5-mini', name: 'GPT-5 Mini' },
-  ],
-  openai: [
-    { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-  ],
-  anthropic: [
-    { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-  ],
-  google: [
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
-  ],
+// Storage keys for preferences
+const STORAGE_KEYS = {
+  provider: 'binario_provider',
+  model: 'binario_model',
+  useWebSocket: 'binario_websocket',
+  systemPrompt: 'binario_system_prompt',
 };
-
-type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
-  const [selectedProvider, setSelectedProvider] = useState('cloudflare');
-  const [selectedModel, setSelectedModel] = useState('@cf/meta/llama-3.1-8b-instruct');
+  const { providers, models, isLoading: isLoadingProviders, isProviderConfigured, refetch: refetchProviders } = useProviders();
+  
+  // Load persisted preferences
+  const [selectedProvider, setSelectedProvider] = useState(() => 
+    localStorage.getItem(STORAGE_KEYS.provider) || 'cloudflare'
+  );
+  const [selectedModel, setSelectedModel] = useState(() => 
+    localStorage.getItem(STORAGE_KEYS.model) || '@cf/meta/llama-3.1-8b-instruct'
+  );
+  const [useWebSocket, setUseWebSocket] = useState(() => 
+    localStorage.getItem(STORAGE_KEYS.useWebSocket) !== 'false'
+  );
+  const [systemPrompt, setSystemPrompt] = useState(() => 
+    localStorage.getItem(STORAGE_KEYS.systemPrompt) || 'You are a helpful AI assistant.'
+  );
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('You are a helpful AI assistant.');
   const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -96,13 +86,14 @@ export default function Playground() {
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   
   // WebSocket mode
-  const [useWebSocket, setUseWebSocket] = useState(true);
-  const [wsStatus, setWsStatus] = useState<ConnectionStatus>('disconnected');
+  const [wsStatus, setWsStatus] = useState<WsConnectionStatus>('disconnected');
   const [conversationId] = useState(() => crypto.randomUUID());
   const wsRef = useRef<WebSocket | null>(null);
   const streamingContentRef = useRef('');
   const tokenCountRef = useRef(0);
   const streamStartTimeRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 3;
   
   // API Key state
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -113,6 +104,23 @@ export default function Playground() {
   // HTTP mode state
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Persist preferences
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.provider, selectedProvider);
+  }, [selectedProvider]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.model, selectedModel);
+  }, [selectedModel]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.useWebSocket, String(useWebSocket));
+  }, [useWebSocket]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.systemPrompt, systemPrompt);
+  }, [systemPrompt]);
 
   // Get the effective API key for requests
   const getEffectiveApiKey = useCallback(() => {
@@ -155,7 +163,7 @@ export default function Playground() {
     return () => clearTimeout(debounce);
   }, [apiKeyInput, storedApiKey]);
 
-  // WebSocket connection management
+  // WebSocket connection with auto-reconnect
   const connectWebSocket = useCallback(() => {
     const effectiveApiKey = getEffectiveApiKey();
     if (!effectiveApiKey || wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -164,8 +172,6 @@ export default function Playground() {
 
     const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/v1/agent/ws/${conversationId}?apiKey=${effectiveApiKey}`;
     console.log('🔵 Attempting WebSocket connection to:', wsUrl);
-    console.log('🔵 API_BASE_URL:', API_BASE_URL);
-    console.log('🔵 Conversation ID:', conversationId);
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -173,6 +179,7 @@ export default function Playground() {
     ws.onopen = () => {
       console.log('🟢 WebSocket connected successfully!');
       setWsStatus('connected');
+      reconnectAttemptsRef.current = 0;
       toast.success('WebSocket connected!');
       
       // Send system prompt configuration
@@ -248,11 +255,13 @@ export default function Playground() {
 
     ws.onerror = (error) => {
       console.error('🔴 WebSocket error event:', error);
-      console.error('🔴 WebSocket URL was:', wsUrl);
-      console.error('🔴 WebSocket readyState:', ws.readyState);
-      console.error('🔴 API Key used (first 10 chars):', effectiveApiKey.substring(0, 10) + '...');
       setWsStatus('error');
-      toast.error('WebSocket connection error - check console for details');
+      
+      // Auto-fallback to HTTP if WebSocket fails
+      if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+        toast.warning('WebSocket unavailable, switching to HTTP mode');
+        setUseWebSocket(false);
+      }
     };
 
     ws.onclose = (event) => {
@@ -260,14 +269,22 @@ export default function Playground() {
         code: event.code,
         reason: event.reason,
         wasClean: event.wasClean,
-        url: wsUrl
       });
       setWsStatus('disconnected');
       wsRef.current = null;
+
+      // Auto-reconnect with exponential backoff
+      if (useWebSocket && isApiKeyValid && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        reconnectAttemptsRef.current += 1;
+        console.log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+        setTimeout(() => connectWebSocket(), delay);
+      }
     };
-  }, [conversationId, getEffectiveApiKey, selectedModel, systemPrompt]);
+  }, [conversationId, getEffectiveApiKey, selectedModel, systemPrompt, useWebSocket, isApiKeyValid]);
 
   const disconnectWebSocket = useCallback(() => {
+    reconnectAttemptsRef.current = maxReconnectAttempts; // Prevent auto-reconnect
     wsRef.current?.close();
     wsRef.current = null;
     setWsStatus('disconnected');
@@ -276,6 +293,7 @@ export default function Playground() {
   // Auto-connect when WebSocket mode is enabled and API key is valid
   useEffect(() => {
     if (useWebSocket && isApiKeyValid && wsStatus === 'disconnected') {
+      reconnectAttemptsRef.current = 0;
       connectWebSocket();
     } else if (!useWebSocket && wsStatus === 'connected') {
       disconnectWebSocket();
@@ -290,9 +308,13 @@ export default function Playground() {
   useEffect(() => {
     const providerModels = models[selectedProvider];
     if (providerModels?.length) {
-      setSelectedModel(providerModels[0].id);
+      // Only update if current model doesn't belong to selected provider
+      const currentModelInProvider = providerModels.some(m => m.id === selectedModel);
+      if (!currentModelInProvider) {
+        setSelectedModel(providerModels[0].id);
+      }
     }
-  }, [selectedProvider]);
+  }, [selectedProvider, models, selectedModel]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -323,7 +345,6 @@ export default function Playground() {
 
     console.log('🧪 Testing API key...');
     console.log('🧪 API_BASE_URL:', API_BASE_URL);
-    console.log('🧪 Key (first 10 chars):', effectiveApiKey.substring(0, 10) + '...');
 
     try {
       const response = await fetch(`${API_BASE_URL}/v1/models`, {
@@ -332,14 +353,13 @@ export default function Playground() {
         },
       });
       
-      console.log('🧪 Response status:', response.status);
-      console.log('🧪 Response headers:', Object.fromEntries(response.headers.entries()));
-      
       const data = await response.json();
-      console.log('🧪 Response data:', data);
+      console.log('🧪 Response:', response.status, data);
       
       if (response.ok) {
-        toast.success(`API key valid! Found ${data.data?.length || 0} models`);
+        toast.success(`API key valid! Found ${data.models?.length || 0} models`);
+        // Refresh providers to get latest data
+        refetchProviders();
       } else {
         toast.error(`API error: ${response.status} - ${data.error || 'Unknown error'}`);
       }
@@ -352,6 +372,7 @@ export default function Playground() {
   // Manual WebSocket reconnect
   const manualReconnect = () => {
     console.log('🔄 Manual reconnect triggered');
+    reconnectAttemptsRef.current = 0;
     disconnectWebSocket();
     setTimeout(() => {
       connectWebSocket();
@@ -549,6 +570,7 @@ export default function Playground() {
   };
 
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
+  const currentModels = models[selectedProvider] || [];
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
 
   const codeSnippet = useWebSocket 
@@ -589,15 +611,22 @@ const response = await ai.chat([
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="mb-8">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-              <Sparkles className="w-4 h-4" />
-              <span>Interactive Demo</span>
-              {useWebSocket && (
-                <Badge variant="outline" className="text-xs border-cyan-500/50 text-cyan-400">
-                  <Wifi className="w-3 h-3 mr-1" />
-                  WebSocket
-                </Badge>
-              )}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Sparkles className="w-4 h-4" />
+                <span>Interactive Demo</span>
+                {useWebSocket && (
+                  <Badge variant="outline" className="text-xs border-cyan-500/50 text-cyan-400">
+                    <Wifi className="w-3 h-3 mr-1" />
+                    WebSocket
+                  </Badge>
+                )}
+              </div>
+              <ConnectionStatus 
+                wsStatus={wsStatus}
+                useWebSocket={useWebSocket}
+                isApiKeyValid={isApiKeyValid}
+              />
             </div>
             <h1 className="text-3xl font-bold mb-2">
               Binario <span className="gradient-text">Playground</span>
@@ -834,7 +863,7 @@ const response = await ai.chat([
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={wsStatus === 'connected' ? disconnectWebSocket : connectWebSocket}
+                        onClick={wsStatus === 'connected' ? disconnectWebSocket : manualReconnect}
                         disabled={wsStatus === 'connecting' || !isApiKeyValid}
                       >
                         <RefreshCw className={cn("w-3 h-3", wsStatus === 'connecting' && 'animate-spin')} />
@@ -952,6 +981,7 @@ const response = await ai.chat([
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
                   <Layers className="w-4 h-4" />
                   Configuration
+                  {isLoadingProviders && <Loader2 className="w-3 h-3 animate-spin" />}
                 </h3>
 
                 <div className="space-y-4">
@@ -971,11 +1001,22 @@ const response = await ai.chat([
                                   Free
                                 </Badge>
                               )}
+                              {!provider.configured && (
+                                <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-400">
+                                  <AlertTriangle className="w-3 h-3 mr-1" />
+                                  Not configured
+                                </Badge>
+                              )}
                             </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {selectedProviderData && !selectedProviderData.configured && (
+                      <p className="text-xs text-amber-400 mt-1">
+                        ⚠️ This provider requires API key configuration on the server
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -985,9 +1026,21 @@ const response = await ai.chat([
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {models[selectedProvider]?.map((model) => (
+                        {currentModels.map((model) => (
                           <SelectItem key={model.id} value={model.id}>
-                            {model.name}
+                            <div className="flex items-center gap-2">
+                              {model.name}
+                              {model.tier === 'free' && (
+                                <Badge variant="secondary" className="text-xs bg-emerald-500/10 text-emerald-400">
+                                  Free
+                                </Badge>
+                              )}
+                              {model.tier === 'pro' && (
+                                <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+                                  Pro
+                                </Badge>
+                              )}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1011,7 +1064,7 @@ const response = await ai.chat([
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Provider</span>
-                    <span className="font-medium">{selectedProviderData?.name}</span>
+                    <span className="font-medium">{selectedProviderData?.name || selectedProvider}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Model</span>
