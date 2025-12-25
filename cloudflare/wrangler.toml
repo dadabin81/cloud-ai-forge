@@ -26,26 +26,28 @@ database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
 binding = "KV"
 id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
-# ============ ADVANCED FEATURES (DISABLED) ============
-# Uncomment these sections after creating the required resources:
+# ============ DURABLE OBJECTS ============
+
+# Agent Durable Object for WebSocket chat
+[[durable_objects.bindings]]
+name = "BINARIO_AGENT"
+class_name = "BinarioAgent"
+
+# Sandbox Durable Object for project management
+[[durable_objects.bindings]]
+name = "SANDBOX_PROJECT"
+class_name = "SandboxProject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
+
+# ============ DISABLED FEATURES ============
 
 # Vectorize for RAG (requires: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5)
 # [[vectorize]]
 # binding = "VECTORIZE_INDEX"
 # index_name = "binario-embeddings"
-
-# Durable Objects for Agents SDK
-# [[durable_objects.bindings]]
-# name = "BINARIO_AGENT"
-# class_name = "BinarioAgent"
-
-# [[durable_objects.bindings]]
-# name = "SANDBOX_PROJECT"
-# class_name = "SandboxProject"
-
-# [[migrations]]
-# tag = "v1"
-# new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 
 # Workflows for Multi-step Agents
 # [[workflows]]
@@ -58,7 +60,7 @@ id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 # name = "rag-workflow"
 # class_name = "RAGWorkflow"
 
-# ============ END ADVANCED FEATURES ============
+# ============ END FEATURES ============
 
 # Observability
 [observability]
