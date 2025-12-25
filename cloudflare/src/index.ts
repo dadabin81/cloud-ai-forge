@@ -1,13 +1,12 @@
 /**
  * Binario API - Cloudflare Worker
  * Production-ready API gateway for AI chat and agents
- * Simplified version without Durable Objects, Vectorize, and Workflows
  */
 
-// NOTE: Advanced features temporarily disabled
-// export { BinarioAgent } from './agent';
-// export { SandboxProject } from './sandbox';
-// export { ResearchWorkflow, RAGWorkflow } from './workflows';
+// Export Durable Objects
+export { BinarioAgent } from './agent';
+export { SandboxProject } from './sandbox';
+// export { ResearchWorkflow, RAGWorkflow } from './workflows'; // Workflows later
 
 export interface Env {
   AI: Ai;
@@ -116,16 +115,37 @@ export default {
     const path = url.pathname;
 
     try {
-      // ============ Advanced Features (Disabled) ============
-      // These require Durable Objects, Vectorize, and Workflows which are not yet configured
+      // ============ Durable Objects Endpoints ============
       
+      // Agent endpoints (WebSocket + REST)
       if (path.startsWith('/v1/agent/')) {
-        return jsonResponse({ 
-          error: 'Agent endpoints temporarily disabled',
-          message: 'Durable Objects not configured. Use /v1/chat/completions instead.',
-        }, 503);
+        if (!env.BINARIO_AGENT) {
+          return jsonResponse({ error: 'Agent not configured' }, 503);
+        }
+        const agentPath = path.replace('/v1/agent/', '');
+        const agentId = url.searchParams.get('id') || 'default';
+        const id = env.BINARIO_AGENT.idFromName(agentId);
+        const stub = env.BINARIO_AGENT.get(id);
+        const agentUrl = new URL(request.url);
+        agentUrl.pathname = '/' + agentPath;
+        return stub.fetch(new Request(agentUrl.toString(), request));
       }
 
+      // Sandbox/Projects endpoints
+      if (path.startsWith('/v1/sandbox/') || path.startsWith('/v1/projects/')) {
+        if (!env.SANDBOX_PROJECT) {
+          return jsonResponse({ error: 'Sandbox not configured' }, 503);
+        }
+        const projectPath = path.replace('/v1/sandbox/', '').replace('/v1/projects/', '');
+        const projectId = url.searchParams.get('id') || projectPath.split('/')[0] || 'default';
+        const id = env.SANDBOX_PROJECT.idFromName(projectId);
+        const stub = env.SANDBOX_PROJECT.get(id);
+        const projectUrl = new URL(request.url);
+        projectUrl.pathname = '/' + projectPath;
+        return stub.fetch(new Request(projectUrl.toString(), request));
+      }
+
+      // RAG endpoints (still disabled - requires Vectorize)
       if (path.startsWith('/v1/rag/')) {
         return jsonResponse({ 
           error: 'RAG endpoints temporarily disabled',
@@ -133,17 +153,11 @@ export default {
         }, 503);
       }
 
+      // Workflows (still disabled)
       if (path.startsWith('/v1/workflows/')) {
         return jsonResponse({ 
           error: 'Workflow endpoints temporarily disabled',
           message: 'Workflows not configured.',
-        }, 503);
-      }
-
-      if (path.startsWith('/v1/sandbox/') || path.startsWith('/v1/projects/')) {
-        return jsonResponse({ 
-          error: 'Sandbox endpoints temporarily disabled',
-          message: 'Sandbox Durable Objects not configured.',
         }, 503);
       }
 
@@ -152,7 +166,8 @@ export default {
         return jsonResponse({ 
           status: 'ok', 
           timestamp: new Date().toISOString(), 
-          agents: false,
+          agents: !!env.BINARIO_AGENT,
+          sandbox: !!env.SANDBOX_PROJECT,
           rag: false,
           workflows: false,
           chat: true,
@@ -174,7 +189,7 @@ export default {
             openrouter: { available: true, configured: !!env.OPENROUTER_API_KEY, name: 'OpenRouter' },
           },
           defaultProvider: 'cloudflare',
-          websocket: { enabled: false, durableObjects: false },
+          websocket: { enabled: !!env.BINARIO_AGENT, durableObjects: !!env.BINARIO_AGENT },
         });
       }
 
