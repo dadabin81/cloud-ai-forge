@@ -1,51 +1,24 @@
 /**
  * Binario API - Cloudflare Worker
  * Production-ready API gateway for AI chat and agents
- * Now with Cloudflare Agents SDK - WebSocket support and persistent state
- * Vectorize for RAG, and Workflows for multi-step execution
+ * Simplified version without Durable Objects, Vectorize, and Workflows
  */
 
-// Re-export the BinarioAgent Durable Object
-export { BinarioAgent } from './agent';
-
-// Re-export Sandbox Durable Object
-export { SandboxProject } from './sandbox';
-
-// Re-export Workflow classes
-export { ResearchWorkflow, RAGWorkflow } from './workflows';
-
-// Import Sandbox utilities
-import {
-  createProject,
-  listUserProjects,
-  getProjectById,
-  deleteProject,
-  getAvailableTemplates,
-  type Project,
-} from './sandbox';
-
-// Import RAG utilities
-import {
-  generateEmbedding,
-  searchDocuments,
-  upsertDocuments,
-  deleteDocuments,
-  ingestDocument,
-  ragQuery,
-  getEmbeddingInfo,
-  type Document,
-  type RagEnv,
-} from './rag';
+// NOTE: Advanced features temporarily disabled
+// export { BinarioAgent } from './agent';
+// export { SandboxProject } from './sandbox';
+// export { ResearchWorkflow, RAGWorkflow } from './workflows';
 
 export interface Env {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
-  BINARIO_AGENT: DurableObjectNamespace;
-  SANDBOX_PROJECT: DurableObjectNamespace;
-  VECTORIZE_INDEX: VectorizeIndex;
-  RESEARCH_WORKFLOW: Workflow;
-  RAG_WORKFLOW: Workflow;
+  // Optional advanced bindings (disabled for now)
+  BINARIO_AGENT?: DurableObjectNamespace;
+  SANDBOX_PROJECT?: DurableObjectNamespace;
+  VECTORIZE_INDEX?: VectorizeIndex;
+  RESEARCH_WORKFLOW?: Workflow;
+  RAG_WORKFLOW?: Workflow;
   OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
@@ -143,29 +116,35 @@ export default {
     const path = url.pathname;
 
     try {
-      // ============ WebSocket Agent Endpoint ============
-      if (path.startsWith('/v1/agent/ws')) {
-        return await handleAgentWebSocket(request, env, url);
-      }
-
-      // ============ Agent REST Endpoints ============
+      // ============ Advanced Features (Disabled) ============
+      // These require Durable Objects, Vectorize, and Workflows which are not yet configured
+      
       if (path.startsWith('/v1/agent/')) {
-        return await handleAgentRest(request, env, url);
+        return jsonResponse({ 
+          error: 'Agent endpoints temporarily disabled',
+          message: 'Durable Objects not configured. Use /v1/chat/completions instead.',
+        }, 503);
       }
 
-      // ============ RAG Endpoints ============
       if (path.startsWith('/v1/rag/')) {
-        return await handleRagEndpoint(request, env, path);
+        return jsonResponse({ 
+          error: 'RAG endpoints temporarily disabled',
+          message: 'Vectorize index not configured.',
+        }, 503);
       }
 
-      // ============ Workflow Endpoints ============
       if (path.startsWith('/v1/workflows/')) {
-        return await handleWorkflowEndpoint(request, env, path);
+        return jsonResponse({ 
+          error: 'Workflow endpoints temporarily disabled',
+          message: 'Workflows not configured.',
+        }, 503);
       }
 
-      // ============ Sandbox/Projects Endpoints ============
       if (path.startsWith('/v1/sandbox/') || path.startsWith('/v1/projects/')) {
-        return await handleSandboxEndpoint(request, env, url);
+        return jsonResponse({ 
+          error: 'Sandbox endpoints temporarily disabled',
+          message: 'Sandbox Durable Objects not configured.',
+        }, 503);
       }
 
       // ============ Public Endpoints ============
@@ -173,9 +152,10 @@ export default {
         return jsonResponse({ 
           status: 'ok', 
           timestamp: new Date().toISOString(), 
-          agents: true,
-          rag: true,
-          workflows: true,
+          agents: false,
+          rag: false,
+          workflows: false,
+          chat: true,
         });
       }
 
@@ -194,7 +174,7 @@ export default {
             openrouter: { available: true, configured: !!env.OPENROUTER_API_KEY, name: 'OpenRouter' },
           },
           defaultProvider: 'cloudflare',
-          websocket: { enabled: true, durableObjects: true },
+          websocket: { enabled: false, durableObjects: false },
         });
       }
 

@@ -1,5 +1,6 @@
 # Binario API - Cloudflare Worker Configuration
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+# SIMPLIFIED VERSION - Durable Objects, Vectorize, and Workflows disabled
 
 name = "binario-api"
 main = "src/index.ts"
@@ -14,82 +15,55 @@ ENVIRONMENT = "production"
 [ai]
 binding = "AI"
 
-# D1 Database - Replace database_id after running: wrangler d1 create binario-db
+# D1 Database
 [[d1_databases]]
 binding = "DB"
 database_name = "binario-db"
 database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
 
+# KV Namespace for rate limiting
 [[kv_namespaces]]
 binding = "KV"
 id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
-# ============ Vectorize for RAG ============
-# Create with: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5
-[[vectorize]]
-binding = "VECTORIZE_INDEX"
-index_name = "binario-embeddings"
+# ============ ADVANCED FEATURES (DISABLED) ============
+# Uncomment these sections after creating the required resources:
 
-# ============ Durable Objects for Agents SDK ============
-[[durable_objects.bindings]]
-name = "BINARIO_AGENT"
-class_name = "BinarioAgent"
+# Vectorize for RAG (requires: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5)
+# [[vectorize]]
+# binding = "VECTORIZE_INDEX"
+# index_name = "binario-embeddings"
 
-[[durable_objects.bindings]]
-name = "SANDBOX_PROJECT"
-class_name = "SandboxProject"
+# Durable Objects for Agents SDK
+# [[durable_objects.bindings]]
+# name = "BINARIO_AGENT"
+# class_name = "BinarioAgent"
 
-# Durable Object migrations - SQLite storage backend
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
+# [[durable_objects.bindings]]
+# name = "SANDBOX_PROJECT"
+# class_name = "SandboxProject"
 
-# ============ Workflows for Multi-step Agents ============
-[[workflows]]
-binding = "RESEARCH_WORKFLOW"
-name = "research-workflow"
-class_name = "ResearchWorkflow"
+# [[migrations]]
+# tag = "v1"
+# new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 
-[[workflows]]
-binding = "RAG_WORKFLOW"
-name = "rag-workflow"
-class_name = "RAGWorkflow"
+# Workflows for Multi-step Agents
+# [[workflows]]
+# binding = "RESEARCH_WORKFLOW"
+# name = "research-workflow"
+# class_name = "ResearchWorkflow"
 
-# Development environment
-[env.development]
-name = "binario-api-dev"
+# [[workflows]]
+# binding = "RAG_WORKFLOW"
+# name = "rag-workflow"
+# class_name = "RAGWorkflow"
 
-[env.development.vars]
-ENVIRONMENT = "development"
-
-[[env.development.durable_objects.bindings]]
-name = "BINARIO_AGENT"
-class_name = "BinarioAgent"
-
-# Staging environment
-[env.staging]
-name = "binario-api-staging"
-
-[env.staging.vars]
-ENVIRONMENT = "staging"
-
-[[env.staging.durable_objects.bindings]]
-name = "BINARIO_AGENT"
-class_name = "BinarioAgent"
-
-# Production custom domain (optional)
-# Uncomment after configuring in Cloudflare Dashboard
-# [[routes]]
-# pattern = "api.binario.dev/*"
-# zone_name = "binario.dev"
+# ============ END ADVANCED FEATURES ============
 
 # Observability
 [observability]
 enabled = true
 
-# Note: Wrangler handles TypeScript bundling automatically
-# No custom build command needed since main points to src/index.ts
-
-# Limits - increased for agents
+# Limits
 [limits]
 cpu_ms = 100
