@@ -1,0 +1,71 @@
+# Binario API - Cloudflare Worker Configuration
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+# SIMPLIFIED VERSION - Durable Objects, Vectorize, and Workflows disabled
+
+name = "binario-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment Variables
+[vars]
+ENVIRONMENT = "production"
+
+# AI Binding - Workers AI
+[ai]
+binding = "AI"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "binario-db"
+database_id = "d0c7ca63-d243-4b48-806b-044124fffc1c"
+
+# KV Namespace for rate limiting
+[[kv_namespaces]]
+binding = "KV"
+id = "71d0d869b4dc4aacb524e8524f6ddd0d"
+
+# ============ DURABLE OBJECTS ============
+
+# Agent Durable Object for WebSocket chat
+[[durable_objects.bindings]]
+name = "BINARIO_AGENT"
+class_name = "BinarioAgent"
+
+# Sandbox Durable Object for project management
+[[durable_objects.bindings]]
+name = "SANDBOX_PROJECT"
+class_name = "SandboxProject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
+
+# ============ DISABLED FEATURES ============
+
+# Vectorize for RAG (requires: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5)
+# [[vectorize]]
+# binding = "VECTORIZE_INDEX"
+# index_name = "binario-embeddings"
+
+# Workflows for Multi-step Agents
+# [[workflows]]
+# binding = "RESEARCH_WORKFLOW"
+# name = "research-workflow"
+# class_name = "ResearchWorkflow"
+
+# [[workflows]]
+# binding = "RAG_WORKFLOW"
+# name = "rag-workflow"
+# class_name = "RAGWorkflow"
+
+# ============ END FEATURES ============
+
+# Observability
+[observability]
+enabled = true
+
+# Limits
+[limits]
+cpu_ms = 100

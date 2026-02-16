@@ -1,0 +1,103 @@
+{
+  "name": "binario",
+  "version": "0.1.0",
+  "description": "Universal AI SDK for Cloudflare Workers - Unified API, smart fallbacks, and cost optimization",
+  "keywords": [
+    "ai",
+    "sdk",
+    "cloudflare",
+    "workers",
+    "llm",
+    "openai",
+    "anthropic",
+    "agents",
+    "streaming",
+    "typescript"
+  ],
+  "author": "Binario Team",
+  "license": "MIT",
+  "homepage": "https://binario.dev",
+  "sideEffects": false,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./cloudflare": {
+      "import": {
+        "types": "./dist/cloudflare.d.ts",
+        "default": "./dist/cloudflare.js"
+      },
+      "require": {
+        "types": "./dist/cloudflare.d.cts",
+        "default": "./dist/cloudflare.cjs"
+      }
+    },
+    "./memory": {
+      "import": {
+        "types": "./dist/memory.d.ts",
+        "default": "./dist/memory.js"
+      },
+      "require": {
+        "types": "./dist/memory.d.cts",
+        "default": "./dist/memory.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run test && npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "zod": ">=3.20.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^1.6.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "@testing-library/react": "^14.0.0",
+    "@types/react": "^18.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
