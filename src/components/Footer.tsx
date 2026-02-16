@@ -1,4 +1,4 @@
-import { Github, Twitter } from 'lucide-react';
+import { Github } from 'lucide-react';
 import binarioLogo from '@/assets/binario-logo.png';
 
 const links = {
@@ -40,18 +40,13 @@ export function Footer() {
             </p>
             <div className="flex items-center gap-4">
               <a
-                href="#"
+                href="https://github.com/dadabin81/cloud-ai-forge"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="GitHub"
               >
                 <Github className="w-5 h-5" />
-              </a>
-              <a
-                href="#"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Twitter"
-              >
-                <Twitter className="w-5 h-5" />
               </a>
             </div>
           </div>

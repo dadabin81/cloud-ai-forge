@@ -39,10 +39,10 @@ const values = [
 ];
 
 const stats = [
-  { value: '10K+', label: 'Developers' },
-  { value: '50M+', label: 'API Requests' },
-  { value: '99.9%', label: 'Uptime' },
-  { value: '< 50ms', label: 'Avg Latency' },
+  { value: '4', label: 'AI Providers' },
+  { value: '10K', label: 'Free Neurons/Day' },
+  { value: '100%', label: 'TypeScript' },
+  { value: 'MIT', label: 'License' },
 ];
 
 const team = [
@@ -183,7 +183,7 @@ export default function About() {
                 Ready to Build with Binario?
               </h2>
               <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-                Join thousands of developers building AI-powered applications with our SDK.
+                Start building AI-powered applications with Binario.
                 Get started for free, no credit card required.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">

@@ -101,7 +101,7 @@ export function Navigation() {
               variant="ghost" 
               size="sm" 
               className="gap-2"
-              onClick={() => window.open('https://github.com/binario-ai/binario', '_blank')}
+              onClick={() => window.open('https://github.com/dadabin81/cloud-ai-forge', '_blank')}
             >
               <Github className="w-4 h-4" />
               GitHub
@@ -224,7 +224,7 @@ export function Navigation() {
             <Button 
               variant="outline" 
               className="w-full gap-2"
-              onClick={() => window.open('https://github.com/binario-ai/binario', '_blank')}
+              onClick={() => window.open('https://github.com/dadabin81/cloud-ai-forge', '_blank')}
             >
               <Github className="w-4 h-4" />
               GitHub

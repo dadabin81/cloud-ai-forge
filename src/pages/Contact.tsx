@@ -9,9 +9,7 @@ import { Label } from '@/components/ui/label';
 import { 
   Mail, 
   MessageSquare, 
-  FileText, 
   Github,
-  Twitter,
   Send,
   Loader2,
   CheckCircle,
@@ -21,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { supabase } from '@/integrations/supabase/client';
 
 const contactSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100, 'Name must be less than 100 characters'),
@@ -41,15 +40,8 @@ const contactOptions = [
     icon: Github,
     title: 'GitHub',
     description: 'Report bugs and request features',
-    contact: 'github.com/binario-ai',
-    action: 'https://github.com/binario-ai/binario',
-  },
-  {
-    icon: Twitter,
-    title: 'Twitter',
-    description: 'Follow us for updates',
-    contact: '@BinarioAI',
-    action: 'https://twitter.com/BinarioAI',
+    contact: 'github.com/dadabin81/cloud-ai-forge',
+    action: 'https://github.com/dadabin81/cloud-ai-forge',
   },
 ];
 
@@ -107,10 +99,22 @@ export default function Contact() {
 
     setIsSubmitting(true);
     
-    // Simulate form submission (replace with actual API call)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
+    const { error } = await supabase
+      .from('contact_messages')
+      .insert({
+        name: result.data.name,
+        email: result.data.email,
+        subject: result.data.subject,
+        message: result.data.message,
+      });
+
     setIsSubmitting(false);
+
+    if (error) {
+      toast.error('Failed to send message. Please try again.');
+      return;
+    }
+
     setIsSubmitted(true);
     toast.success('Message sent successfully!');
   };
