@@ -320,7 +320,7 @@ export default function Pricing() {
             <div className="p-8 rounded-2xl border border-border bg-gradient-to-b from-primary/5 to-transparent">
               <h2 className="text-2xl font-bold mb-4">Ready to get started?</h2>
               <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-                Join thousands of developers building AI-powered applications with Binario.
+                Start building AI-powered applications with Binario today.
               </p>
               <div className="flex items-center justify-center gap-4">
                 <Button size="lg">Start for Free</Button>

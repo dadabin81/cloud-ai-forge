@@ -45,7 +45,9 @@ export function CTASection() {
           </code>
           <div className="w-px h-6 bg-border" />
           <a 
-            href="#" 
+            href="https://github.com/dadabin81/cloud-ai-forge"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <Github className="w-4 h-4" />
