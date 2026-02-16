@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -94,10 +95,23 @@ export default function Pricing() {
     if (!email) return;
     
     setIsSubmitting(true);
-    // Simulate API call - in production this would save to your database
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    toast.success('Thanks! We\'ll notify you when paid plans are available.');
+    try {
+      const { error } = await supabase
+        .from('waitlist')
+        .insert({ email });
+      
+      if (error) {
+        if (error.code === '23505') {
+          toast.info('You\'re already on the waitlist!');
+        } else {
+          toast.error('Something went wrong. Please try again.');
+        }
+      } else {
+        toast.success('Thanks! We\'ll notify you when paid plans are available.');
+      }
+    } catch {
+      toast.error('Something went wrong. Please try again.');
+    }
     setEmail('');
     setShowWaitlist(false);
     setIsSubmitting(false);
