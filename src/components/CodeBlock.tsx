@@ -21,29 +21,29 @@ const syntaxHighlight = (code: string, language: string): string => {
     .replace(/>/g, '&gt;');
   
   // Strings
-  highlighted = highlighted.replace(/(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g, '<span class="text-emerald-400">$&</span>');
+  highlighted = highlighted.replace(/(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g, '<span style="color: #34d399">$&</span>');
   
   // Comments
-  highlighted = highlighted.replace(/(\/\/.*$)/gm, '<span class="text-muted-foreground/60">$&</span>');
-  highlighted = highlighted.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="text-muted-foreground/60">$&</span>');
+  highlighted = highlighted.replace(/(\/\/.*$)/gm, '<span style="color: #6b7280">$&</span>');
+  highlighted = highlighted.replace(/(\/\*[\s\S]*?\*\/)/g, '<span style="color: #6b7280">$&</span>');
   
   // Keywords
   keywords.forEach(keyword => {
     const regex = new RegExp(`\\b(${keyword})\\b`, 'g');
-    highlighted = highlighted.replace(regex, '<span class="text-violet-400">$1</span>');
+    highlighted = highlighted.replace(regex, '<span style="color: #a78bfa">$1</span>');
   });
   
   // Types
   types.forEach(type => {
     const regex = new RegExp(`\\b(${type})\\b`, 'g');
-    highlighted = highlighted.replace(regex, '<span class="text-cyan-400">$1</span>');
+    highlighted = highlighted.replace(regex, '<span style="color: #22d3ee">$1</span>');
   });
   
   // Numbers
-  highlighted = highlighted.replace(/\b(\d+)\b/g, '<span class="text-amber-400">$1</span>');
+  highlighted = highlighted.replace(/\b(\d+)\b/g, '<span style="color: #fbbf24">$1</span>');
   
   // Function calls
-  highlighted = highlighted.replace(/(\w+)(?=\()/g, '<span class="text-blue-400">$1</span>');
+  highlighted = highlighted.replace(/(\w+)(?=\()/g, '<span style="color: #60a5fa">$1</span>');
   
   return highlighted;
 };
