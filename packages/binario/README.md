@@ -125,9 +125,50 @@ for await (const chunk of stream) {
 
 ## ⚛️ React Hooks
 
-### useBinarioChat
+### SaaS Client Hooks (NEW - Recommended)
 
-Full-featured chat hook with message history:
+These hooks work directly with your API key — no BinarioAI instance needed:
+
+```tsx
+import { Binario } from 'binario';
+import { useChat, useStream, useAgent, useUsage } from 'binario/react';
+
+const client = new Binario('bsk_your_api_key');
+
+function ChatApp() {
+  const { messages, input, setInput, isLoading, send } = useChat(client, {
+    systemPrompt: 'You are a helpful assistant.',
+  });
+
+  return (
+    <div>
+      {messages.map((msg, i) => (
+        <div key={i} className={msg.role}>{msg.content}</div>
+      ))}
+      <input value={input} onChange={e => setInput(e.target.value)} />
+      <button onClick={() => send()} disabled={isLoading}>Send</button>
+    </div>
+  );
+}
+
+function StreamingApp() {
+  const { messages, streamingContent, isStreaming, send } = useStream(client);
+
+  return (
+    <div>
+      {messages.map((msg, i) => (
+        <div key={i}>{msg.content}</div>
+      ))}
+      {isStreaming && <div className="streaming">{streamingContent}</div>}
+      <button onClick={() => send('Tell me a story')}>Stream</button>
+    </div>
+  );
+}
+```
+
+### Self-Hosted Hooks (BinarioAI core)
+
+For self-hosted mode using the `BinarioAI` instance:
 
 ```tsx
 import { useBinarioChat } from 'binario/react';
@@ -143,12 +184,6 @@ function ChatComponent() {
     apiKey: 'bsk_your_api_key',
     systemPrompt: 'You are a helpful assistant.',
   });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const input = e.target.message.value;
-    sendMessage(input);
-  };
 
   return (
     <div>

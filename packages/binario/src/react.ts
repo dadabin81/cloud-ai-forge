@@ -1,6 +1,7 @@
 // Binario SDK - React Hooks Entry Point
-// Import with: import { useBinarioChat } from 'binario/react'
+// Import with: import { useBinarioChat, useChat } from 'binario/react'
 
+// ============= Self-Hosted Hooks (BinarioAI core) =============
 export {
   useBinarioChat,
   useBinarioStream,
@@ -40,3 +41,24 @@ export type {
   MemoryType,
   EmbeddingsProviderType,
 } from './hooks';
+
+// ============= SaaS Client Hooks (Binario API key) =============
+export {
+  BinarioProvider,
+  useBinarioClient,
+  useChat,
+  useStream,
+  useAgent,
+  useUsage,
+} from './client-hooks';
+
+export type {
+  BinarioProviderProps,
+  UseChatOptions,
+  UseChatReturn,
+  UseStreamOptions,
+  UseStreamReturn,
+  UseAgentOptions,
+  UseAgentReturn,
+  UseUsageReturn,
+} from './client-hooks';

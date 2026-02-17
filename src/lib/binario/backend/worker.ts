@@ -11,12 +11,26 @@ interface Env {
   OPENROUTER_API_KEY?: string;
 }
 
-// CORS Headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Binario-SDK',
-};
+// CORS - Restrictive origin whitelist
+const ALLOWED_ORIGINS = [
+  'https://binarioai-sdk.lovable.app',
+  'https://binario.dev',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+function getCorsHeaders(request?: Request): Record<string, string> {
+  const origin = request?.headers.get('Origin') || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Binario-SDK',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
+
+const corsHeaders = getCorsHeaders();
 
 // Rate limit tiers
 const RATE_LIMITS = {
@@ -493,6 +507,7 @@ async function trackUsage(
   ).run();
 }
 
+// SHA-256 hash for API keys (acceptable for non-passwords)
 async function hashKey(key: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(key);
@@ -502,8 +517,45 @@ async function hashKey(key: string): Promise<string> {
     .join('');
 }
 
+// PBKDF2 password hashing with random salt (secure for passwords)
+async function hashPassword(password: string, salt?: string): Promise<{ hash: string; salt: string }> {
+  const encoder = new TextEncoder();
+  const passwordSalt = salt || Array.from(new Uint8Array(crypto.getRandomValues(new Uint8Array(16))))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']
+  );
+  
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: encoder.encode(passwordSalt), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  
+  const hash = Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return { hash: `pbkdf2:${passwordSalt}:${hash}`, salt: passwordSalt };
+}
+
+// Verify password (supports legacy SHA-256 and new PBKDF2)
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (storedHash.startsWith('pbkdf2:')) {
+    const salt = storedHash.split(':')[1];
+    const result = await hashPassword(password, salt);
+    return result.hash === storedHash;
+  }
+  const legacyHash = await hashKey(password);
+  return legacyHash === storedHash;
+}
+
+// Improved token estimation with language-aware heuristics
 function estimateTokens(messages: { content?: string }[]): number {
-  return messages.reduce((acc, m) => acc + (m.content?.length || 0) / 4, 0);
+  return messages.reduce((acc, m) => {
+    const text = m.content || '';
+    const words = text.split(/\s+/).filter(w => w.length > 0).length;
+    const punctuation = (text.match(/[^\w\s]/g) || []).length;
+    const tokens = Math.ceil(words * 1.3) + Math.ceil(punctuation * 0.5);
+    return acc + Math.max(tokens, Math.ceil(text.length / 4));
+  }, 0);
 }
 
 function getNextResetDate(): string {

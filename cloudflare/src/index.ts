@@ -43,11 +43,26 @@ export interface Env {
   ENVIRONMENT: string;
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
-};
+// CORS - Restrictive origin whitelist
+const ALLOWED_ORIGINS = [
+  'https://binarioai-sdk.lovable.app',
+  'https://binario.dev',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+function getCorsHeaders(request: Request): Record<string, string> {
+  const origin = request.headers.get('Origin') || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+// Default CORS headers for non-request contexts (fallback)
+const corsHeaders = getCorsHeaders(new Request('https://binarioai-sdk.lovable.app'));
+
 
 // Rate limits aligned with pricing page (monthly)
 const RATE_LIMITS = {
@@ -126,7 +141,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
+      return new Response(null, { headers: getCorsHeaders(request) });
     }
 
     const url = new URL(request.url);
@@ -371,12 +386,12 @@ async function handleSignup(request: Request, env: Env): Promise<Response> {
 
   // Create user
   const userId = crypto.randomUUID();
-  const passwordHash = await hashKey(body.password);
+  const passwordResult = await hashPassword(body.password);
 
   await env.DB.prepare(`
     INSERT INTO users (id, email, password_hash, plan)
     VALUES (?, ?, ?, 'free')
-  `).bind(userId, body.email.toLowerCase(), passwordHash).run();
+  `).bind(userId, body.email.toLowerCase(), passwordResult.hash).run();
 
   // Create session
   const sessionToken = crypto.randomUUID();
@@ -425,9 +440,18 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     return jsonError('Invalid email or password', 401);
   }
 
-  // Verify password
-  const passwordHash = await hashKey(body.password);
-  if (passwordHash !== user.password_hash) {
+  // Verify password (supports both legacy SHA-256 and new PBKDF2)
+  const passwordValid = await verifyPassword(body.password, user.password_hash as string);
+  if (!passwordValid) {
+    return jsonError('Invalid email or password', 401);
+  }
+
+  // Migrate legacy SHA-256 password to PBKDF2 on successful login
+  if (!(user.password_hash as string).startsWith('pbkdf2:')) {
+    const newHash = await hashPassword(body.password);
+    await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+      .bind(newHash.hash, user.id).run();
+  }
     return jsonError('Invalid email or password', 401);
   }
 
@@ -956,7 +980,8 @@ async function handleChatStream(request: Request, env: Env, keyInfo: ApiKeyInfo)
           if (done) break;
 
           const chunk = decoder.decode(value);
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
+          // OpenAI-compatible SSE format for client SDK compatibility
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`));
         }
 
         controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
@@ -1040,12 +1065,26 @@ Output ONLY valid JSON for your final response, no markdown code blocks.`;
       });
     }
 
-    // Process tool calls
+    // Process tool calls - add to messages for next iteration
+    messages.push({
+      role: 'assistant',
+      content: response.response || '',
+      // @ts-ignore - tool_calls on assistant message
+      tool_calls: response.tool_calls,
+    } as any);
+
     for (const toolCall of response.tool_calls) {
       toolResults.push({
         tool: toolCall.name,
         args: toolCall.arguments,
         iteration: iterations,
+      });
+
+      // Add tool result message so the model can continue reasoning
+      // Tools execute client-side; server returns pending tool calls for client execution
+      messages.push({
+        role: 'user',
+        content: `[Tool "${toolCall.name}" called with args: ${JSON.stringify(toolCall.arguments)}. Awaiting client-side execution result.]`,
       });
     }
 
@@ -1323,12 +1362,59 @@ async function trackUsage(env: Env, keyInfo: ApiKeyInfo, model: string, messages
   `).bind(keyInfo.userId, model, tokens, today).run();
 }
 
+// SHA-256 hash for API keys and session tokens (acceptable for non-passwords)
 async function hashKey(key: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(key);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// PBKDF2 password hashing with random salt (secure for passwords)
+async function hashPassword(password: string, salt?: string): Promise<{ hash: string; salt: string }> {
+  const encoder = new TextEncoder();
+  const passwordSalt = salt || Array.from(new Uint8Array(crypto.getRandomValues(new Uint8Array(16))))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: encoder.encode(passwordSalt),
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256
+  );
+  
+  const hashArray = Array.from(new Uint8Array(derivedBits));
+  const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return { hash: `pbkdf2:${passwordSalt}:${hash}`, salt: passwordSalt };
+}
+
+// Verify password against stored hash (supports both legacy SHA-256 and PBKDF2)
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (storedHash.startsWith('pbkdf2:')) {
+    // New PBKDF2 format: pbkdf2:<salt>:<hash>
+    const parts = storedHash.split(':');
+    const salt = parts[1];
+    const result = await hashPassword(password, salt);
+    return result.hash === storedHash;
+  } else {
+    // Legacy SHA-256 format (will be migrated on next login)
+    const legacyHash = await hashKey(password);
+    return legacyHash === storedHash;
+  }
 }
 
 function generateRandomString(length: number): string {
@@ -1342,11 +1428,32 @@ function generateRandomString(length: number): string {
   return result;
 }
 
+// Improved token estimation with language-aware heuristics
 function estimateTokens(content: string | ChatMessage[]): number {
   if (typeof content === 'string') {
-    return Math.ceil(content.length / 4);
+    return estimateStringTokens(content);
   }
-  return content.reduce((acc, msg) => acc + Math.ceil(msg.content.length / 4), 0);
+  return content.reduce((acc, msg) => acc + estimateStringTokens(msg.content), 0);
+}
+
+function estimateStringTokens(text: string): number {
+  if (!text) return 0;
+  
+  // Count different character types for better estimation
+  const words = text.split(/\s+/).filter(w => w.length > 0).length;
+  const codeBlocks = (text.match(/```[\s\S]*?```/g) || []).length;
+  const punctuation = (text.match(/[^\w\s]/g) || []).length;
+  
+  // Base: ~1.3 tokens per word (English average)
+  // Code blocks tend to have more tokens per character
+  // Punctuation adds extra tokens
+  let tokens = Math.ceil(words * 1.3);
+  tokens += codeBlocks * 10; // Code blocks overhead
+  tokens += Math.ceil(punctuation * 0.5); // Punctuation tokens
+  
+  // Ensure minimum of character-based estimate
+  const charEstimate = Math.ceil(text.length / 4);
+  return Math.max(tokens, charEstimate);
 }
 
 // Generate a cache key for chat requests

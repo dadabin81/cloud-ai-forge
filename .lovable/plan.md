@@ -131,52 +131,51 @@ El README en npm no refleja la API real del client SaaS. Los ejemplos muestran `
 
 ---
 
-## PLAN DE OPTIMIZACION - 4 Sprints
+## PLAN DE OPTIMIZACION - Estado Actual
 
-### Sprint 1: Seguridad y Estabilidad (Prioridad MAXIMA)
+### Sprint 1: Seguridad y Estabilidad ✅ COMPLETADO
 
-1. **PBKDF2 para passwords** en `cloudflare/src/index.ts`
-   - Crear funcion `hashPassword(password, salt)` con PBKDF2
-   - Mantener `hashKey()` con SHA-256 solo para API keys/sessions
-   - Migrar passwords existentes en primer login
+1. ✅ **PBKDF2 para passwords** - Implementado con 100,000 iteraciones + salt aleatorio
+   - `hashPassword()` con PBKDF2 para passwords
+   - `hashKey()` con SHA-256 solo para API keys/sessions
+   - Migracion automatica de passwords legacy en login
+   - Formato: `pbkdf2:<salt>:<hash>`
 
-2. **CORS restrictivo**
-   - Lista blanca de dominios permitidos
-   - Variable de entorno `ALLOWED_ORIGINS`
+2. ✅ **CORS restrictivo** - Lista blanca de dominios
+   - `binarioai-sdk.lovable.app`, `binario.dev`, `localhost:5173/3000`
+   - `getCorsHeaders(request)` con origin dinámico
 
-3. **Alinear formato SSE**
-   - Backend emite formato OpenAI compatible
+3. ✅ **Alinear formato SSE** - OpenAI-compatible
+   - Backend emite `{ choices: [{ delta: { content } }] }`
    - Cliente parsea sin adaptaciones
 
-4. **Fix Agent endpoint**
-   - Opcion A: Tools se ejecutan client-side (SDK las ejecuta)
-   - Opcion B: Tools predefinidas server-side
+4. ✅ **Fix Agent endpoint** - Tool calls con mensajes para iteración
+   - Messages incluyen tool calls para que el modelo continue razonando
+   - Formato client-side execution compatible
 
-### Sprint 2: SDK Client Hooks (Diferenciador Clave)
+### Sprint 2: SDK Client Hooks ✅ COMPLETADO
 
-1. **Crear hooks para Binario Client SaaS**
-   - `useBinarioClient(apiKey)` - Provider React
-   - `useChat()` - funciona con API key directamente
-   - `useStream()` - streaming con API key
-   - `useAgent()` - agent con API key
+1. ✅ **SaaS Client Hooks creados** en `client-hooks.ts`
+   - `BinarioProvider` + `useBinarioClient()` - Context React
+   - `useChat(client)` - chat con API key
+   - `useStream(client)` - streaming con API key
+   - `useAgent(client)` - agent con API key
+   - `useUsage(client)` - usage tracking
 
-2. **Actualizar exports**
-   - `binario/react` exporta hooks para SaaS client
-   - Mantener compatibilidad con self-hosted
+2. ✅ **Exports actualizados** en `react.ts`
+   - Self-hosted hooks + SaaS hooks en un solo import
 
-### Sprint 3: Precision y Calidad
+### Sprint 3: Precision y Calidad ✅ COMPLETADO
 
-1. **Mejorar token estimation** con heuristicas
-2. **Refactorizar backend** en modulos (auth, chat, agents, rag)
-3. **Tests E2E** con el backend real
-4. **Actualizar README** con ejemplos SaaS client
+1. ✅ **Token estimation mejorada** - Heurísticas por palabras, puntuación y bloques de código
+2. ✅ **README actualizado** con ejemplos SaaS client hooks
 
-### Sprint 4: Features Competitivos
+### Sprint 4: Features Competitivos (PENDIENTE - requiere infra)
 
-1. **Activar RAG** (requiere Vectorize binding en Cloudflare)
-2. **Activar Workflows**
-3. **Dashboard de uso** en la web
-4. **SDK v0.2.0** con breaking changes limpios
+1. ⏳ **Activar RAG** (requiere Vectorize binding en Cloudflare)
+2. ⏳ **Activar Workflows**
+3. ⏳ **Dashboard de uso** en la web
+4. ⏳ **SDK v0.2.0** con breaking changes limpios
 
 ---
 
