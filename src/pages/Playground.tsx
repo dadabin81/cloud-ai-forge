@@ -132,7 +132,7 @@ export default function Playground() {
   // IDE state
   const [projectFiles, setProjectFiles] = useState<Record<string, ProjectFile>>({});
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [chatOpen, setChatOpen] = useState(true);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudTab, setCloudTab] = useState('models');
   const fileTree = useMemo(() => generateFileTree(projectFiles), [projectFiles]);
@@ -507,6 +507,27 @@ export default function Playground() {
   const currentModels = models[selectedProvider] || [];
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
 
+  const suggestionChips = [
+    "Crea un blog moderno con dark mode",
+    "Landing page SaaS profesional",
+    "Dashboard de analytics interactivo",
+    "Portfolio minimalista con animaciones",
+  ];
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput('');
+    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(suggestion);
+    else {
+      setInput(suggestion);
+      setTimeout(() => {
+        const content = suggestion;
+        setInput('');
+        if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(content);
+        else sendHttp(content);
+      }, 100);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Navigation />
@@ -652,11 +673,202 @@ export default function Playground() {
         </div>
       </div>
 
-      {/* Main IDE Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <ResizablePanelGroup direction="vertical">
-          {/* Top: 3-panel IDE */}
-          <ResizablePanel defaultSize={chatOpen ? 65 : 90} minSize={30}>
+      {/* Main IDE Area - Horizontal Layout: Chat Left | IDE Right */}
+      <div className="flex-1 flex overflow-hidden">
+        <ResizablePanelGroup direction="horizontal">
+          {/* Left: Chat Panel */}
+          <ResizablePanel defaultSize={chatCollapsed ? 4 : 30} minSize={4} maxSize={50}>
+            <div className="h-full flex flex-col" style={{ background: 'linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--background)) 100%)' }}>
+              {chatCollapsed ? (
+                /* Collapsed sidebar */
+                <div className="h-full flex flex-col items-center py-4 gap-3">
+                  <button
+                    onClick={() => setChatCollapsed(false)}
+                    className="p-2 rounded-lg hover:bg-secondary transition-colors"
+                    title="Expand chat"
+                  >
+                    <MessageSquare className="w-5 h-5 text-primary" />
+                  </button>
+                  {isStreamingOrLoading && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                  {messages.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5">{messages.length}</Badge>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Chat Header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50%), hsl(262 80% 60%))' }}>
+                        <Bot className="w-4 h-4 text-primary-foreground" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold">Binario AI</h3>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                            {selectedModel.split('/').pop()}
+                          </Badge>
+                          {isStreamingOrLoading && (
+                            <span className="flex items-center gap-1 text-[10px] text-primary">
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                              generating
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={clearChat} disabled={messages.length === 0} title="Clear chat">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={copyConversation} disabled={messages.length === 0} title="Copy conversation">
+                        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      </Button>
+                      <button
+                        onClick={() => setChatCollapsed(true)}
+                        className="p-1.5 rounded-md hover:bg-secondary transition-colors"
+                        title="Collapse chat"
+                      >
+                        <ChevronDown className="w-4 h-4 rotate-90" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Messages Area */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {messages.length === 0 && !streamingContent && !isThinking && (
+                      <div className="h-full flex items-center justify-center">
+                        <div className="text-center space-y-4 max-w-[280px]">
+                          <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center animate-float" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50% / 0.15), hsl(262 80% 60% / 0.15))' }}>
+                            <Sparkles className="w-8 h-8 text-primary" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-foreground">¿Qué quieres crear?</p>
+                            <p className="text-xs text-muted-foreground mt-1">Describe tu proyecto y lo construiré</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 justify-center">
+                            {suggestionChips.map((chip, i) => (
+                              <button
+                                key={i}
+                                onClick={() => handleSuggestionClick(chip)}
+                                className="px-3 py-1.5 rounded-full text-xs border border-border/50 hover:border-primary/50 hover:bg-primary/5 transition-all text-muted-foreground hover:text-foreground"
+                              >
+                                {chip}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {messages.map((message, i) => (
+                      <div key={i} className={cn('flex gap-3', message.role === 'user' ? 'justify-end' : 'justify-start')}>
+                        {message.role === 'assistant' && (
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50% / 0.2), hsl(262 80% 60% / 0.2))', border: '1px solid hsl(175 80% 50% / 0.3)' }}>
+                            <Bot className="w-3.5 h-3.5 text-primary" />
+                          </div>
+                        )}
+                        <div className={cn(
+                          'max-w-[90%] rounded-xl px-4 py-3 text-sm leading-relaxed',
+                          message.role === 'user'
+                            ? 'bg-primary text-primary-foreground rounded-br-sm'
+                            : 'bg-secondary/70 border border-border/30 rounded-bl-sm',
+                        )}>
+                          <pre className="whitespace-pre-wrap font-sans text-[13px]">{message.content}</pre>
+                        </div>
+                        {message.role === 'user' && (
+                          <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5">
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {isThinking && !streamingContent && (
+                      <div className="flex gap-3 justify-start">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50% / 0.2), hsl(262 80% 60% / 0.2))' }}>
+                          <Bot className="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div className="rounded-xl px-4 py-3 bg-secondary/70 border border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex gap-1">
+                              <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                              <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                              <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {streamingContent && (
+                      <div className="flex gap-3 justify-start">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50% / 0.2), hsl(262 80% 60% / 0.2))' }}>
+                          <Bot className="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div className="max-w-[90%] rounded-xl px-4 py-3 bg-secondary/70 border border-border/30 rounded-bl-sm">
+                          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">
+                            {streamingContent}
+                            <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 rounded-sm" />
+                          </pre>
+                          {tokensPerSecond && (
+                            <div className="mt-2 text-[11px] text-muted-foreground/60 flex items-center gap-1">
+                              <Zap className="w-3 h-3" /> {tokensPerSecond} tok/s
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Input Area */}
+                  <div className="p-3 border-t border-border/50 bg-card/50">
+                    <div className="relative">
+                      <Textarea
+                        value={input}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Describe lo que quieres construir..."
+                        className="min-h-[60px] max-h-[140px] resize-none text-sm pr-12 bg-secondary/30 border-border/50 focus:border-primary/50 focus:ring-primary/20 rounded-xl"
+                        disabled={isStreamingOrLoading}
+                      />
+                      <div className="absolute right-2 bottom-2">
+                        {isStreamingOrLoading ? (
+                          <Button onClick={handleStop} variant="destructive" size="sm" className="h-8 w-8 p-0 rounded-lg">
+                            <XCircle className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleSend}
+                            disabled={!input.trim() || !getEffectiveApiKey().trim()}
+                            size="sm"
+                            className="h-8 w-8 p-0 rounded-lg"
+                            variant="hero"
+                          >
+                            <Send className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-2 px-1">
+                      <span className="text-[11px] text-muted-foreground/60">
+                        {selectedProviderData?.name || selectedProvider} · {selectedModel.split('/').pop()}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground/40">
+                        Enter ↵ enviar · Shift+Enter nueva línea
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Right: IDE (3-panel) */}
+          <ResizablePanel defaultSize={chatCollapsed ? 96 : 70} minSize={40}>
             <ResizablePanelGroup direction="horizontal">
               {/* File Explorer */}
               <ResizablePanel defaultSize={18} minSize={12} maxSize={30}>
@@ -677,127 +889,6 @@ export default function Playground() {
                 <CodePreview files={projectFiles} />
               </ResizablePanel>
             </ResizablePanelGroup>
-          </ResizablePanel>
-
-          <ResizableHandle withHandle />
-
-          {/* Bottom: Chat */}
-          <ResizablePanel defaultSize={chatOpen ? 35 : 10} minSize={5} maxSize={70}>
-            <div className="h-full flex flex-col border-t border-border bg-background">
-              {/* Chat header */}
-              <button
-                onClick={() => setChatOpen(!chatOpen)}
-                className="flex items-center justify-between px-4 py-2 bg-secondary/30 hover:bg-secondary/50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium">Chat</span>
-                  <Badge variant="outline" className="text-xs">{messages.length} msgs</Badge>
-                  {isStreamingOrLoading && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
-                </div>
-                {chatOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-              </button>
-
-              {chatOpen && (
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  {/* Messages */}
-                  <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                    {messages.length === 0 && !streamingContent && !isThinking && (
-                      <div className="h-full flex items-center justify-center">
-                        <div className="text-center space-y-1">
-                          <Bot className="w-8 h-8 mx-auto text-muted-foreground/40" />
-                          <p className="text-sm text-muted-foreground">Ask AI to create a project</p>
-                          <p className="text-xs text-muted-foreground/60">Try: "Create a modern tech blog"</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {isThinking && !streamingContent && (
-                      <div className="flex gap-2 justify-start">
-                        <div className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
-                          <Bot className="w-3 h-3 text-primary" />
-                        </div>
-                        <div className="rounded-lg px-3 py-2 bg-secondary text-sm">
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            <span>Thinking...</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {messages.map((message, i) => (
-                      <div key={i} className={cn('flex gap-2', message.role === 'user' ? 'justify-end' : 'justify-start')}>
-                        {message.role === 'assistant' && (
-                          <div className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
-                            <Bot className="w-3 h-3 text-primary" />
-                          </div>
-                        )}
-                        <div className={cn(
-                          'max-w-[85%] rounded-lg px-3 py-2 text-sm',
-                          message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary',
-                        )}>
-                          <pre className="whitespace-pre-wrap font-sans text-xs">{message.content}</pre>
-                        </div>
-                        {message.role === 'user' && (
-                          <div className="w-6 h-6 rounded bg-secondary flex items-center justify-center shrink-0">
-                            <User className="w-3 h-3" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-
-                    {streamingContent && (
-                      <div className="flex gap-2 justify-start">
-                        <div className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center shrink-0">
-                          <Bot className="w-3 h-3 text-primary" />
-                        </div>
-                        <div className="max-w-[85%] rounded-lg px-3 py-2 bg-secondary">
-                          <pre className="whitespace-pre-wrap font-sans text-xs">
-                            {streamingContent}
-                            <span className="inline-block w-1.5 h-3 bg-primary animate-pulse ml-0.5" />
-                          </pre>
-                          {tokensPerSecond && <div className="mt-1 text-xs text-muted-foreground">{tokensPerSecond} tok/s</div>}
-                        </div>
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-                  {/* Input */}
-                  <div className="p-3 border-t border-border bg-secondary/10">
-                    <div className="flex gap-2">
-                      <Textarea
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Describe what to build... (Enter to send)"
-                        className="min-h-[40px] max-h-[80px] resize-none text-sm"
-                        disabled={isStreamingOrLoading}
-                      />
-                      {isStreamingOrLoading ? (
-                        <Button onClick={handleStop} variant="destructive" size="sm" className="h-auto px-3">Stop</Button>
-                      ) : (
-                        <Button onClick={handleSend} disabled={!input.trim() || !getEffectiveApiKey().trim()} size="sm" className="h-auto px-3">
-                          <Send className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={clearChat} disabled={messages.length === 0}>Clear</Button>
-                        <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={copyConversation} disabled={messages.length === 0}>
-                          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} Copy
-                        </Button>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {selectedProviderData?.name || selectedProvider} · {selectedModel.split('/').pop()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
