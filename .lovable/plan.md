@@ -1,93 +1,135 @@
 
 
-# Fase 9: Fix Preview Rendering, Navigation, and Visual Quality
+# Fase 10: Sync Projects to Cloudflare for Real Fullstack VibeCoding
 
-## Root Causes Found
+## Problem Analysis
 
-### 1. Preview breaks with "Cannot use import statement outside a module"
-The AI generates JSX files with `import` and `export` statements (e.g., `import React from 'react'`). The preview engine (`buildProjectPreview` in `projectGenerator.ts`) concatenates all JSX into a single `<script type="text/babel">` block. Babel Standalone in the browser does NOT support `import/export` — it only transpiles JSX syntax. The `import` line causes the SyntaxError that kills the entire preview.
+Currently there are **two disconnected project storage systems**:
 
-### 2. Template `index.html` has dead references
-The templates' `index.html` includes `<link rel="stylesheet" href="src/styles/globals.css" />` — but inside an iframe with `srcDoc`, there's no filesystem. These `<link>` and `<script src="...">` tags pointing to project files simply fail silently or produce errors. The preview engine's JSX path correctly injects CSS inline, but the HTML path doesn't strip these dead references.
+1. **Supabase** (`playground_projects` table): Where projects actually get saved. Files stored as JSONB. Works for persistence but provides zero execution capability.
 
-### 3. No navigation between pages
-The preview is a single iframe with `srcDoc`. There's no routing support. If the AI generates multi-page components (e.g., Home, About, Contact with navigation links), clicking links does nothing or breaks the preview.
+2. **Cloudflare Durable Object** (`SandboxProject`): Has templates, file operations, exec simulation, start/stop commands. But it's **never called from the frontend**. The `sandboxService.ts` client exists but is never imported in `Playground.tsx`.
 
-### 4. Double `ReactDOM.createRoot`
-Templates' `App.jsx` includes `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` AND the preview engine adds its own auto-detect render loop. This causes double rendering attempts.
+The result: Projects are "saved" but only rendered client-side via Babel-in-browser. There's no real dev server, no npm install, no fullstack capability. The Cloudflare Container SDK binding is commented out (`// SANDBOX: Container`), and `handleExec` just returns a simulated string.
 
----
+## What's Actually Possible Today
 
-## Solution
+Cloudflare Containers SDK is still in beta and not broadly available. However, we CAN leverage what's already deployed and working:
 
-### Part A: Strip import/export from JSX before preview
+- **D1 Database**: For structured project metadata, version history
+- **KV**: For fast file content caching and sharing
+- **Durable Objects**: For real-time collaboration state (already deployed as `SandboxProject`)
+- **Workers AI**: Already working for chat/code generation
+- **R2** (not yet bound): Could store larger project assets
 
-Modify `buildProjectPreview()` in `src/lib/projectGenerator.ts`:
+## Solution: Hybrid Storage with Cloudflare Sync
 
-Add a `stripModuleSyntax()` function that removes:
-- `import ... from '...'` statements
-- `import '...'` (side-effect imports)
-- `export default ...` -> keep the declaration
-- `export { ... }` -> remove
-- `export const/function` -> keep as `const/function`
+### Part A: Sync projects to Cloudflare KV for fast access
 
-Also strip `ReactDOM.createRoot(...)...render(...)` calls from individual files (the engine adds its own).
+When a project is created/updated in Supabase, also push the files to Cloudflare KV. This gives:
+- Fast edge-cached file access for the AI (context window)
+- Shareable preview URLs via Cloudflare Workers
+- Foundation for future container-based execution
 
-Apply this to all JSX code before concatenation into `<script type="text/babel">`.
+**Changes:**
+- Modify `usePlaygroundProject.ts`: After saving to Supabase, also call `POST /v1/projects/{id}/sync` on the Cloudflare worker
+- Add endpoint in `cloudflare/src/index.ts`: `/v1/projects/:id/sync` that stores files in KV under `project:{id}:files`
+- Add endpoint: `/v1/projects/:id/preview` that serves a built preview HTML directly from the worker (no iframe srcDoc needed)
 
-### Part B: Add a lightweight hash router to the preview
+### Part B: Cloudflare-hosted preview URLs
 
-Inject a minimal hash-based router into the preview HTML so multi-page apps work:
+Instead of building preview HTML client-side and injecting via `srcDoc`, generate a real URL:
+`https://binario-api.databin81.workers.dev/v1/projects/{id}/preview`
 
-```text
-// Injected into preview:
-function useHashRouter() {
-  const [route, setRoute] = useState(window.location.hash.slice(1) || '/');
-  useEffect(() => {
-    const handler = () => setRoute(window.location.hash.slice(1) || '/');
-    window.addEventListener('hashchange', handler);
-    return () => window.removeEventListener('hashchange', handler);
-  }, []);
-  return route;
-}
+This worker endpoint:
+1. Reads files from KV
+2. Runs `buildProjectPreview()` server-side (move the logic to the worker)
+3. Returns a full HTML document
 
-function Route({ path, children }) { ... }
-function Link({ to, children, ...props }) { ... }
+Benefits:
+- Shareable preview links
+- No Babel download on every page load (can be cached)
+- Foundation for SSR/edge rendering later
+
+### Part C: Project versioning via D1
+
+Add a `project_versions` table in D1 to track file changes:
+
+```
+CREATE TABLE project_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  files_hash TEXT NOT NULL,
+  changed_files TEXT, -- JSON array of changed paths
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-This gets injected alongside the React hooks destructuring in the preview template, so AI-generated code can use `<Link to="/about">` and `<Route path="/about">` without importing anything.
+This enables:
+- Undo/redo of AI changes
+- Version history visible in the chat ("v3: added contact page")
+- Rollback if AI breaks something
 
-### Part C: Fix template index.html
+### Part D: AI context from Cloudflare KV
 
-Update templates in `src/lib/templates.ts`:
-- Remove `<link rel="stylesheet">` and `<script src="...">` tags pointing to project files — these never work in `srcDoc` mode
-- Remove `ReactDOM.createRoot(...).render(...)` from App.jsx templates — the engine handles this
-- The `index.html` in templates becomes a simple metadata placeholder (the engine builds the actual document)
+When the user sends a chat message, the system prompt currently builds file context from local state. Enhance this:
+- Store a compact project summary in KV: `project:{id}:summary` (file list, component names, routes detected)
+- The AI gets better context without sending full file contents every time
+- Reduces token usage significantly for large projects
 
-### Part D: Improve Tailwind detection and CDN loading
+### Part E: Clean up unused sandbox simulation
 
-Currently Tailwind is detected by regex on class names. Improve to also check for explicit `tailwindcss` mentions in code. Also upgrade from `react.development.min.js` to `react.production.min.js` consistently (currently mixed: development for React, production for ReactDOM).
-
----
+- Remove the simulated `handleExec`, `handleStart`, `handleStop` from `cloudflare/src/sandbox.ts` (they return fake data)
+- Replace with real endpoints: `sync`, `preview`, `versions`
+- Keep the Durable Object structure for future container integration
+- Remove `sandbox_id`, `sandbox_status`, `preview_url` columns from Supabase `playground_projects` (they're never populated)
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/lib/projectGenerator.ts` | Add `stripModuleSyntax()`, inject hash router helpers, fix React CDN URLs, strip dead `ReactDOM.createRoot` from templates |
-| `src/lib/templates.ts` | Remove dead `<link>`/`<script src>` from index.html, remove `ReactDOM.createRoot` from App.jsx |
-| `src/lib/codeExtractor.ts` | Apply same `stripModuleSyntax()` in `buildReactDocument()` |
+| File | Change |
+|------|--------|
+| `cloudflare/src/index.ts` | Add routes: `/v1/projects/:id/sync`, `/v1/projects/:id/preview`, `/v1/projects/:id/versions` |
+| `cloudflare/src/sandbox.ts` | Replace simulated exec with real sync/preview/versions handlers using KV and D1 |
+| `src/hooks/usePlaygroundProject.ts` | After Supabase save, sync files to Cloudflare KV via API call |
+| `src/lib/projectGenerator.ts` | Extract `buildProjectPreview` logic into a shared function usable both client and server side |
+| `src/components/CodePreview.tsx` | Add option to use Cloudflare-hosted preview URL instead of srcDoc |
+| `src/lib/sandboxService.ts` | Update to use new real endpoints (sync, preview, versions) instead of fake sandbox ones |
 
-No new files. No new dependencies. No database changes.
+## Database Migration (Cloudflare D1)
 
----
+```sql
+CREATE TABLE IF NOT EXISTS project_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  files_hash TEXT NOT NULL,
+  changed_files TEXT,
+  message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_versions_project ON project_versions(project_id);
+```
+
+## Supabase Migration
+
+Remove unused columns from `playground_projects`:
+```sql
+ALTER TABLE playground_projects DROP COLUMN IF EXISTS sandbox_id;
+ALTER TABLE playground_projects DROP COLUMN IF EXISTS sandbox_status;
+ALTER TABLE playground_projects DROP COLUMN IF EXISTS preview_url;
+ALTER TABLE playground_projects DROP COLUMN IF EXISTS template_id;
+ALTER TABLE playground_projects DROP COLUMN IF EXISTS design_options;
+```
+
+## No new dependencies needed
 
 ## Expected Result
 
-- AI-generated projects with `import/export` statements render correctly in the preview
-- Templates load instantly without SyntaxError
-- Multi-page apps can navigate between routes using hash-based routing
-- CSS is always properly injected inline
-- No more double-render warnings
-- Preview shows professional, working applications immediately
+- Projects auto-sync to Cloudflare on every save (background, non-blocking)
+- Each project gets a shareable preview URL: `https://binario-api.../v1/projects/{id}/preview`
+- Version history tracks what the AI changed
+- AI gets compact project context from KV instead of full file dumps
+- Dead sandbox simulation code is replaced with real functionality
+- Unused Supabase columns cleaned up
 
