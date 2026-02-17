@@ -1,17 +1,18 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { extractCodeBlocks, buildPreviewDocument, isRenderableCode } from '@/lib/codeExtractor';
 import { buildProjectPreview, type ProjectFile } from '@/lib/projectGenerator';
 import { PreviewToolbar, type Viewport } from '@/components/PreviewToolbar';
 import { downloadProjectAsHtml } from '@/lib/projectGenerator';
+import { PreviewConsole, type ConsoleLog } from '@/components/PreviewConsole';
+import { classifyError, type PreviewError } from '@/lib/errorCorrection';
 
 interface CodePreviewProps {
-  /** Raw message content (markdown with code blocks) - legacy mode */
   content?: string;
-  /** Multi-file project - takes priority over content */
   files?: Record<string, ProjectFile>;
   className?: string;
+  onErrors?: (errors: PreviewError[]) => void;
 }
 
 const VIEWPORT_WIDTHS: Record<Viewport, string> = {
@@ -20,17 +21,16 @@ const VIEWPORT_WIDTHS: Record<Viewport, string> = {
   mobile: '375px',
 };
 
-export function CodePreview({ content, files, className }: CodePreviewProps) {
+export function CodePreview({ content, files, className, onErrors }: CodePreviewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [viewport, setViewport] = useState<Viewport>('desktop');
+  const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([]);
 
   const previewDoc = useMemo(() => {
-    // Multi-file mode
     if (files && Object.keys(files).length > 0) {
       return buildProjectPreview(files);
     }
-    // Legacy single-content mode
     if (content) {
       const blocks = extractCodeBlocks(content);
       if (isRenderableCode(blocks)) {
@@ -41,6 +41,38 @@ export function CodePreview({ content, files, className }: CodePreviewProps) {
   }, [content, files]);
 
   const hasFiles = !!files && Object.keys(files).length > 0;
+
+  // Listen for console messages from the iframe
+  const handleMessage = useCallback((event: MessageEvent) => {
+    if (event.data?.source === 'preview-console') {
+      const log: ConsoleLog = {
+        type: event.data.type || 'log',
+        message: event.data.message || '',
+        timestamp: Date.now(),
+      };
+      setConsoleLogs(prev => [...prev.slice(-200), log]);
+
+      // Report errors upstream
+      if (log.type === 'error' && onErrors) {
+        const err: PreviewError = {
+          message: log.message,
+          type: classifyError(log.message),
+          timestamp: log.timestamp,
+        };
+        onErrors([err]);
+      }
+    }
+  }, [onErrors]);
+
+  useEffect(() => {
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [handleMessage]);
+
+  // Clear logs on refresh or content change
+  useEffect(() => {
+    setConsoleLogs([]);
+  }, [refreshKey, previewDoc]);
 
   if (!previewDoc) {
     return (
@@ -56,6 +88,8 @@ export function CodePreview({ content, files, className }: CodePreviewProps) {
     );
   }
 
+  const errorCount = consoleLogs.filter(l => l.type === 'error').length;
+
   return (
     <div className={cn(
       'relative flex flex-col rounded-xl border border-border overflow-hidden bg-background',
@@ -70,9 +104,9 @@ export function CodePreview({ content, files, className }: CodePreviewProps) {
         onRefresh={() => setRefreshKey(k => k + 1)}
         onDownload={() => files && downloadProjectAsHtml(files)}
         hasFiles={hasFiles}
+        errorCount={errorCount}
       />
 
-      {/* Iframe container with viewport sizing */}
       <div className="flex-1 flex justify-center bg-muted/20 overflow-auto">
         <iframe
           key={refreshKey}
@@ -88,6 +122,8 @@ export function CodePreview({ content, files, className }: CodePreviewProps) {
           title="Code Preview"
         />
       </div>
+
+      <PreviewConsole logs={consoleLogs} onClear={() => setConsoleLogs([])} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Monitor, Tablet, Smartphone, Maximize2, Minimize2, RefreshCw, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 export type Viewport = 'desktop' | 'tablet' | 'mobile';
@@ -12,6 +13,7 @@ interface PreviewToolbarProps {
   onRefresh: () => void;
   onDownload: () => void;
   hasFiles: boolean;
+  errorCount?: number;
 }
 
 const viewports: { id: Viewport; icon: typeof Monitor; label: string; width: string }[] = [
@@ -20,7 +22,7 @@ const viewports: { id: Viewport; icon: typeof Monitor; label: string; width: str
   { id: 'mobile', icon: Smartphone, label: 'Mobile', width: '375px' },
 ];
 
-export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFullscreenToggle, onRefresh, onDownload, hasFiles }: PreviewToolbarProps) {
+export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFullscreenToggle, onRefresh, onDownload, hasFiles, errorCount = 0 }: PreviewToolbarProps) {
   const currentVp = viewports.find(v => v.id === viewport)!;
 
   return (
@@ -65,6 +67,9 @@ export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFul
           <Download className="w-3 h-3" />
         </Button>
 
+        {errorCount > 0 && (
+          <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 ml-1">{errorCount} error{errorCount > 1 ? 's' : ''}</Badge>
+        )}
         <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">{currentVp.width}</span>
       </div>
     </div>

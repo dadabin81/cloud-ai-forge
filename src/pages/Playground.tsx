@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud, Save,
+  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud, Save, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { FileExplorer } from '@/components/FileExplorer';
 import { CodeEditor } from '@/components/CodeEditor';
 import { CodePreview } from '@/components/CodePreview';
+import { BlueprintCard } from '@/components/BlueprintCard';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { ResourceBadges } from '@/components/ResourceBadges';
@@ -31,6 +32,8 @@ import { CloudPanel } from '@/components/CloudPanel';
 import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, stripIncrementalMarkers, buildFileContextPrompt } from '@/lib/incrementalParser';
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
 import { parseActions, executeAllActions, enrichWithRAG, type ActionResult } from '@/lib/chatActions';
+import { detectBlueprintRequest, buildBlueprintPrompt, parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@/lib/blueprintSystem';
+import { buildErrorCorrectionPrompt, shouldAutoCorrect, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -139,6 +142,16 @@ export default function Playground() {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudTab, setCloudTab] = useState('models');
+  
+  // Blueprint state
+  const [currentPhase, setCurrentPhase] = useState<'idle' | 'planning' | 'generating' | 'refining'>('idle');
+  const [currentBlueprint, setCurrentBlueprint] = useState<Blueprint | null>(null);
+  
+  // Error correction state
+  const [previewErrors, setPreviewErrors] = useState<PreviewError[]>([]);
+  const [errorCorrectionAttempts, setErrorCorrectionAttempts] = useState(0);
+  const [autoCorrectEnabled, setAutoCorrectEnabled] = useState(false);
+
   const fileTree = useMemo(() => generateFileTree(projectFiles), [projectFiles]);
   const totalFiles = Object.keys(projectFiles).length;
   const activeFileData = activeFile ? projectFiles[activeFile] : null;
@@ -525,10 +538,49 @@ export default function Playground() {
     streamingContentRef.current = '';
     setProjectFiles({});
     setActiveFile(null);
+    setCurrentBlueprint(null);
+    setCurrentPhase('idle');
+    setPreviewErrors([]);
+    setErrorCorrectionAttempts(0);
     if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'clear' }));
     }
   };
+
+  // Handle manual code edits from CodeEditor
+  const handleCodeChange = useCallback((filename: string, newCode: string) => {
+    setProjectFiles(prev => {
+      const updated = { ...prev, [filename]: { ...prev[filename], code: newCode } };
+      if (project) saveFiles(updated);
+      return updated;
+    });
+  }, [project, saveFiles]);
+
+  // Handle preview errors
+  const handlePreviewErrors = useCallback((errors: PreviewError[]) => {
+    setPreviewErrors(prev => [...prev, ...errors]);
+    if (autoCorrectEnabled && canAutoCorrect(errorCorrectionAttempts)) {
+      // Auto-fix: send error correction prompt
+      const prompt = buildErrorCorrectionPrompt(errors, projectFiles);
+      setErrorCorrectionAttempts(a => a + 1);
+      sendHttp(prompt);
+    }
+  }, [autoCorrectEnabled, errorCorrectionAttempts, projectFiles]);
+
+  // Handle blueprint approval
+  const handleBlueprintApprove = useCallback(() => {
+    if (!currentBlueprint) return;
+    setCurrentPhase('generating');
+    const prompt = buildGenerationPrompt(currentBlueprint);
+    sendHttp(prompt);
+  }, [currentBlueprint]);
+
+  // Handle blueprint modification
+  const handleBlueprintModify = useCallback(() => {
+    setCurrentBlueprint(null);
+    setCurrentPhase('idle');
+    toast.info('Describe los cambios que quieres en el blueprint');
+  }, []);
 
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
   const currentModels = models[selectedProvider] || [];
@@ -745,6 +797,11 @@ export default function Playground() {
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                             {selectedModel.split('/').pop()}
                           </Badge>
+                          {currentPhase !== 'idle' && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-primary/50 text-primary">
+                              {currentPhase === 'planning' ? 'Planning...' : currentPhase === 'generating' ? 'Generating...' : 'Refining...'}
+                            </Badge>
+                          )}
                           {isStreamingOrLoading && (
                             <span className="flex items-center gap-1 text-[10px] text-primary">
                               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
@@ -856,6 +913,18 @@ export default function Playground() {
                         </div>
                       </div>
                     )}
+
+                    {/* Blueprint Card */}
+                    {currentBlueprint && currentPhase === 'planning' && (
+                      <div className="px-2">
+                        <BlueprintCard
+                          blueprint={currentBlueprint}
+                          onApprove={handleBlueprintApprove}
+                          onModify={handleBlueprintModify}
+                        />
+                      </div>
+                    )}
+
                     <div ref={messagesEndRef} />
                   </div>
 
@@ -918,12 +987,39 @@ export default function Playground() {
                   filename={activeFile}
                   code={activeFileData?.code || ''}
                   language={activeFileData?.language || 'text'}
+                  onCodeChange={handleCodeChange}
                 />
               </ResizablePanel>
               <ResizableHandle withHandle />
               {/* Live Preview */}
               <ResizablePanel defaultSize={42} minSize={20}>
-                <CodePreview files={projectFiles} />
+                <div className="h-full flex flex-col">
+                  {/* Error correction banner */}
+                  {previewErrors.length > 0 && !autoCorrectEnabled && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-xs">
+                      <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
+                      <span className="flex-1 truncate text-destructive">{previewErrors[previewErrors.length - 1]?.message}</span>
+                      {canAutoCorrect(errorCorrectionAttempts) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[10px] gap-1 border-destructive/30"
+                          onClick={() => {
+                            const prompt = buildErrorCorrectionPrompt(previewErrors, projectFiles);
+                            setErrorCorrectionAttempts(a => a + 1);
+                            setPreviewErrors([]);
+                            sendHttp(prompt);
+                          }}
+                        >
+                          <Wrench className="w-3 h-3" /> Auto-fix ({3 - errorCorrectionAttempts} left)
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <CodePreview files={projectFiles} onErrors={handlePreviewErrors} />
+                  </div>
+                </div>
               </ResizablePanel>
             </ResizablePanelGroup>
           </ResizablePanel>

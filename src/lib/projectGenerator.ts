@@ -145,10 +145,38 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 
   const hasJsx = jsxFiles.length > 0;
 
+  // Detect Tailwind usage
+  const allCode = entries.map(([, f]) => f.code).join('\n');
+  const usesTailwind = /\bclass(?:Name)?=["'][^"']*(?:flex|grid|bg-|text-|p-|m-|w-|h-|rounded|shadow|border|gap-|space-|items-|justify-)/i.test(allCode);
+
+  // Console capture + error capture script
+  const consoleCapture = `<script>
+(function(){
+  var _post = function(type, args) {
+    try {
+      parent.postMessage({ source: 'preview-console', type: type, message: Array.from(args).map(function(a) { try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); } }).join(' ') }, '*');
+    } catch(e) {}
+  };
+  var _origLog = console.log, _origWarn = console.warn, _origError = console.error, _origInfo = console.info;
+  console.log = function() { _origLog.apply(console, arguments); _post('log', arguments); };
+  console.warn = function() { _origWarn.apply(console, arguments); _post('warn', arguments); };
+  console.error = function() { _origError.apply(console, arguments); _post('error', arguments); };
+  console.info = function() { _origInfo.apply(console, arguments); _post('info', arguments); };
+  window.onerror = function(msg, src, line, col, err) { _post('error', [msg + ' (line ' + line + ')']); };
+  window.onunhandledrejection = function(e) { _post('error', ['Unhandled Promise: ' + (e.reason?.message || e.reason)]); };
+})();
+</script>`;
+
+  const tailwindScript = usesTailwind ? '<script src="https://cdn.tailwindcss.com"></script>' : '';
+
   // If there's a full HTML document, use it and inject CSS/JS
   const fullHtml = htmlFiles.find(h => h.toLowerCase().includes('<!doctype') || h.toLowerCase().includes('<html'));
   if (fullHtml && !hasJsx) {
     let doc = fullHtml;
+    doc = doc.replace('<head>', `<head>\n${consoleCapture}`);
+    if (usesTailwind) {
+      doc = doc.replace('</head>', `${tailwindScript}\n</head>`);
+    }
     if (cssFiles.length > 0) {
       const cssTag = `<style>\n${cssFiles.join('\n')}\n</style>`;
       doc = doc.replace('</head>', `${cssTag}\n</head>`);
@@ -160,6 +188,7 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
     return doc;
   }
 
+
   // JSX/React mode - load React from CDN
   if (hasJsx) {
     const jsxCode = jsxFiles.join('\n\n');
@@ -168,7 +197,9 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+${consoleCapture}
+${tailwindScript}
+<script src="https://unpkg.com/react@18/umd/react.development.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
@@ -180,6 +211,7 @@ ${cssFiles.join('\n')}
 <body>
 <div id="root"></div>
 <script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback, useReducer, useContext, createContext } = React;
 ${jsxCode}
 
 const _names = ['App','Main','Page','Home','Landing','Blog','Component','Hero','Layout'];
@@ -198,6 +230,8 @@ for (const _n of _names) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${consoleCapture}
+${tailwindScript}
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
