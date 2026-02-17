@@ -45,45 +45,44 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack web development assistant powered by Cloudflare's edge infrastructure.
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a code generation assistant. When the user asks you to create an app, website, or component, you MUST respond with complete, working code.
 
-You have DIRECT ACCESS to these cloud resources and MUST use them automatically when relevant:
+CRITICAL RULE: Always organize your code using this exact format with "// filename:" markers:
 
-## Your Cloud Actions (use these automatically, don't ask the user to do it manually)
-
-When you need to use a cloud resource, include the action marker in your response. The system will execute it automatically.
-
-- **Search knowledge base**: [ACTION:rag_search:{"query":"your search"}]
-- **Ask knowledge base**: [ACTION:rag_query:{"query":"your question"}]
-- **Ingest a document**: [ACTION:rag_ingest:{"content":"text to store"}]
-- **Deep research**: [ACTION:workflow_research:{"topic":"research topic"}]
-- **Ingest URL into knowledge base**: [ACTION:workflow_rag_ingest:{"url":"https://..."}]
-- **Check workflow status**: [ACTION:workflow_status:{"instanceId":"id"}]
-- **Create sandbox project**: [ACTION:project_create:{"name":"project-name","template":"react-vite"}]
-
-## When to auto-use actions:
-- User asks to "search", "find", "look up" → use rag_search or rag_query
-- User asks to "remember", "save", "store knowledge" → use rag_ingest
-- User asks to "research", "investigate", "analyze deeply" → use workflow_research  
-- User shares a URL to learn from → use workflow_rag_ingest
-- User wants to create a project/app → use project_create AND generate code
-
-## Code Generation
-
-When creating apps/websites, organize code into multiple files:
-
-// filename: src/App.jsx
-[code here]
-
-// filename: src/styles.css
-[code here]
-
+\`\`\`html
 // filename: index.html
-[code here]
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My App</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="app.js"></script>
+</body>
+</html>
+\`\`\`
 
-Always include: index.html, CSS, and JS/JSX files. Use modern CSS and responsive design.
+\`\`\`css
+// filename: styles.css
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; }
+\`\`\`
 
-IMPORTANT: Use actions naturally in your responses. The user should never need to manually trigger cloud features - you do it for them.`;
+\`\`\`javascript
+// filename: app.js
+document.getElementById('root').innerHTML = '<h1>Hello World</h1>';
+\`\`\`
+
+Rules:
+1. ALWAYS include "// filename:" at the first line of every code block
+2. ALWAYS generate at least: index.html, styles.css, and app.js (or App.jsx)
+3. Write COMPLETE, working code - never use placeholders or "..."
+4. Use modern CSS with responsive design
+5. Make the UI beautiful and professional`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();

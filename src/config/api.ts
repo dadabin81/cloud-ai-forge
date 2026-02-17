@@ -2,15 +2,11 @@
 // Connects frontend to Cloudflare Worker backend
 
 export const API_CONFIG = {
-  // REST API endpoints
-  baseUrl: import.meta.env.PROD 
-    ? 'https://binario-api.databin81.workers.dev'
-    : 'http://localhost:8787',
+  // REST API endpoints (always production - localhost not available in preview)
+  baseUrl: import.meta.env.VITE_BINARIO_API_URL || 'https://binario-api.databin81.workers.dev',
   
   // WebSocket endpoints for real-time agents
-  wsUrl: import.meta.env.PROD
-    ? 'wss://binario-api.databin81.workers.dev'
-    : 'ws://localhost:8787',
+  wsUrl: import.meta.env.VITE_BINARIO_WS_URL || 'wss://binario-api.databin81.workers.dev',
   
   // API version
   version: 'v1',
