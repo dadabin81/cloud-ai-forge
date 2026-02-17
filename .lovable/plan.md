@@ -1,280 +1,168 @@
 
 
-# Fase 6: VibeCoding Profesional Completo - Blueprint Avanzado, Sandbox Cloudflare, Templates y Gestion Full-Stack
+# Fase 7: Refactorizacion Profunda - Chat-First Architecture
 
-## Resumen
+## El Problema Real
 
-Esta fase transforma el Playground de Binario en una plataforma VibeCoding profesional completa, integrando todas las capacidades de Cloudflare (AI, RAG, Sandbox, Workflows, D1, KV, Vectorize) con un sistema de blueprints mejorado que incluye previsualizacion de disenos, templates predefinidos, gestion completa de proyectos desde el chat, y desarrollo full-stack real en Cloudflare.
+El Playground actual tiene problemas fundamentales de arquitectura:
 
----
+1. **La IA no tiene memoria**: Cada vez que genera codigo, reemplaza TODOS los archivos en vez de editar los existentes. El sistema incremental (`[EDIT_FILE]`) existe en el codigo pero la IA no lo usa correctamente porque el system prompt no es suficiente y la deteccion falla.
 
-## Problema Actual
+2. **Demasiados botones manuales**: `TemplateGallery`, `BlueprintDesigner`, `ProjectDashboard`, `DeployDialog`, `ProjectManager`, `CloudPanel`, `Config Sheet` -- todo esto deberia ser orquestado por la IA desde el chat, no expuesto como botones separados.
 
-1. **Blueprint basico**: Solo genera JSON con lista de archivos, sin previsualizacion visual, sin templates, sin opciones de diseno
-2. **Preview limitado**: El iframe usa CDN de React/Babel (no full-stack), no puede ejecutar Node.js, Express, ni bases de datos
-3. **Sandbox no conectado**: El Durable Object `SandboxProject` en Cloudflare tiene templates (react-vite, node-express, python-flask, vanilla-js) pero NO esta conectado al frontend
-4. **RAG desconectado del chat**: El sistema RAG (Vectorize) da error 500 en busqueda, y no se usa para mejorar generacion de codigo
-5. **Proyectos no se guardan en Cloudflare**: Se guardan solo en la base de datos local, no en el Sandbox de Cloudflare para ejecucion real
-6. **Sin templates visuales**: No hay galeria de templates para que el usuario elija un punto de partida
+3. **BlueprintDesigner esta mal concebido**: Es un wizard manual de 4 pasos donde el usuario elige secciones y colores manualmente. En una plataforma real, el usuario describe lo que quiere en el chat y la IA automaticamente genera el blueprint, muestra una preview, y pregunta si quiere cambios.
+
+4. **Nada funciona realmente**: El sandbox service apunta a endpoints que no existen, el RAG da error 500, los templates son archivos estaticos que no se renderizan bien.
 
 ---
 
-## Parte A: Sistema de Templates con Previsualizacion
+## Solucion: Chat-First, Todo Orquestado en Background
 
-### Nuevo archivo: `src/lib/templates.ts`
-
-Catalogo de templates profesionales con metadata visual:
-
-- **Cada template incluye**: nombre, descripcion, categoria (landing, dashboard, ecommerce, blog, api, portfolio), captura de pantalla (URL placeholder), stack tecnologico, archivos base, dependencias CDN
-- **Categorias**: Landing Page, Dashboard, E-commerce, Blog, API Backend, Portfolio, SaaS, Admin Panel
-- **Templates iniciales** (8-10):
-  1. Landing Page SaaS (Tailwind + animaciones)
-  2. Dashboard Analytics (Chart.js + grid)
-  3. E-commerce Product Page (carrito + imagenes)
-  4. Blog con Markdown (renderizado de posts)
-  5. Portfolio Minimalista (galeria + contacto)
-  6. Admin Panel (tablas + formularios)
-  7. API REST + Frontend (Express + React)
-  8. Chat App (WebSocket + UI)
-
-### Nuevo componente: `src/components/TemplateGallery.tsx`
-
-- Grid de tarjetas visuales con previsualizacion de cada template
-- Filtro por categoria
-- Al seleccionar un template, se pre-cargan los archivos base en el IDE
-- Boton "Usar Template" que crea el proyecto con los archivos del template
-- Boton "Personalizar con AI" que abre el chat con el template como contexto
+### Principio fundamental
+> El usuario solo interactua con el chat. Todo lo demas sucede automaticamente en background.
 
 ---
 
-## Parte B: Blueprint Avanzado con Diseno Visual
+## Parte A: Corregir el Flujo de Generacion de Archivos
 
-### Modificar: `src/lib/blueprintSystem.ts`
+### Problema
+Cuando la IA responde con codigo, el `useEffect` en linea 284-330 de `Playground.tsx` decide entre incremental (`[EDIT_FILE]`) y full regeneration (`// filename:`). Pero la IA casi nunca usa marcadores incrementales porque:
+- El system prompt no es lo suficientemente claro
+- `buildFileContextPrompt()` lista archivos pero no envia su contenido
+- El modelo no tiene suficiente contexto para saber que editar
 
-Ampliar el sistema de blueprint para incluir:
-
-- **Opciones de diseno**: color scheme (light/dark/custom), tipografia, layout (sidebar, topnav, fullwidth), estilo (minimal, corporate, playful)
-- **Secciones del proyecto**: hero, features, pricing, footer, sidebar, navbar -- el usuario puede seleccionar cuales incluir
-- **CDN inteligente**: deteccion automatica de dependencias necesarias segun las secciones elegidas
-- **Preview placeholder**: generar un wireframe ASCII o descripcion visual del layout
-
-### Nuevo componente: `src/components/BlueprintDesigner.tsx`
-
-Reemplaza al `BlueprintCard` basico con un designer interactivo:
-
-- **Paso 1 - Template**: Seleccionar template base o "desde cero"
-- **Paso 2 - Secciones**: Checkboxes para elegir secciones (Hero, Features, Pricing, Contact, etc.)
-- **Paso 3 - Estilo**: Selector de color scheme, tipografia, layout
-- **Paso 4 - Preview**: Wireframe visual del layout seleccionado (generado con divs y CSS)
-- **Paso 5 - Confirmar**: Resumen del blueprint con boton "Generar"
-
-### Nuevo componente: `src/components/WireframePreview.tsx`
-
-- Genera un wireframe visual simplificado del layout del blueprint
-- Muestra bloques de color representando cada seccion (header, hero, features, footer)
-- Se actualiza en tiempo real al cambiar opciones en el designer
-- Usa CSS Grid/Flexbox para representar layouts de sidebar, topnav, fullwidth
-
----
-
-## Parte C: Conexion del Sandbox de Cloudflare al Frontend
-
-### Nuevo archivo: `src/lib/sandboxService.ts`
-
-Servicio que conecta el frontend con el Durable Object `SandboxProject`:
-
-- `createSandboxProject(name, template, apiKey)`: Crea un proyecto en el Sandbox DO
-- `getSandboxStatus(projectId, apiKey)`: Obtiene estado del sandbox
-- `writeSandboxFiles(projectId, files, apiKey)`: Escribe archivos al sandbox
-- `readSandboxFiles(projectId, apiKey)`: Lee archivos del sandbox
-- `execCommand(projectId, command, apiKey)`: Ejecuta comandos en el sandbox
-- `startDevServer(projectId, apiKey)`: Inicia servidor de desarrollo
-- `stopDevServer(projectId, apiKey)`: Detiene servidor
-- `getPreviewUrl(projectId, apiKey)`: Obtiene URL de preview
-
-### Modificar: `src/hooks/usePlaygroundProject.ts`
-
-- Agregar opcion de guardar proyectos tanto en la DB local como en el Sandbox de Cloudflare
-- Nuevo campo `sandboxId` en `PlaygroundProject` para vincular con el DO
-- Funcion `syncToSandbox`: sincroniza archivos locales al sandbox de Cloudflare
-- Funcion `syncFromSandbox`: descarga archivos del sandbox al estado local
-
-### Modificar: `src/pages/Playground.tsx`
-
-- Agregar boton "Run in Cloud" que crea/actualiza el proyecto en el Sandbox
-- Mostrar preview URL del sandbox cuando esta disponible
-- Toggle entre "Local Preview" (iframe actual) y "Cloud Preview" (Sandbox URL)
-- Indicador visual de sincronizacion con el sandbox
-
----
-
-## Parte D: Chat como Centro de Desarrollo Full-Stack
-
-### Modificar: `src/lib/chatActions.ts`
-
-Agregar nuevas acciones que el AI puede ejecutar desde el chat:
-
-- `sandbox_create`: Crear un proyecto en el sandbox desde el chat
-- `sandbox_deploy`: Deployar el proyecto actual
-- `sandbox_exec`: Ejecutar comandos (npm install, npm run build, etc.)
-- `sandbox_start`: Iniciar servidor de desarrollo
-- `sandbox_stop`: Detener servidor
-- `template_select`: Seleccionar y aplicar un template
-- `blueprint_generate`: Generar un blueprint con opciones de diseno
-- `rag_learn`: Ingestar documentacion/contexto para mejorar generacion futura
-- `project_rename`: Renombrar proyecto
-- `project_export`: Exportar proyecto en formato elegido
-
-### Modificar: `src/pages/Playground.tsx` (System Prompt)
-
-Actualizar el system prompt `DEFAULT_SYSTEM_PROMPT` para incluir:
-
-- Instrucciones sobre las acciones disponibles (sandbox, deploy, template, etc.)
-- Contexto sobre las capacidades full-stack de Cloudflare
-- Instrucciones para generar blueprints con opciones de diseno cuando se detecta un proyecto nuevo
-- Instrucciones para usar RAG search cuando hay contexto relevante
-
----
-
-## Parte E: Gestion Completa de Proyectos desde el Chat
-
-### Nuevo componente: `src/components/ProjectDashboard.tsx`
-
-Panel lateral expandible que muestra:
-
-- **Proyecto actual**: nombre, estado, sandbox status, preview URL, ultimo deploy
-- **Archivos**: lista con indicadores de modificado/sincronizado
-- **Historial**: commits/cambios recientes del AI
-- **Deploys**: historial de deploys con URLs
-- **Metricas**: tokens usados, archivos generados, errores corregidos
-
-### Modificar: `src/components/ProjectManager.tsx`
-
-Mejorar para incluir:
-
-- Busqueda/filtro de proyectos
-- Ordenar por fecha, nombre, template
-- Badge de estado del sandbox (ready, running, stopped)
-- Boton "Duplicar" proyecto
-- Boton "Sync to Cloud" para sincronizar con sandbox
-- Preview thumbnail de cada proyecto (captura del ultimo preview)
-
----
-
-## Parte F: Integracion RAG para Generacion Mejorada
-
-### Modificar: `src/lib/chatActions.ts` (enrichWithRAG)
-
-Mejorar la funcion `enrichWithRAG` para:
-
-- Buscar en la base de conocimiento antes de generar codigo
-- Incluir ejemplos de codigo relevantes como contexto
-- Buscar patrones similares en proyectos anteriores del usuario
-- Manejar el error 500 actual del RAG search con fallback graceful
-
-### Nuevo: Ingestar documentacion de Cloudflare
-
-- Al inicializar, pre-cargar documentacion de las APIs de Cloudflare (Workers, D1, KV, R2) en el indice vectorial
-- Esto permite que el AI genere codigo que usa correctamente las APIs de Cloudflare
-- El usuario puede agregar su propia documentacion via el chat ("aprende esta documentacion: [URL]")
-
----
-
-## Detalles Tecnicos
-
-### Archivos a crear
-
-| Archivo | Proposito |
-|---------|-----------|
-| `src/lib/templates.ts` | Catalogo de templates con metadata |
-| `src/lib/sandboxService.ts` | Cliente para Sandbox Durable Object |
-| `src/components/TemplateGallery.tsx` | Galeria visual de templates |
-| `src/components/BlueprintDesigner.tsx` | Designer interactivo de blueprints |
-| `src/components/WireframePreview.tsx` | Preview visual de wireframes |
-| `src/components/ProjectDashboard.tsx` | Panel de gestion del proyecto actual |
+### Solucion
+1. **Mejorar `buildFileContextPrompt()`** en `src/lib/incrementalParser.ts`: Enviar no solo la lista de archivos sino tambien el contenido completo (o un resumen) de cada archivo existente, para que la IA sepa exactamente que ya existe
+2. **Mejorar el system prompt** para ser MUY explicito: "NUNCA regeneres archivos que no necesitan cambios. SIEMPRE usa [EDIT_FILE: path] para modificar archivos existentes."
+3. **Mejorar `applyIncrementalActions()`**: Cuando la IA responde con `// filename:` markers Y ya existen archivos, hacer merge inteligente en vez de reemplazar todo -- solo actualizar los archivos que aparecen en la respuesta, mantener los demas
 
 ### Archivos a modificar
+- `src/lib/incrementalParser.ts`: Mejorar `buildFileContextPrompt()` para incluir contenido de archivos
+- `src/pages/Playground.tsx` lineas 284-330: Mejorar logica de deteccion para hacer merge cuando ya hay archivos existentes
 
+---
+
+## Parte B: Eliminar Componentes Manuales Innecesarios
+
+### Eliminar o simplificar
+- **`BlueprintDesigner.tsx`**: ELIMINAR completamente. El blueprint se genera automaticamente cuando la IA detecta que el usuario quiere un proyecto nuevo. La IA pregunta al usuario en el chat si quiere cambios.
+- **`TemplateGallery.tsx`**: SIMPLIFICAR. En vez de un dialog separado, la IA sugiere templates relevantes directamente en el chat cuando el usuario pide un proyecto nuevo.
+- **`WireframePreview.tsx`**: ELIMINAR. No aporta valor real, es solo boxes de colores.
+- **`ProjectDashboard.tsx`**: ELIMINAR. La informacion del proyecto se muestra en la barra superior de forma compacta.
+
+### Mantener pero mover al background
+- **`ProjectManager.tsx`**: Mantener como dialog pero mas simple, sin botones de sync/cloud que no funcionan
+- **`DeployDialog.tsx`**: Mantener, es funcional
+
+---
+
+## Parte C: System Prompt Profesional para Chat-First
+
+### Reescribir `DEFAULT_SYSTEM_PROMPT`
+
+El system prompt actual es generico. Debe ser preciso y profesional:
+
+- Instrucciones claras sobre cuando crear archivos nuevos vs editar existentes
+- Cuando el usuario describe un proyecto nuevo, la IA debe responder primero con una propuesta (nombre, descripcion, archivos a crear, stack) en formato legible -- NO un JSON oculto sino un mensaje claro
+- La IA debe preguntar "Quieres que proceda?" antes de generar codigo
+- Cuando ya existen archivos, SIEMPRE usar `[EDIT_FILE]` para los que cambian
+- La IA debe sugerir mejoras proactivamente despues de generar
+- Eliminar las instrucciones de `[ACTION:...]` que confunden -- esas acciones deben ejecutarse automaticamente, no como marcadores en el texto
+
+---
+
+## Parte D: Deteccion Inteligente de Intent desde el Chat
+
+### Modificar `src/pages/Playground.tsx` (sendHttp)
+
+Antes de enviar el mensaje a la IA, analizar el intent del usuario:
+
+1. **Proyecto nuevo**: Detectar si pide crear algo desde cero. Si hay archivos existentes, preguntar si quiere crear un proyecto nuevo o modificar el actual.
+2. **Modificacion**: Si hay archivos existentes y el usuario pide un cambio, incluir el contexto completo de los archivos.
+3. **Template**: Si el usuario menciona un tipo de proyecto conocido (dashboard, landing, blog), pre-seleccionar el template mas adecuado y enviarlo como contexto adicional a la IA.
+4. **Deploy**: Si el usuario dice "deploya" o "publica", abrir el DeployDialog automaticamente.
+5. **Export**: Si dice "exporta" o "descarga", ejecutar la exportacion directamente.
+
+Esto reemplaza el sistema de `[ACTION:...]` markers, que nunca funciono bien porque depende de que la IA genere el formato exacto.
+
+---
+
+## Parte E: Limpieza de la Barra Superior
+
+### Estado actual (demasiados botones)
+Templates | Blueprint Designer | Projects | Cloud | Config
+
+### Estado propuesto (limpio y profesional)
+[Nombre del proyecto] | Projects | Deploy | Config
+
+- El nombre del proyecto es editable inline
+- "Projects" abre el ProjectManager simplificado
+- "Deploy" abre el DeployDialog
+- "Config" mantiene API key, provider/model, system prompt
+- Cloud/Templates/Blueprint se eliminan de la barra -- todo se maneja desde el chat
+
+---
+
+## Parte F: Auto-Save y Gestion de Proyectos Mejorada
+
+### Modificar `src/hooks/usePlaygroundProject.ts`
+
+1. **Auto-crear proyecto**: Cuando la IA genera codigo por primera vez, crear automaticamente un proyecto con nombre derivado de la descripcion del usuario (no "Project 02/17/2026")
+2. **Auto-save inmediato**: Reducir el debounce de 2000ms a 500ms
+3. **Eliminar campos de sandbox** que no funcionan: `sandbox_id`, `sandbox_status` -- estos se pueden usar en el futuro pero ahora solo anade complejidad sin funcionalidad
+
+---
+
+## Resumen de Cambios
+
+### Archivos a ELIMINAR
+| Archivo | Razon |
+|---------|-------|
+| `src/components/BlueprintDesigner.tsx` | Manual wizard innecesario, la IA lo hace desde el chat |
+| `src/components/WireframePreview.tsx` | No aporta valor real |
+| `src/components/ProjectDashboard.tsx` | Informacion se muestra en barra superior |
+
+### Archivos a MODIFICAR
 | Archivo | Cambio |
 |---------|--------|
-| `src/lib/blueprintSystem.ts` | Opciones de diseno, secciones, estilos |
-| `src/lib/chatActions.ts` | Nuevas acciones: sandbox, template, deploy, rag |
-| `src/hooks/usePlaygroundProject.ts` | Sync con sandbox, campo sandboxId |
-| `src/pages/Playground.tsx` | TemplateGallery, BlueprintDesigner, ProjectDashboard, Cloud Preview toggle, system prompt mejorado |
-| `src/components/ProjectManager.tsx` | Busqueda, filtro, duplicar, sync, thumbnails |
-| `src/components/BlueprintCard.tsx` | Simplificar (la logica compleja va a BlueprintDesigner) |
+| `src/lib/incrementalParser.ts` | `buildFileContextPrompt()` incluye contenido de archivos, merge inteligente |
+| `src/pages/Playground.tsx` | Eliminar imports de BlueprintDesigner/WireframePreview/TemplateGallery/ProjectDashboard, limpiar barra superior, mejorar system prompt, mejorar logica de merge de archivos, deteccion de intent |
+| `src/lib/blueprintSystem.ts` | Simplificar: eliminar `buildBlueprintPrompt()` forzado, hacer que `detectBlueprintRequest()` sea mas inteligente y dispare una propuesta en lenguaje natural |
+| `src/lib/chatActions.ts` | Eliminar acciones que no funcionan (sandbox_*), simplificar a las que realmente funcionan |
+| `src/hooks/usePlaygroundProject.ts` | Auto-crear con nombre inteligente, reducir debounce |
+| `src/components/TemplateGallery.tsx` | Convertir de dialog a funcion helper que la IA usa internamente |
+| `src/lib/templates.ts` | Mantener pero agregar funcion `suggestTemplate(description)` que la IA puede usar |
 
-### Migracion de base de datos
+### Ninguna dependencia nueva necesaria
 
-```text
-ALTER TABLE playground_projects
-  ADD COLUMN sandbox_id TEXT,
-  ADD COLUMN sandbox_status TEXT DEFAULT 'none',
-  ADD COLUMN preview_url TEXT,
-  ADD COLUMN template_id TEXT,
-  ADD COLUMN design_options JSONB DEFAULT '{}';
-```
+### Sin migraciones de base de datos
 
-### No se necesitan nuevas dependencias npm
+---
 
-Todo se implementa con React, componentes UI existentes, y las APIs de Cloudflare ya disponibles.
-
-### Flujo completo del usuario
+## Flujo del Usuario (ANTES vs DESPUES)
 
 ```text
-FLUJO 1: Proyecto nuevo con Template
-  1. Usuario abre Playground
-  2. Ve galeria de templates (8-10 opciones)
-  3. Selecciona "Dashboard Analytics"
-  4. Los archivos base se cargan en el IDE
-  5. Preview se actualiza automaticamente
-  6. Usuario pide cambios al AI via chat
-  7. AI modifica archivos incrementalmente
-  8. Click "Run in Cloud" -> se crea sandbox en CF
-  9. Preview real via URL del sandbox
-  10. Click "Deploy" -> Cloudflare Pages
+ANTES (confuso):
+1. Usuario ve 6 botones en la barra
+2. Abre Templates -> elige uno -> carga archivos
+3. O abre Blueprint Designer -> 4 pasos manuales -> genera
+4. Chat genera codigo -> REEMPLAZA todo lo anterior
+5. Usuario no sabe si guardar, deployar, exportar
+6. Botones de Cloud/Sandbox que no funcionan
 
-FLUJO 2: Proyecto desde cero con Blueprint
-  1. Usuario escribe "Crea un SaaS de gestion de tareas"
-  2. AI genera blueprint con opciones de diseno
-  3. Se muestra BlueprintDesigner:
-     - Secciones: [x]Hero [x]Features [x]Pricing [ ]Blog
-     - Estilo: Dark mode, Sans-serif, Sidebar layout
-     - Template base: SaaS Landing
-  4. Usuario ajusta opciones y aprueba
-  5. WireframePreview muestra layout visual
-  6. AI genera codigo completo basado en blueprint
-  7. Preview en tiempo real
-  8. Auto-fix de errores
-  9. Export/Deploy
-
-FLUJO 3: Gestion desde el chat
-  1. "Renombra el proyecto a 'TaskFlow'"
-  2. "Agrega una seccion de precios"
-  3. "Deploya a Cloudflare"
-  4. "Exporta como ZIP"
-  5. "Busca en mi base de conocimiento sobre auth"
-  6. "Instala Chart.js y agrega graficos"
-  7. "Muestra el estado del sandbox"
+DESPUES (profesional):
+1. Usuario escribe en el chat: "Crea un dashboard de analytics"
+2. IA responde: "Voy a crear un Dashboard Analytics con:
+   - index.html (entrada principal)
+   - styles.css (Tailwind dark mode)
+   - App.jsx (componente principal con graficos)
+   Uso: React + Chart.js + Tailwind
+   Quieres que proceda?"
+3. Usuario: "Si, adelante"
+4. IA genera codigo -> archivos aparecen en el IDE -> preview en vivo
+5. Proyecto se guarda automaticamente como "Dashboard Analytics"
+6. Usuario: "Agrega una seccion de usuarios"
+7. IA usa [EDIT_FILE: App.jsx] -> solo modifica lo necesario
+8. Usuario: "Deployalo"
+9. Se abre DeployDialog automaticamente
 ```
-
-### Arquitectura de la integracion Cloudflare
-
-```text
-+------------------+     +------------------+     +------------------+
-|   Frontend       |     |  Cloudflare API  |     |  Cloudflare      |
-|   (Playground)   | --> |  Worker Gateway  | --> |  Services        |
-|                  |     |                  |     |                  |
-|  TemplateGallery |     |  /v1/projects/*  |     |  Sandbox DO      |
-|  BlueprintDesign |     |  /v1/chat/*      |     |  (Templates)     |
-|  CodeEditor      |     |  /v1/rag/*       |     |  AI (Llama/etc)  |
-|  CodePreview     |     |  /v1/workflows/* |     |  D1 Database     |
-|  ProjectManager  |     |                  |     |  KV Store        |
-|  DeployDialog    |     |                  |     |  Vectorize (RAG) |
-+------------------+     +------------------+     +------------------+
-         |                                                 |
-         +--- DB local (playground_projects) ----+         |
-         +--- Sandbox sync (sandboxService) -----+---------+
-         +--- Deploy (deploy-cloudflare fn) -----+---------+
-```
-
