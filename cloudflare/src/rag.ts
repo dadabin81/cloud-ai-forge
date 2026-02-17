@@ -105,11 +105,11 @@ export async function generateEmbedding(
     text: [text],
   });
 
-  if (!result.data?.[0]) {
+  if (!(result as any).data?.[0]) {
     throw new Error('Failed to generate embedding');
   }
 
-  return result.data[0];
+  return (result as any).data[0];
 }
 
 /**
@@ -123,11 +123,11 @@ export async function generateEmbeddings(
     text: texts,
   });
 
-  if (!result.data || result.data.length !== texts.length) {
+  if (!(result as any).data || (result as any).data.length !== texts.length) {
     throw new Error('Failed to generate embeddings');
   }
 
-  return result.data;
+  return (result as any).data;
 }
 
 /**
@@ -197,7 +197,7 @@ export async function searchDocuments(
   const results = await env.VECTORIZE_INDEX.query(queryEmbedding, {
     topK,
     namespace,
-    filter,
+    filter: filter as VectorizeVectorMetadataFilter | undefined,
     returnMetadata: returnContent ? 'all' : 'none',
     returnValues: false,
   });
@@ -254,7 +254,7 @@ export async function ragQuery(
     .join('\n\n');
 
   // Generate answer
-  const response = await env.AI.run(model as BaseAiTextGenerationModels, {
+  const response = await env.AI.run(model as any, {
     messages: [
       {
         role: 'system',

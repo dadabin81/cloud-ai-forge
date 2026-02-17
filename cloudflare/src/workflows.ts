@@ -43,7 +43,7 @@ export class ResearchWorkflow extends WorkflowEntrypoint<WorkflowEnv, ResearchPa
     const analysis = await step.do('analyze-query', async () => {
       steps.push('analyze-query');
       
-      const response = await this.env.AI.run(model as BaseAiTextGenerationModels, {
+      const response = await this.env.AI.run(model as any, {
         messages: [
           {
             role: 'system',
@@ -76,12 +76,12 @@ Be concise and structured in your analysis.`,
             text: [query],
           });
 
-          if (!embeddingResult.data?.[0]) {
+          if (!(embeddingResult as any).data?.[0]) {
             return [];
           }
 
           // Search Vectorize
-          const results = await this.env.VECTORIZE_INDEX.query(embeddingResult.data[0], {
+          const results = await this.env.VECTORIZE_INDEX.query((embeddingResult as any).data[0], {
             topK,
             namespace: userId,
             returnMetadata: 'all',
@@ -107,7 +107,7 @@ Be concise and structured in your analysis.`,
         ? `\n\nRelevant Context:\n${sources.map((s, i) => `[${i + 1}] ${s.content || 'No content available'}`).join('\n\n')}`
         : '';
 
-      const response = await this.env.AI.run(model as BaseAiTextGenerationModels, {
+      const response = await this.env.AI.run(model as any, {
         messages: [
           {
             role: 'system',
@@ -255,14 +255,14 @@ export class RAGWorkflow extends WorkflowEntrypoint<WorkflowEnv, RAGPayload> {
           text: batch,
         });
 
-        if (!embeddingResult.data || embeddingResult.data.length !== batch.length) {
+        if (!(embeddingResult as any).data || (embeddingResult as any).data.length !== batch.length) {
           throw new Error(`Embedding failed for batch ${batchIndex}`);
         }
 
         // Prepare vectors for upsert
         const vectors = batch.map((chunk, j) => ({
           id: `${documentId}_chunk_${i + j}`,
-          values: embeddingResult.data[j],
+          values: (embeddingResult as any).data[j],
           metadata: {
             content: chunk.substring(0, 1000),
             documentId,
