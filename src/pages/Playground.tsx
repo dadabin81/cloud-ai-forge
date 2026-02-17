@@ -510,12 +510,19 @@ export default function Playground() {
           }
         }
       } else {
+        // Non-streaming JSON response
         setIsThinking(false);
         const data = await response.json();
-        streamingContentRef.current = data.choices?.[0]?.message?.content || '';
-        setStreamingContent(streamingContentRef.current);
+        const assistantContent = data.choices?.[0]?.message?.content || '';
+        // Add assistant message directly - don't rely on streamingContentRef
+        setMessages(prev => [...prev, { role: 'assistant', content: assistantContent }]);
+        setStreamingContent('');
+        streamingContentRef.current = '';
+        setIsLoading(false);
+        return;
       }
 
+      // Only reached for SSE streaming responses
       setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current }]);
       setStreamingContent('');
     } catch (error) {
