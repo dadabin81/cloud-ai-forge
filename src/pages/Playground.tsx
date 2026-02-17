@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud, Save, Wrench,
+  ChevronDown, MessageSquare, Layers, Save, Wrench, Rocket,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -27,18 +27,15 @@ import { CodePreview } from '@/components/CodePreview';
 import { BlueprintCard } from '@/components/BlueprintCard';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
-import { TemplateGallery } from '@/components/TemplateGallery';
-import { BlueprintDesigner, type DesignOptions } from '@/components/BlueprintDesigner';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
-import { ResourceBadges } from '@/components/ResourceBadges';
-import { CloudPanel } from '@/components/CloudPanel';
-import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, stripIncrementalMarkers, buildFileContextPrompt } from '@/lib/incrementalParser';
+import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, smartMergeFiles, buildFileContextPrompt } from '@/lib/incrementalParser';
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
-import { parseActions, executeAllActions, enrichWithRAG, type ActionResult } from '@/lib/chatActions';
-import { detectBlueprintRequest, buildBlueprintPrompt, parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@/lib/blueprintSystem';
-import { getTemplateById, type ProjectTemplate } from '@/lib/templates';
-import { buildErrorCorrectionPrompt, shouldAutoCorrect, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
+import { parseActions, executeAllActions, enrichWithRAG, detectUserIntent } from '@/lib/chatActions';
+import { parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@/lib/blueprintSystem';
+import { suggestTemplate } from '@/lib/templates';
+import { buildErrorCorrectionPrompt, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
+import { exportAsZip } from '@/lib/projectExporter';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -55,32 +52,32 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a full-stack VibeCoding assistant powered by Cloudflare. You create complete, working applications.
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant. You create and modify complete, working web applications.
 
-CRITICAL RULE: Always organize code with "// filename:" markers in code blocks.
+## CRITICAL RULES FOR FILE MANAGEMENT
 
-When creating a NEW project, generate at least: index.html, styles.css, and app.js/App.jsx.
-When modifying EXISTING projects, use [EDIT_FILE: path], [NEW_FILE: path], or [DELETE_FILE: path].
+### When there are NO existing files (new project):
+1. First, propose the project structure in natural language: list the files you'll create, the tech stack, and ask "¿Quieres que proceda?" (or equivalent).
+2. Only after user confirms, generate ALL files using "// filename: path" markers in code blocks.
+3. Write COMPLETE working code — never use placeholders or "...".
 
-Rules:
-1. Write COMPLETE working code - never use placeholders or "..."
-2. Use modern CSS with Tailwind CDN, responsive design
-3. Make the UI beautiful and professional
-4. Use React 18 with Babel CDN for JSX support
+### When there ARE existing files (editing):
+1. NEVER regenerate files that don't need changes.
+2. ALWAYS use [EDIT_FILE: path] markers for files that need modification.
+3. Use [NEW_FILE: path] for new files.
+4. Use [DELETE_FILE: path] to remove files.
+5. Only include files that ACTUALLY need changes.
 
-Available actions (embed in your responses when needed):
-- [ACTION:rag_search:{"query":"..."}] - Search knowledge base
-- [ACTION:rag_learn:{"content":"..."}] - Ingest documentation
-- [ACTION:sandbox_create:{"name":"...","template":"react-vite"}] - Create cloud sandbox
-- [ACTION:sandbox_exec:{"projectId":"...","command":"..."}] - Run commands
-- [ACTION:sandbox_start:{"projectId":"..."}] - Start dev server
-- [ACTION:sandbox_deploy:{"projectId":"..."}] - Deploy to production
-- [ACTION:workflow_research:{"topic":"..."}] - Start research workflow
-- [ACTION:template_select:{"templateId":"..."}] - Select a template
-- [ACTION:project_rename:{"name":"..."}] - Rename current project
-- [ACTION:project_export:{"format":"zip|html|json"}] - Export project
+## Code Quality Standards:
+- Modern CSS with Tailwind CDN, responsive design, dark mode
+- React 18 with Babel CDN for JSX support
+- Professional UI with animations and good UX
+- Complete, production-ready code
 
-Cloudflare capabilities: Workers, D1 (SQL), KV Store, R2 Storage, Vectorize (RAG), AI Models, Durable Objects.`;
+## Proactive Behavior:
+- After generating code, suggest 2-3 improvements the user could make
+- If the user's description is vague, ask clarifying questions before generating
+- When modifying, explain what you changed and why`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -132,17 +129,18 @@ export default function Playground() {
   const [projectFiles, setProjectFiles] = useState<Record<string, ProjectFile>>({});
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [cloudOpen, setCloudOpen] = useState(false);
-  const [cloudTab, setCloudTab] = useState('models');
   
   // Blueprint state
-  const [currentPhase, setCurrentPhase] = useState<'idle' | 'planning' | 'generating' | 'refining'>('idle');
   const [currentBlueprint, setCurrentBlueprint] = useState<Blueprint | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<'idle' | 'planning' | 'generating'>('idle');
   
   // Error correction state
   const [previewErrors, setPreviewErrors] = useState<PreviewError[]>([]);
   const [errorCorrectionAttempts, setErrorCorrectionAttempts] = useState(0);
-  const [autoCorrectEnabled, setAutoCorrectEnabled] = useState(false);
+  const [autoCorrectEnabled] = useState(false);
+
+  // Track first user message for auto-naming
+  const firstUserMessageRef = useRef<string | null>(null);
 
   const fileTree = useMemo(() => generateFileTree(projectFiles), [projectFiles]);
   const totalFiles = Object.keys(projectFiles).length;
@@ -280,12 +278,12 @@ export default function Playground() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamingContent]);
 
-  // Auto-detect project files from latest assistant message
+  // Auto-detect project files from latest assistant message — with SMART MERGE
   useEffect(() => {
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistant) return;
 
-    // Check for incremental editing markers first
+    // Check for incremental editing markers first (preferred)
     if (hasIncrementalMarkers(lastAssistant.content)) {
       const actions = parseIncrementalActions(lastAssistant.content);
       if (actions.length > 0) {
@@ -293,29 +291,40 @@ export default function Playground() {
         setProjectFiles(updatedFiles);
         const firstChanged = actions.find(a => a.type !== 'delete');
         if (firstChanged) setActiveFile(firstChanged.path);
-        // Auto-save to DB
         if (project) saveFiles(updatedFiles);
         return;
       }
     }
 
-    // Legacy: full file generation with // filename: markers
+    // Legacy: full file generation with // filename: markers — NOW WITH SMART MERGE
     if (hasProjectMarkers(lastAssistant.content)) {
-      const files = parseProjectFiles(lastAssistant.content);
-      if (Object.keys(files).length > 0) {
-        setProjectFiles(files);
-        const firstFile = Object.keys(files)[0];
+      const newFiles = parseProjectFiles(lastAssistant.content);
+      if (Object.keys(newFiles).length > 0) {
+        // Smart merge: keep existing files, only update/add what's in the response
+        const mergedFiles = smartMergeFiles(projectFiles, newFiles);
+        setProjectFiles(mergedFiles);
+        const firstFile = Object.keys(newFiles)[0];
         setActiveFile(firstFile);
-        // Auto-save to DB
-        if (project) saveFiles(files);
-        else if (isAuthenticated) {
-          createProject('Project ' + new Date().toLocaleString(), files);
+        // Auto-save
+        if (project) {
+          saveFiles(mergedFiles);
+        } else if (isAuthenticated && firstUserMessageRef.current) {
+          createProject(firstUserMessageRef.current, mergedFiles);
         }
+        setCurrentPhase('idle');
         return;
       }
     }
 
-    // Fallback: check for single renderable blocks
+    // Check if response contains a blueprint proposal
+    const blueprint = parseBlueprintResponse(lastAssistant.content);
+    if (blueprint) {
+      setCurrentBlueprint(blueprint);
+      setCurrentPhase('planning');
+      return;
+    }
+
+    // Fallback: single renderable blocks
     const blocks = extractCodeBlocks(lastAssistant.content);
     if (isRenderableCode(blocks)) {
       const virtualFiles: Record<string, ProjectFile> = {};
@@ -324,7 +333,8 @@ export default function Playground() {
         const name = blocks.length === 1 ? `index.${ext}` : `file${i + 1}.${ext}`;
         virtualFiles[name] = { code: block.code, language: block.language };
       });
-      setProjectFiles(virtualFiles);
+      const merged = smartMergeFiles(projectFiles, virtualFiles);
+      setProjectFiles(merged);
       setActiveFile(Object.keys(virtualFiles)[0]);
     }
   }, [messages]);
@@ -371,15 +381,62 @@ export default function Playground() {
   const sendHttp = async (content: string) => {
     const effectiveApiKey = getEffectiveApiKey();
     if (!effectiveApiKey.trim()) { toast.error('Please enter your API key'); return; }
+    
+    // Track first user message for auto-naming
+    if (!firstUserMessageRef.current) {
+      firstUserMessageRef.current = content;
+    }
+
     const userMessage: Message = { role: 'user', content };
 
-    // Auto-enrich with RAG context (silent, non-blocking)
+    // Detect intent for automatic orchestration
+    const hasFiles = Object.keys(projectFiles).length > 0;
+    const intent = detectUserIntent(content, hasFiles);
+
+    // Handle deploy/export intents automatically
+    if (intent === 'deploy') {
+      // The DeployDialog is in the toolbar - just notify user
+      setMessages(prev => [...prev, userMessage]);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: '🚀 Para deployar tu proyecto, usa el botón **Deploy** en la barra superior del preview. Ahí puedes configurar Cloudflare Pages u otro proveedor.',
+        timestamp: Date.now() 
+      }]);
+      return;
+    }
+
+    if (intent === 'export') {
+      setMessages(prev => [...prev, userMessage]);
+      if (hasFiles) {
+        try {
+          exportAsZip(projectFiles, project?.name || 'project');
+          setMessages(prev => [...prev, { role: 'assistant', content: '📦 ¡Proyecto exportado como ZIP!', timestamp: Date.now() }]);
+        } catch {
+          setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Error al exportar. Intenta de nuevo.', timestamp: Date.now() }]);
+        }
+      } else {
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ No hay archivos para exportar. Crea un proyecto primero.', timestamp: Date.now() }]);
+      }
+      return;
+    }
+
+    // Auto-enrich with RAG context (silent)
     let ragContext: string | null = null;
     try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
 
     // Build system prompt with file context for incremental editing
     const fileContext = buildFileContextPrompt(projectFiles);
-    const fullSystemPrompt = systemPrompt + fileContext;
+    
+    // If new project, check if a template matches and add as context
+    let templateContext = '';
+    if (intent === 'new_project') {
+      const suggested = suggestTemplate(content);
+      if (suggested) {
+        templateContext = `\n\n[TEMPLATE SUGGESTION: The "${suggested.name}" template (${suggested.description}) is available. You can use it as a starting point or create from scratch based on the user's description.]`;
+      }
+    }
+
+    const fullSystemPrompt = systemPrompt + fileContext + templateContext;
 
     const allMessages = [
       ...(fullSystemPrompt ? [{ role: 'system' as const, content: fullSystemPrompt }] : []),
@@ -449,7 +506,6 @@ export default function Playground() {
         setIsThinking(false);
         const data = await response.json();
         const assistantContent = data.choices?.[0]?.message?.content || '';
-        // Process actions from non-streaming response
         const { cleanText, actions } = parseActions(assistantContent);
         setMessages(prev => [...prev, { role: 'assistant', content: cleanText }]);
         if (actions.length > 0) {
@@ -534,6 +590,7 @@ export default function Playground() {
     setCurrentPhase('idle');
     setPreviewErrors([]);
     setErrorCorrectionAttempts(0);
+    firstUserMessageRef.current = null;
     if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'clear' }));
     }
@@ -562,7 +619,6 @@ export default function Playground() {
   const handlePreviewErrors = useCallback((errors: PreviewError[]) => {
     setPreviewErrors(prev => [...prev, ...errors]);
     if (autoCorrectEnabled && canAutoCorrect(errorCorrectionAttempts)) {
-      // Auto-fix: send error correction prompt
       const prompt = buildErrorCorrectionPrompt(errors, projectFiles);
       setErrorCorrectionAttempts(a => a + 1);
       sendHttp(prompt);
@@ -584,42 +640,6 @@ export default function Playground() {
     toast.info('Describe los cambios que quieres en el blueprint');
   }, []);
 
-  // Handle template selection
-  const handleSelectTemplate = useCallback((template: ProjectTemplate) => {
-    setProjectFiles(template.files);
-    const firstFile = Object.keys(template.files)[0];
-    if (firstFile) setActiveFile(firstFile);
-    if (isAuthenticated) {
-      createProject(template.name, template.files);
-    }
-    toast.success(`Template "${template.name}" loaded!`);
-  }, [isAuthenticated, createProject]);
-
-  // Handle customize template with AI
-  const handleCustomizeWithAI = useCallback((template: ProjectTemplate) => {
-    setProjectFiles(template.files);
-    const firstFile = Object.keys(template.files)[0];
-    if (firstFile) setActiveFile(firstFile);
-    if (isAuthenticated) {
-      createProject(template.name, template.files);
-    }
-    setInput(`I've loaded the "${template.name}" template. Please customize it: `);
-    toast.success(`Template loaded! Describe your customizations in the chat.`);
-  }, [isAuthenticated, createProject]);
-
-  // Handle blueprint designer generate
-  const handleBlueprintGenerate = useCallback((options: DesignOptions) => {
-    const selectedTemplate = options.templateId ? getTemplateById(options.templateId) : null;
-    if (selectedTemplate) {
-      setProjectFiles(selectedTemplate.files);
-      const firstFile = Object.keys(selectedTemplate.files)[0];
-      if (firstFile) setActiveFile(firstFile);
-    }
-    const prompt = `Create a ${options.style} ${options.layout} layout web app with ${options.colorScheme} color scheme, ${options.typography} typography. Include these sections: ${options.sections.join(', ')}. ${selectedTemplate ? `Base it on the ${selectedTemplate.name} template.` : 'Start from scratch.'} Make it professional and modern.`;
-    sendHttp(prompt);
-    toast.success('Blueprint sent to AI for generation!');
-  }, []);
-
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
   const currentModels = models[selectedProvider] || [];
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
@@ -637,10 +657,9 @@ export default function Playground() {
     else {
       setInput(suggestion);
       setTimeout(() => {
-        const content = suggestion;
         setInput('');
-        if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(content);
-        else sendHttp(content);
+        if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(suggestion);
+        else sendHttp(suggestion);
       }, 100);
     }
   };
@@ -649,13 +668,13 @@ export default function Playground() {
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Navigation />
       
-      {/* Top bar */}
+      {/* Clean Top Bar: Project Name | Projects | Deploy | Config */}
       <div className="pt-16 px-3 py-2 border-b border-border flex items-center justify-between bg-secondary/20">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
           <span className="text-sm font-semibold">Binario <span className="gradient-text">IDE</span></span>
           {project && (
-            <span className="text-xs text-muted-foreground truncate max-w-[150px]">
+            <span className="text-xs text-muted-foreground truncate max-w-[200px]">
               · {project.name}
             </span>
           )}
@@ -670,12 +689,9 @@ export default function Playground() {
             </Badge>
           )}
           <ConnectionStatus wsStatus={wsStatus} useWebSocket={useWebSocket} isApiKeyValid={isApiKeyValid} />
-          <ResourceBadges apiKey={getEffectiveApiKey()} onBadgeClick={(tab) => { setCloudTab(tab); setCloudOpen(true); }} />
         </div>
         <div className="flex items-center gap-2">
-          <TemplateGallery onSelectTemplate={handleSelectTemplate} onCustomizeWithAI={handleCustomizeWithAI} />
-          <BlueprintDesigner onGenerate={handleBlueprintGenerate} />
-          {/* Project Manager */}
+          {/* Projects */}
           <ProjectManager
             projects={projects}
             currentProjectId={project?.id}
@@ -688,6 +704,7 @@ export default function Playground() {
               setMessages([]);
               setCurrentBlueprint(null);
               setCurrentPhase('idle');
+              firstUserMessageRef.current = null;
             }}
             onProjectLoaded={(proj) => {
               setProjectFiles(proj.files || {});
@@ -695,18 +712,13 @@ export default function Playground() {
               if (firstFile) setActiveFile(firstFile);
             }}
           />
-          {/* Cloud Panel Sheet */}
-          <Sheet open={cloudOpen} onOpenChange={setCloudOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 gap-1">
-                <Cloud className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-xs">Cloud</span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="w-[400px] p-0 overflow-hidden">
-              <CloudPanel apiKey={getEffectiveApiKey()} activeTab={cloudTab} onModelSelect={(m) => { setSelectedModel(m); setCloudOpen(false); toast.success(`Model set: ${m.split('/').pop()}`); }} />
-            </SheetContent>
-          </Sheet>
+          {/* Deploy */}
+          <DeployDialog
+            files={projectFiles}
+            projectId={project?.id}
+            projectName={project?.name}
+            hasFiles={Object.keys(projectFiles).length > 0}
+          />
           {/* Config Sheet */}
           <Sheet>
             <SheetTrigger asChild>
@@ -829,13 +841,8 @@ export default function Playground() {
           <ResizablePanel defaultSize={chatCollapsed ? 4 : 30} minSize={4} maxSize={50}>
             <div className="h-full flex flex-col" style={{ background: 'linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--background)) 100%)' }}>
               {chatCollapsed ? (
-                /* Collapsed sidebar */
                 <div className="h-full flex flex-col items-center py-4 gap-3">
-                  <button
-                    onClick={() => setChatCollapsed(false)}
-                    className="p-2 rounded-lg hover:bg-secondary transition-colors"
-                    title="Expand chat"
-                  >
+                  <button onClick={() => setChatCollapsed(false)} className="p-2 rounded-lg hover:bg-secondary transition-colors" title="Expand chat">
                     <MessageSquare className="w-5 h-5 text-primary" />
                   </button>
                   {isStreamingOrLoading && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
@@ -859,12 +866,12 @@ export default function Playground() {
                           </Badge>
                           {currentPhase !== 'idle' && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-primary/50 text-primary">
-                              {currentPhase === 'planning' ? 'Planning...' : currentPhase === 'generating' ? 'Generating...' : 'Refining...'}
+                              {currentPhase === 'planning' ? 'Planning...' : 'Generating...'}
                             </Badge>
                           )}
                           {isStreamingOrLoading && (
                             <span className="flex items-center gap-1 text-[10px] text-primary">
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
                               generating
                             </span>
                           )}
@@ -878,11 +885,7 @@ export default function Playground() {
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={copyConversation} disabled={messages.length === 0} title="Copy conversation">
                         {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                       </Button>
-                      <button
-                        onClick={() => setChatCollapsed(true)}
-                        className="p-1.5 rounded-md hover:bg-secondary transition-colors"
-                        title="Collapse chat"
-                      >
+                      <button onClick={() => setChatCollapsed(true)} className="p-1.5 rounded-md hover:bg-secondary transition-colors" title="Collapse chat">
                         <ChevronDown className="w-4 h-4 rotate-90" />
                       </button>
                     </div>
@@ -1054,15 +1057,6 @@ export default function Playground() {
               {/* Live Preview */}
               <ResizablePanel defaultSize={42} minSize={20}>
                 <div className="h-full flex flex-col">
-                  {/* Deploy bar */}
-                  <div className="flex items-center justify-end px-2 py-1 border-b border-border/50 bg-secondary/20">
-                    <DeployDialog
-                      files={projectFiles}
-                      projectId={project?.id}
-                      projectName={project?.name}
-                      hasFiles={Object.keys(projectFiles).length > 0}
-                    />
-                  </div>
                   {/* Error correction banner */}
                   {previewErrors.length > 0 && !autoCorrectEnabled && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-xs">

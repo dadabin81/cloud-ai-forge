@@ -32,18 +32,10 @@ function detectLanguage(filepath: string): string {
 
 /**
  * Parse AI response for incremental file commands.
- * Supported markers:
- *   [NEW_FILE: path/to/file.ext]
- *   [EDIT_FILE: path/to/file.ext]
- *   [DELETE_FILE: path/to/file.ext]
- * 
- * Each marker is followed by a code block with the file content.
- * DELETE_FILE does not require a code block.
  */
 export function parseIncrementalActions(content: string): FileAction[] {
   const actions: FileAction[] = [];
 
-  // Match [NEW_FILE: ...] or [EDIT_FILE: ...] followed by a code block
   const fileRegex = /\[(NEW_FILE|EDIT_FILE):\s*([^\]]+)\]\s*\n```(\w+)?\s*\n([\s\S]*?)```/g;
   let match;
   while ((match = fileRegex.exec(content)) !== null) {
@@ -54,7 +46,6 @@ export function parseIncrementalActions(content: string): FileAction[] {
     actions.push({ type, path, code, language: lang || detectLanguage(path) });
   }
 
-  // Match [DELETE_FILE: ...]
   const deleteRegex = /\[DELETE_FILE:\s*([^\]]+)\]/g;
   while ((match = deleteRegex.exec(content)) !== null) {
     actions.push({ type: 'delete', path: match[1].trim() });
@@ -101,34 +92,68 @@ export function applyIncrementalActions(
 }
 
 /**
- * Strip incremental markers from content for display purposes,
- * leaving only the explanation text.
+ * Smart merge: when legacy `// filename:` markers generate files but project already has files,
+ * only update the files that appear in the new response. Keep all others untouched.
+ */
+export function smartMergeFiles(
+  existingFiles: Record<string, ProjectFile>,
+  newFiles: Record<string, ProjectFile>,
+): Record<string, ProjectFile> {
+  if (Object.keys(existingFiles).length === 0) return newFiles;
+  // Merge: existing files + overwrite only the ones present in newFiles
+  return { ...existingFiles, ...newFiles };
+}
+
+/**
+ * Strip incremental markers from content for display purposes.
  */
 export function stripIncrementalMarkers(content: string): string {
-  // Remove [ACTION: path] markers and their code blocks
   let cleaned = content.replace(
     /\[(NEW_FILE|EDIT_FILE):\s*[^\]]+\]\s*\n```\w*\s*\n[\s\S]*?```/g,
     '',
   );
   cleaned = cleaned.replace(/\[DELETE_FILE:\s*[^\]]+\]/g, '');
-  // Clean up excessive whitespace
   return cleaned.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
  * Build a system prompt context that tells the AI about existing files,
- * enabling it to use incremental editing.
+ * including FULL file contents so the AI can do surgical edits.
+ * Truncates large files to keep context manageable.
  */
 export function buildFileContextPrompt(files: Record<string, ProjectFile>): string {
   const fileList = Object.keys(files);
   if (fileList.length === 0) return '';
 
-  const fileSummary = fileList
-    .map(path => {
-      const lines = files[path].code.split('\n').length;
-      return `  - ${path} (${files[path].language}, ${lines} lines)`;
-    })
-    .join('\n');
+  const MAX_FILE_CHARS = 2000;
+  const MAX_TOTAL_CHARS = 12000;
+  let totalChars = 0;
 
-  return `\n\nCURRENT PROJECT FILES:\n${fileSummary}\n\nIMPORTANT: This project already has files. Use these commands to modify them:\n- [NEW_FILE: path] to create a new file\n- [EDIT_FILE: path] to replace an existing file with updated content\n- [DELETE_FILE: path] to remove a file\nOnly include files that need changes. Do NOT regenerate unchanged files.`;
+  const fileContents = fileList.map(path => {
+    const file = files[path];
+    const lines = file.code.split('\n').length;
+    let content = file.code;
+    if (content.length > MAX_FILE_CHARS) {
+      content = content.slice(0, MAX_FILE_CHARS) + '\n... (truncated)';
+    }
+    if (totalChars + content.length > MAX_TOTAL_CHARS) {
+      totalChars += 50;
+      return `--- ${path} (${file.language}, ${lines} lines) ---\n[Content too large, listed only]`;
+    }
+    totalChars += content.length;
+    return `--- ${path} (${file.language}, ${lines} lines) ---\n${content}`;
+  }).join('\n\n');
+
+  return `
+
+EXISTING PROJECT FILES (${fileList.length} files):
+${fileContents}
+
+CRITICAL INSTRUCTIONS FOR EDITING:
+- This project already has files. Do NOT regenerate files that don't need changes.
+- To modify an existing file, use: [EDIT_FILE: path] followed by a code block with the COMPLETE updated file content.
+- To create a new file, use: [NEW_FILE: path] followed by a code block.
+- To delete a file, use: [DELETE_FILE: path]
+- ONLY include files that actually need changes. Leave unchanged files alone.
+- NEVER use "// filename:" markers when editing existing projects. Always use [EDIT_FILE:] or [NEW_FILE:].`;
 }

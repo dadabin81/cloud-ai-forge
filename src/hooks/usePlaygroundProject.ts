@@ -14,6 +14,26 @@ export interface PlaygroundProject {
   updated_at: string;
 }
 
+/**
+ * Extract a smart project name from the user's first message.
+ * Falls back to a timestamp-based name.
+ */
+function deriveProjectName(userMessage: string): string {
+  // Take the first meaningful phrase (up to 40 chars)
+  const cleaned = userMessage
+    .replace(/^(crea|create|build|make|genera|haz|hazme|diseña|design|construye)\s+(me\s+)?(una?\s+)?/i, '')
+    .replace(/[^\w\sáéíóúñ]/gi, '')
+    .trim();
+  
+  if (cleaned.length > 3 && cleaned.length <= 40) {
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  if (cleaned.length > 40) {
+    return cleaned.slice(0, 37) + '...';
+  }
+  return `Project ${new Date().toLocaleDateString()}`;
+}
+
 export function usePlaygroundProject() {
   const [project, setProject] = useState<PlaygroundProject | null>(null);
   const [projects, setProjects] = useState<PlaygroundProject[]>([]);
@@ -50,10 +70,12 @@ export function usePlaygroundProject() {
     return proj;
   }, []);
 
-  // Create a new project
-  const createProject = useCallback(async (name: string = 'Untitled Project', files: Record<string, ProjectFile> = {}) => {
+  // Create a new project - uses smart naming from user message
+  const createProject = useCallback(async (nameOrMessage: string, files: Record<string, ProjectFile> = {}) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error('Login required to save projects'); return null; }
+    
+    const name = deriveProjectName(nameOrMessage);
     
     const { data, error } = await supabase
       .from('playground_projects')
@@ -66,7 +88,7 @@ export function usePlaygroundProject() {
     return proj;
   }, []);
 
-  // Save files to current project (debounced)
+  // Save files to current project (debounced - fast 500ms)
   const saveFiles = useCallback((files: Record<string, ProjectFile>) => {
     if (!project) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -78,7 +100,7 @@ export function usePlaygroundProject() {
         .eq('id', project.id);
       setIsSaving(false);
       if (error) console.error('Auto-save failed:', error);
-    }, 2000);
+    }, 500);
   }, [project]);
 
   // Rename project

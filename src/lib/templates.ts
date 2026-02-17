@@ -43,6 +43,7 @@ const htmlShell = (title: string, extras = '') =>
 
 const pf = (code: string, language: string): ProjectFile => ({ code, language });
 
+// Keep templates but they are now used internally by AI suggestion, not a manual gallery
 export const TEMPLATES: ProjectTemplate[] = [
   {
     id: 'saas-landing', name: 'SaaS Landing Page', category: 'landing', icon: '🚀',
@@ -155,65 +156,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascr
     },
   },
   {
-    id: 'ecommerce-product', name: 'E-commerce Product Page', category: 'ecommerce', icon: '🛒',
-    description: 'Página de producto con carrito, reviews y selección de color.',
-    stack: ['React', 'Tailwind CSS'],
-    files: {
-      'index.html': pf(htmlShell('Shop').replace('bg-gray-950 text-white', 'bg-white text-gray-900'), 'html'),
-      'app.jsx': pf(`function App() {
-  const [qty, setQty] = React.useState(1);
-  const [color, setColor] = React.useState('black');
-  return (
-    <div className="max-w-6xl mx-auto p-8">
-      <nav className="flex justify-between items-center mb-12 pb-4 border-b"><span className="text-xl font-bold">STORE</span><button className="relative">🛒 <span className="absolute -top-2 -right-3 bg-black text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">{qty}</span></button></nav>
-      <div className="grid md:grid-cols-2 gap-12">
-        <div className="bg-gray-100 rounded-2xl aspect-square flex items-center justify-center text-6xl">📦</div>
-        <div>
-          <p className="text-sm text-gray-500 uppercase tracking-wider mb-2">Premium Collection</p>
-          <h1 className="text-3xl font-bold mb-2">Minimal Backpack</h1>
-          <p className="text-2xl font-bold mb-6">$89.00</p>
-          <div className="mb-6"><p className="text-sm font-medium mb-2">Color</p><div className="flex gap-2">{['black','white','blue'].map(c => <button key={c} onClick={() => setColor(c)} className={\`w-8 h-8 rounded-full border-2 \${color===c?'border-black':'border-gray-300'}\`} style={{backgroundColor:c==='white'?'#f5f5f5':c}}/>)}</div></div>
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex border rounded-lg"><button className="px-3 py-2" onClick={() => setQty(Math.max(1,qty-1))}>−</button><span className="px-4 py-2 border-x">{qty}</span><button className="px-3 py-2" onClick={() => setQty(qty+1)}>+</button></div>
-            <button className="flex-1 bg-black text-white py-3 rounded-xl font-medium hover:bg-gray-800 transition">Add to Cart</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascript'),
-    },
-  },
-  {
-    id: 'blog-markdown', name: 'Blog con Markdown', category: 'blog', icon: '📝',
-    description: 'Blog minimalista con navegación de posts.',
-    stack: ['React', 'Tailwind CSS'],
-    files: {
-      'index.html': pf(htmlShell('Blog'), 'html'),
-      'app.jsx': pf(`const posts = [
-  { id: 1, title: 'Getting Started with Edge Computing', date: '2026-01-15', excerpt: 'Learn how edge computing changes web apps...', content: 'Edge computing brings computation closer to the user, reducing latency and improving performance.' },
-  { id: 2, title: 'Building AI-Powered Apps', date: '2026-01-28', excerpt: 'A practical guide to AI integration...', content: 'With modern APIs, you can integrate powerful AI models with just a few lines of code.' },
-  { id: 3, title: 'The Future of VibeCoding', date: '2026-02-10', excerpt: 'Natural language programming is reshaping dev...', content: 'VibeCoding lets developers describe what they want and AI generates the implementation.' },
-];
-function App() {
-  const [sel, setSel] = React.useState(null);
-  const post = posts.find(p => p.id === sel);
-  return (
-    <div className="max-w-3xl mx-auto px-6 py-12">
-      <header className="mb-12"><h1 className="text-3xl font-bold mb-2 cursor-pointer" onClick={() => setSel(null)}>📝 Dev Blog</h1><p className="text-gray-500">Thoughts on modern web development</p></header>
-      {post ? (
-        <article><button onClick={() => setSel(null)} className="text-blue-400 hover:text-blue-300 mb-6 inline-block">← Back</button><h2 className="text-3xl font-bold mb-2">{post.title}</h2><p className="text-gray-500 text-sm mb-8">{post.date}</p><p className="text-gray-300 leading-relaxed">{post.content}</p></article>
-      ) : (
-        <div className="space-y-8">{posts.map(p => <article key={p.id} className="border-b border-gray-800 pb-8 cursor-pointer group" onClick={() => setSel(p.id)}><p className="text-gray-500 text-sm mb-2">{p.date}</p><h2 className="text-xl font-bold group-hover:text-blue-400 transition mb-2">{p.title}</h2><p className="text-gray-400">{p.excerpt}</p></article>)}</div>
-      )}
-    </div>
-  );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascript'),
-    },
-  },
-  {
     id: 'portfolio-minimal', name: 'Portfolio Minimalista', category: 'portfolio', icon: '🎨',
     description: 'Portfolio personal con galería de proyectos.',
     stack: ['React', 'Tailwind CSS'],
@@ -226,62 +168,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascr
       <section className="mb-20"><p className="text-sm text-neutral-500 uppercase tracking-widest mb-4">Developer & Designer</p><h1 className="text-5xl font-bold mb-6">Hi, I'm Alex.</h1><p className="text-neutral-400 text-lg max-w-xl">I build beautiful, performant web applications.</p></section>
       <section className="mb-20"><h2 className="text-sm text-neutral-500 uppercase tracking-widest mb-8">Selected Work</h2><div className="grid md:grid-cols-2 gap-4">{projects.map((p, i) => <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 hover:border-neutral-600 transition cursor-pointer group"><span className="text-4xl mb-4 block">{p.emoji}</span><h3 className="font-semibold text-lg group-hover:text-blue-400 transition">{p.title}</h3><p className="text-neutral-500 text-sm mt-1">{p.tech}</p></div>)}</div></section>
       <section><h2 className="text-sm text-neutral-500 uppercase tracking-widest mb-4">Contact</h2><a href="mailto:hello@alex.dev" className="text-blue-400 hover:text-blue-300 transition">hello@alex.dev</a></section>
-    </div>
-  );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascript'),
-    },
-  },
-  {
-    id: 'admin-panel', name: 'Admin Panel', category: 'admin', icon: '🛠️',
-    description: 'Panel de administración con tablas y CRUD.',
-    stack: ['React', 'Tailwind CSS'],
-    files: {
-      'index.html': pf(htmlShell('Admin'), 'html'),
-      'app.jsx': pf(`function App() {
-  const [items, setItems] = React.useState([{ id: 1, name: 'Product A', category: 'Electronics', price: 299, status: 'Active' },{ id: 2, name: 'Product B', category: 'Clothing', price: 49, status: 'Draft' },{ id: 3, name: 'Product C', category: 'Electronics', price: 199, status: 'Active' }]);
-  const [showForm, setShowForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name: '', category: '', price: '', status: 'Active' });
-  const handleAdd = () => { if (!form.name) return; setItems([...items, { ...form, id: Date.now(), price: Number(form.price) }]); setForm({ name: '', category: '', price: '', status: 'Active' }); setShowForm(false); };
-  return (
-    <div className="flex min-h-screen">
-      <aside className="w-52 bg-gray-900 border-r border-gray-800 p-4"><h2 className="font-bold text-lg mb-6">⚙️ Admin</h2>{['Dashboard','Products','Users','Orders','Settings'].map(i => <button key={i} className="block w-full text-left px-3 py-2 text-sm rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white">{i}</button>)}</aside>
-      <main className="flex-1 p-6">
-        <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">Products</h1><button onClick={() => setShowForm(!showForm)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm">+ Add</button></div>
-        {showForm && <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 grid grid-cols-4 gap-3"><input placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="bg-gray-800 rounded-lg px-3 py-2 text-sm" /><input placeholder="Category" value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="bg-gray-800 rounded-lg px-3 py-2 text-sm" /><input placeholder="Price" type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} className="bg-gray-800 rounded-lg px-3 py-2 text-sm" /><button onClick={handleAdd} className="bg-green-600 hover:bg-green-500 rounded-lg text-sm">Save</button></div>}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm"><thead><tr className="border-b border-gray-800 text-gray-500"><th className="text-left p-3">Name</th><th className="text-left p-3">Category</th><th className="text-left p-3">Price</th><th className="text-left p-3">Status</th><th className="p-3">Actions</th></tr></thead>
-          <tbody>{items.map(item => <tr key={item.id} className="border-b border-gray-800/50 hover:bg-gray-800/30"><td className="p-3 font-medium">{item.name}</td><td className="p-3 text-gray-400">{item.category}</td><td className="p-3">{'$'}{item.price}</td><td className="p-3"><span className={\`px-2 py-0.5 rounded-full text-xs \${item.status==='Active'?'bg-green-900/50 text-green-300':'bg-yellow-900/50 text-yellow-300'}\`}>{item.status}</span></td><td className="p-3 text-center"><button onClick={() => setItems(items.filter(i=>i.id!==item.id))} className="text-red-400 hover:text-red-300 text-xs">Delete</button></td></tr>)}</tbody></table>
-        </div>
-      </main>
-    </div>
-  );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'javascript'),
-    },
-  },
-  {
-    id: 'api-fullstack', name: 'API REST + Frontend', category: 'api', icon: '⚡',
-    description: 'API Explorer conectado a Cloudflare Workers.',
-    stack: ['React', 'Cloudflare Workers', 'D1'],
-    files: {
-      'index.html': pf(htmlShell('API App'), 'html'),
-      'app.jsx': pf(`function App() {
-  const [endpoint, setEndpoint] = React.useState('/api/users');
-  const [method, setMethod] = React.useState('GET');
-  const [response, setResponse] = React.useState(null);
-  const [loading, setLoading] = React.useState(false);
-  const mock = { '/api/users': [{ id: 1, name: 'Alice' },{ id: 2, name: 'Bob' }], '/api/products': [{ id: 1, name: 'Widget', price: 29.99 }], '/api/stats': { totalUsers: 1250, revenue: 45200 } };
-  const send = () => { setLoading(true); setTimeout(() => { setResponse({ status: 200, data: mock[endpoint] || { error: 'Not found' }, time: Math.floor(Math.random()*50+10)+'ms' }); setLoading(false); }, 300); };
-  return (
-    <div className="max-w-4xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-2">⚡ API Explorer</h1><p className="text-gray-500 mb-8">Test your Cloudflare Workers API</p>
-      <div className="flex gap-2 mb-6">
-        <select value={method} onChange={e => setMethod(e.target.value)} className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select>
-        <select value={endpoint} onChange={e => setEndpoint(e.target.value)} className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm"><option>/api/users</option><option>/api/products</option><option>/api/stats</option></select>
-        <button onClick={send} disabled={loading} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg text-sm font-medium disabled:opacity-50">{loading ? '...' : 'Send'}</button>
-      </div>
-      {response && <div className="bg-gray-900 border border-gray-800 rounded-xl p-4"><div className="flex justify-between text-sm mb-3"><span className="text-green-400">Status: {response.status}</span><span className="text-gray-500">{response.time}</span></div><pre className="text-sm text-gray-300 overflow-auto">{JSON.stringify(response.data, null, 2)}</pre></div>}
     </div>
   );
 }
@@ -328,4 +214,31 @@ export function getTemplateById(id: string): ProjectTemplate | undefined {
 
 export function getTemplatesByCategory(category: TemplateCategory): ProjectTemplate[] {
   return TEMPLATES.filter(t => t.category === category);
+}
+
+/**
+ * Suggest the best template based on a user description.
+ * Used internally by the AI to pre-load a relevant starting point.
+ */
+export function suggestTemplate(description: string): ProjectTemplate | null {
+  const lower = description.toLowerCase();
+  const keywords: Record<string, string[]> = {
+    'saas-landing': ['landing', 'saas', 'startup', 'producto', 'product', 'marketing'],
+    'dashboard-analytics': ['dashboard', 'analytics', 'panel', 'estadísticas', 'stats', 'métricas', 'metrics', 'admin'],
+    'portfolio-minimal': ['portfolio', 'portafolio', 'personal', 'cv', 'resume'],
+    'chat-app': ['chat', 'messaging', 'mensajería', 'real-time', 'realtime'],
+  };
+
+  let bestMatch: { id: string; score: number } = { id: '', score: 0 };
+  for (const [templateId, words] of Object.entries(keywords)) {
+    const score = words.filter(w => lower.includes(w)).length;
+    if (score > bestMatch.score) {
+      bestMatch = { id: templateId, score };
+    }
+  }
+
+  if (bestMatch.score > 0) {
+    return getTemplateById(bestMatch.id) || null;
+  }
+  return null;
 }
