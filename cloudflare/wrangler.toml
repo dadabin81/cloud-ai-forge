@@ -50,18 +50,18 @@ new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 binding = "VECTORIZE_INDEX"
 index_name = "binario-embeddings"
 
-# To enable Workflows, uncomment below and redeploy:
-# [[workflows]]
-# binding = "RESEARCH_WORKFLOW"
-# name = "research-workflow"
-# class_name = "ResearchWorkflow"
-# script_name = "binario-api"
+# Workflows
+[[workflows]]
+binding = "RESEARCH_WORKFLOW"
+name = "research-workflow"
+class_name = "ResearchWorkflow"
+script_name = "binario-api"
 
-# [[workflows]]
-# binding = "RAG_WORKFLOW"
-# name = "rag-workflow"
-# class_name = "RAGWorkflow"
-# script_name = "binario-api"
+[[workflows]]
+binding = "RAG_WORKFLOW"
+name = "rag-workflow"
+class_name = "RAGWorkflow"
+script_name = "binario-api"
 
 # ============ END FEATURES ============
 
