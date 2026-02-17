@@ -666,6 +666,7 @@ export function useBinarioMemory(
   const [messages, setMessages] = useState<Message[]>([]);
   const [context, setContext] = useState<ConversationContext | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const isInitialLoad = useRef(true);
 
   // Initialize memory
   useEffect(() => {
@@ -698,12 +699,15 @@ export function useBinarioMemory(
     }
 
     // Load initial messages
-    loadMessages();
+    loadMessages(isInitialLoad.current);
+    isInitialLoad.current = false;
   }, [type, conversationId]);
 
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (skipLoadingState = false) => {
     if (!memory.current) return;
-    setIsLoading(true);
+    if (!skipLoadingState) {
+      setIsLoading(true);
+    }
     try {
       const msgs = await memory.current.getMessages();
       const ctx = await memory.current.getContext();
@@ -712,7 +716,9 @@ export function useBinarioMemory(
     } catch (error) {
       console.error('Failed to load memory:', error);
     } finally {
-      setIsLoading(false);
+      if (!skipLoadingState) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
