@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud,
+  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud, Save,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -28,6 +28,8 @@ import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/co
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { ResourceBadges } from '@/components/ResourceBadges';
 import { CloudPanel } from '@/components/CloudPanel';
+import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, stripIncrementalMarkers, buildFileContextPrompt } from '@/lib/incrementalParser';
+import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
 import { parseActions, executeAllActions, enrichWithRAG, type ActionResult } from '@/lib/chatActions';
 
 interface Message {
@@ -78,15 +80,17 @@ document.getElementById('root').innerHTML = '<h1>Hello World</h1>';
 \`\`\`
 
 Rules:
-1. ALWAYS include "// filename:" at the first line of every code block
-2. ALWAYS generate at least: index.html, styles.css, and app.js (or App.jsx)
+1. ALWAYS include "// filename:" at the first line of every code block when creating a NEW project
+2. ALWAYS generate at least: index.html, styles.css, and app.js (or App.jsx) for new projects
 3. Write COMPLETE, working code - never use placeholders or "..."
 4. Use modern CSS with responsive design
-5. Make the UI beautiful and professional`;
+5. Make the UI beautiful and professional
+6. When modifying an EXISTING project, use [EDIT_FILE: path] to update files, [NEW_FILE: path] to add files, or [DELETE_FILE: path] to remove files. Only include changed files.`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
   const { providers, models, isLoading: isLoadingProviders, refetch: refetchProviders } = useProviders();
+  const { project, projects, isSaving, createProject, saveFiles, loadProject, loadProjects, deleteProject, setProject } = usePlaygroundProject();
   
   const [selectedProvider, setSelectedProvider] = useState(() => 
     localStorage.getItem(STORAGE_KEYS.provider) || 'cloudflare'
@@ -276,12 +280,32 @@ export default function Playground() {
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistant) return;
 
+    // Check for incremental editing markers first
+    if (hasIncrementalMarkers(lastAssistant.content)) {
+      const actions = parseIncrementalActions(lastAssistant.content);
+      if (actions.length > 0) {
+        const updatedFiles = applyIncrementalActions(projectFiles, actions);
+        setProjectFiles(updatedFiles);
+        const firstChanged = actions.find(a => a.type !== 'delete');
+        if (firstChanged) setActiveFile(firstChanged.path);
+        // Auto-save to DB
+        if (project) saveFiles(updatedFiles);
+        return;
+      }
+    }
+
+    // Legacy: full file generation with // filename: markers
     if (hasProjectMarkers(lastAssistant.content)) {
       const files = parseProjectFiles(lastAssistant.content);
       if (Object.keys(files).length > 0) {
         setProjectFiles(files);
         const firstFile = Object.keys(files)[0];
         setActiveFile(firstFile);
+        // Auto-save to DB
+        if (project) saveFiles(files);
+        else if (isAuthenticated) {
+          createProject('Project ' + new Date().toLocaleString(), files);
+        }
         return;
       }
     }
@@ -289,7 +313,6 @@ export default function Playground() {
     // Fallback: check for single renderable blocks
     const blocks = extractCodeBlocks(lastAssistant.content);
     if (isRenderableCode(blocks)) {
-      // Create a virtual file map from blocks
       const virtualFiles: Record<string, ProjectFile> = {};
       blocks.forEach((block, i) => {
         const ext = block.language === 'css' ? 'css' : block.language === 'html' || block.language === 'htm' ? 'html' : block.language === 'jsx' || block.language === 'tsx' ? 'jsx' : 'js';
@@ -349,8 +372,12 @@ export default function Playground() {
     let ragContext: string | null = null;
     try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
 
+    // Build system prompt with file context for incremental editing
+    const fileContext = buildFileContextPrompt(projectFiles);
+    const fullSystemPrompt = systemPrompt + fileContext;
+
     const allMessages = [
-      ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+      ...(fullSystemPrompt ? [{ role: 'system' as const, content: fullSystemPrompt }] : []),
       ...(ragContext ? [{ role: 'system' as const, content: ragContext }] : []),
       ...messages,
       userMessage,
@@ -537,6 +564,16 @@ export default function Playground() {
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
           <span className="text-sm font-semibold">Binario <span className="gradient-text">IDE</span></span>
+          {project && (
+            <span className="text-xs text-muted-foreground truncate max-w-[150px]">
+              · {project.name}
+            </span>
+          )}
+          {isSaving && (
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Save className="w-3 h-3 animate-pulse" /> Saving...
+            </span>
+          )}
           {useWebSocket && (
             <Badge variant="outline" className="text-xs border-primary/50 text-primary">
               <Wifi className="w-3 h-3 mr-1" />WS
