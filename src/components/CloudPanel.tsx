@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,9 +64,11 @@ function ModelsTab({ api, onModelSelect }: { api: ReturnType<typeof createCloudf
       const [modelsData, usageData] = await Promise.all([api.getModels(), api.getUsage()]);
       setModels(modelsData.models || []);
       setUsage(usageData.neurons);
-    } catch (e) { toast.error('Failed to load models'); }
+    } catch (e) { /* silent on auto-load */ }
     finally { setLoading(false); }
   }, [api]);
+
+  useEffect(() => { fetchModels(); }, [fetchModels]);
 
   return (
     <div className="space-y-4">
@@ -93,7 +95,13 @@ function ModelsTab({ api, onModelSelect }: { api: ReturnType<typeof createCloudf
       )}
 
       {models.length === 0 && !loading && (
-        <p className="text-xs text-muted-foreground text-center py-4">Click refresh to load models</p>
+        <p className="text-xs text-muted-foreground text-center py-4">No models available</p>
+      )}
+      {models.length === 0 && loading && (
+        <div className="flex items-center justify-center py-4 gap-2">
+          <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Loading models...</p>
+        </div>
       )}
 
       <div className="space-y-1.5">
@@ -379,12 +387,14 @@ function SandboxTab({ api }: { api: ReturnType<typeof createCloudflareApi> }) {
     finally { setLoading(false); }
   };
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     try {
       const res = await api.projectList();
       setProjects(res.projects || []);
     } catch { /* silent */ }
-  };
+  }, [api]);
+
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   return (
     <div className="space-y-4">
@@ -447,14 +457,16 @@ function StatusTab({ api }: { api: ReturnType<typeof createCloudflareApi> }) {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchHealth = async () => {
+  const fetchHealth = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.healthCheck();
       setHealth(data);
-    } catch (e) { toast.error('Health check failed'); }
+    } catch (e) { /* silent */ }
     finally { setLoading(false); }
-  };
+  }, [api]);
+
+  useEffect(() => { fetchHealth(); }, [fetchHealth]);
 
   const bindings = [
     { key: 'ai', label: 'Workers AI', icon: Brain, desc: 'Inference API (Llama 3, Mistral, etc.)' },
@@ -476,8 +488,14 @@ function StatusTab({ api }: { api: ReturnType<typeof createCloudflareApi> }) {
         </Button>
       </div>
 
+      {!health && loading && (
+        <div className="flex items-center justify-center py-4 gap-2">
+          <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Checking infrastructure...</p>
+        </div>
+      )}
       {!health && !loading && (
-        <p className="text-xs text-muted-foreground text-center py-4">Click refresh to check status</p>
+        <p className="text-xs text-muted-foreground text-center py-4">Could not reach backend</p>
       )}
 
       <div className="space-y-1.5">
