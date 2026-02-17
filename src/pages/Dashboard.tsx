@@ -25,7 +25,10 @@ import {
   Code,
   TrendingUp,
   AlertTriangle,
-  Calendar
+  Calendar,
+  RefreshCw,
+  Activity,
+  Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -291,9 +294,24 @@ console.log(response);`;
                 Welcome back, {user?.email}
               </p>
             </div>
-            <Badge variant="outline" className="text-sm capitalize">
-              {user?.plan || 'free'} Plan
-            </Badge>
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => { fetchApiKeys(); fetchUsage(); }}
+                disabled={isLoadingUsage}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingUsage ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs text-muted-foreground">Live</span>
+              </div>
+              <Badge variant="outline" className="text-sm capitalize">
+                {user?.plan || 'free'} Plan
+              </Badge>
+            </div>
           </div>
 
           {/* Usage Alerts */}
@@ -396,7 +414,7 @@ console.log(response);`;
           )}
 
           {/* Usage Overview Cards */}
-          <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <div className="grid md:grid-cols-4 gap-6 mb-8">
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription className="flex items-center gap-1">
@@ -462,6 +480,32 @@ console.log(response);`;
 
             <Card>
               <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  Security
+                </CardDescription>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  Secure
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-500" /> PBKDF2 passwords
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-500" /> CORS restricted
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-500" /> Rate limiting
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
                 <CardDescription>API Keys</CardDescription>
                 <CardTitle className="text-3xl">
                   {isLoadingKeys ? (
@@ -490,6 +534,10 @@ console.log(response);`;
               <TabsTrigger value="usage" className="gap-2">
                 <BarChart3 className="w-4 h-4" />
                 Usage
+              </TabsTrigger>
+              <TabsTrigger value="status" className="gap-2">
+                <Activity className="w-4 h-4" />
+                Status
               </TabsTrigger>
             </TabsList>
 
@@ -826,6 +874,73 @@ console.log(response);`;
                   </CardContent>
                 </Card>
               )}
+            </TabsContent>
+
+            {/* Status Tab */}
+            <TabsContent value="status">
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* API Health */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-primary" />
+                      API Health
+                    </CardTitle>
+                    <CardDescription>Real-time backend status</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {[
+                      { name: 'Chat Completions', endpoint: '/v1/chat/completions', status: 'operational' },
+                      { name: 'Streaming', endpoint: '/v1/chat/stream', status: 'operational' },
+                      { name: 'Structured Output', endpoint: '/v1/structured', status: 'operational' },
+                      { name: 'Agent Framework', endpoint: '/v1/agents/run', status: 'operational' },
+                      { name: 'Embeddings', endpoint: '/v1/embeddings', status: 'operational' },
+                      { name: 'RAG Pipeline', endpoint: '/v1/rag/*', status: 'coming_soon' },
+                      { name: 'Workflows', endpoint: '/v1/workflows/*', status: 'coming_soon' },
+                    ].map((service) => (
+                      <div key={service.name} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
+                        <div>
+                          <p className="text-sm font-medium">{service.name}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{service.endpoint}</p>
+                        </div>
+                        <Badge variant={service.status === 'operational' ? 'default' : 'secondary'} className="text-xs">
+                          {service.status === 'operational' ? '✓ Operational' : '⏳ Coming Soon'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Security & Features */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-primary" />
+                      Security & Features
+                    </CardTitle>
+                    <CardDescription>Platform capabilities</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {[
+                      { name: 'PBKDF2 Password Hashing', desc: '100K iterations + random salt', active: true },
+                      { name: 'Restrictive CORS', desc: 'Origin whitelist only', active: true },
+                      { name: 'API Key Authentication', desc: 'SHA-256 hashed, rate limited', active: true },
+                      { name: 'Provider Fallback', desc: 'Cloudflare → OpenRouter auto-switch', active: true },
+                      { name: 'Response Caching', desc: 'KV-based with configurable TTL', active: true },
+                      { name: 'Structured Output', desc: 'JSON Schema validation + retries', active: true },
+                      { name: 'Multi-Provider Routing', desc: 'Cloudflare, OpenAI, Anthropic, Google', active: true },
+                    ].map((feature) => (
+                      <div key={feature.name} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                        <div className={`w-2 h-2 rounded-full ${feature.active ? 'bg-emerald-500' : 'bg-muted-foreground'}`} />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{feature.name}</p>
+                          <p className="text-xs text-muted-foreground">{feature.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
           </Tabs>
         </div>

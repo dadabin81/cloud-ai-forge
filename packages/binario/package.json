@@ -1,6 +1,6 @@
 {
   "name": "binario",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Universal AI SDK for Cloudflare Workers - Unified API, smart fallbacks, and cost optimization",
   "keywords": [
     "ai",
