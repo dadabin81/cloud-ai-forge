@@ -77,7 +77,7 @@ export function CodePreview({ content, files, className }: CodePreviewProps) {
         <iframe
           key={refreshKey}
           srcDoc={previewDoc}
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-same-origin"
           className="bg-white transition-all duration-300"
           style={{
             width: VIEWPORT_WIDTHS[viewport],

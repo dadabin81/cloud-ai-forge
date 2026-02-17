@@ -145,7 +145,7 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 
   const hasJsx = jsxFiles.length > 0;
 
-  // If there's a full HTML document, use it
+  // If there's a full HTML document, use it and inject CSS/JS
   const fullHtml = htmlFiles.find(h => h.toLowerCase().includes('<!doctype') || h.toLowerCase().includes('<html'));
   if (fullHtml && !hasJsx) {
     let doc = fullHtml;
@@ -160,6 +160,7 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
     return doc;
   }
 
+  // JSX/React mode - load React from CDN
   if (hasJsx) {
     const jsxCode = jsxFiles.join('\n\n');
     return `<!DOCTYPE html>
@@ -190,7 +191,8 @@ for (const _n of _names) {
 </html>`;
   }
 
-  const bodyContent = htmlFiles.join('\n') || '<p>No HTML content detected</p>';
+  // Plain HTML snippets or JS-only: build a complete document
+  const bodyContent = htmlFiles.join('\n') || '<div id="root"></div>';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
