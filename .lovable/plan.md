@@ -170,12 +170,89 @@ El README en npm no refleja la API real del client SaaS. Los ejemplos muestran `
 1. ✅ **Token estimation mejorada** - Heurísticas por palabras, puntuación y bloques de código
 2. ✅ **README actualizado** con ejemplos SaaS client hooks
 
-### Sprint 4: Features Competitivos (PENDIENTE - requiere infra)
+### Sprint 4: Features Competitivos ✅ COMPLETADO (parcial)
 
-1. ⏳ **Activar RAG** (requiere Vectorize binding en Cloudflare)
-2. ⏳ **Activar Workflows**
-3. ⏳ **Dashboard de uso** en la web
-4. ⏳ **SDK v0.2.0** con breaking changes limpios
+1. ✅ **Dashboard mejorado** - Security card, Status tab, Refresh button, 4-column layout
+2. ✅ **SDK v0.2.0 preparado** - New SaaS hooks exported, version bumped
+3. ⏳ **RAG** - Requiere Vectorize binding (ver guía abajo)
+4. ⏳ **Workflows** - Requiere Workflow binding (ver guía abajo)
+
+---
+
+## GUÍA DE DEPLOY - Pasos Exactos
+
+### Paso 1: Publicar SDK v0.2.0 en NPM
+
+```bash
+cd packages/binario
+npm test          # Verificar tests pasan
+npm run build     # Compilar
+npm publish       # Publicar a NPM
+```
+
+### Paso 2: Deploy del Backend con cambios de seguridad
+
+```bash
+cd cloudflare
+npm install
+npx wrangler deploy
+```
+
+Esto despliega:
+- ✅ PBKDF2 passwords (migración automática)
+- ✅ CORS restrictivo
+- ✅ SSE formato OpenAI
+- ✅ Agent tool execution mejorado
+- ✅ Token estimation mejorada
+
+### Paso 3: Activar RAG (Opcional)
+
+```bash
+# 1. Crear Vectorize index
+npx wrangler vectorize create binario-docs --dimensions=768 --metric=cosine
+
+# 2. Agregar binding en wrangler.toml:
+# [[vectorize]]
+# binding = "VECTORIZE_INDEX"
+# index_name = "binario-docs"
+
+# 3. Descomentar los RAG endpoints en index.ts (línea 167-172)
+# 4. Redesplegar
+npx wrangler deploy
+```
+
+### Paso 4: Activar Workflows (Opcional)
+
+```bash
+# 1. Descomentar el export de workflows en index.ts (línea 16)
+# 2. Agregar bindings en wrangler.toml:
+# [[workflows]]
+# binding = "RESEARCH_WORKFLOW"
+# name = "research-workflow"
+# class_name = "ResearchWorkflow"
+# script_name = "binario-api"
+
+# 3. Redesplegar
+npx wrangler deploy
+```
+
+### Paso 5: Publicar la Web
+
+En Lovable, click "Publish" para desplegar los cambios del Dashboard.
+
+---
+
+## Estado Final del Proyecto
+
+| Componente | Estado | Versión |
+|-----------|--------|---------|
+| Web (Landing + Dashboard) | ✅ Live | binarioai-sdk.lovable.app |
+| Backend (Cloudflare Worker) | ✅ Live | binario-api.databin81.workers.dev |
+| SDK NPM | ✅ Published | binario@0.1.0 (→ 0.2.0 pendiente) |
+| Seguridad (PBKDF2/CORS) | ✅ Código listo | Pendiente deploy |
+| SaaS React Hooks | ✅ Implementados | useChat, useStream, useAgent, useUsage |
+| RAG Pipeline | ⏳ Código listo | Requiere Vectorize |
+| Workflows | ⏳ Código listo | Requiere Workflow binding |
 
 ---
 

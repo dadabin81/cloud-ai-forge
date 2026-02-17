@@ -1,6 +1,6 @@
-// Binario SDK - Main Entry Point
+// Binario SDK v0.2.0 - Main Entry Point
 
-// Client (SaaS)
+// Client (SaaS) - Primary API
 export { Binario, BinarioAgent, createBinarioClient, BinarioRateLimitError, BinarioPaymentError } from './client';
 export type { BinarioOptions, ChatOptions as ClientChatOptions, StreamOptions, AgentOptions, UsageInfo } from './client';
 
@@ -19,9 +19,13 @@ export * from './memory';
 // Embeddings
 export * from './embeddings';
 
-// React Hooks
+// React Hooks - Self-hosted
 export { useBinarioAgent } from './hooks';
 export type { UseBinarioAgentOptions, UseBinarioAgentReturn } from './hooks';
+
+// React Hooks - SaaS Client (NEW in v0.2.0)
+export { useChat, useStream, useAgent, useUsage, BinarioProvider, useBinarioClient } from './client-hooks';
+export type { UseChatOptions, UseChatReturn, UseStreamOptions, UseStreamReturn, UseAgentOptions, UseAgentReturn, UseUsageReturn } from './client-hooks';
 
 // Observability & Usage
 export { consoleHooks } from './observability';
