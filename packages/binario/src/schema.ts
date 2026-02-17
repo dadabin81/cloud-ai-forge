@@ -30,7 +30,7 @@ export function zodToJsonSchema(schema: z.ZodType<unknown>): Record<string, unkn
 }
 
 function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
-  const def = schema._def as Record<string, unknown>;
+  const def = schema._def as unknown as Record<string, unknown>;
   const result: Record<string, unknown> = {};
 
   // Extract description - check both _def.description and schema.description
@@ -80,13 +80,14 @@ function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
     const inner = convertZodToJson((schema as z.ZodNullable<z.ZodType<unknown>>)._def.innerType);
     return { ...inner, nullable: true };
   } else if (schema instanceof z.ZodDefault) {
-    const defaultDef = (schema as z.ZodDefault<z.ZodType<unknown>>)._def;
+    const defaultDef = (schema as any)._def;
     const inner = convertZodToJson(defaultDef.innerType);
-    return { ...inner, default: defaultDef.defaultValue() };
+    return { ...inner, default: typeof defaultDef.defaultValue === 'function' ? defaultDef.defaultValue() : defaultDef.defaultValue };
   } else if (schema instanceof z.ZodUnion) {
     result.oneOf = ((schema as z.ZodUnion<[z.ZodType<unknown>, ...z.ZodType<unknown>[]]>)._def.options as z.ZodType<unknown>[]).map(convertZodToJson);
   } else if (schema instanceof z.ZodLiteral) {
-    result.const = (schema as z.ZodLiteral<unknown>)._def.value;
+    const litDef = (schema as any)._def;
+    result.const = litDef.value ?? litDef.values;
   } else if (schema instanceof z.ZodRecord) {
     result.type = 'object';
     result.additionalProperties = convertZodToJson((schema as z.ZodRecord<z.ZodString, z.ZodType<unknown>>)._def.valueType);
