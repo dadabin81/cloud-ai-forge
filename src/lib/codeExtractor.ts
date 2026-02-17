@@ -44,7 +44,19 @@ export function hasProjectMarkers(content: string): boolean {
   return /\/\/\s*filename:\s*.+/m.test(content) ||
     /<!--\s*filename:\s*.+-->/m.test(content) ||
     /\*\*`?[^`*\n]+\.\w+`?\*\*\s*\n```/m.test(content) ||
-    /#{1,6}\s*`?[^`\n]+\.\w+`?\s*\n```/m.test(content);
+    /#{1,6}\s*`?[^`\n]+\.\w+`?\s*\n```/m.test(content) ||
+    /\[NEW_FILE:\s*.+\]/m.test(content) ||
+    /\[EDIT_FILE:\s*.+\]/m.test(content);
+}
+
+/**
+ * Check if code blocks are all non-web (Python, Java, etc.)
+ */
+export function hasOnlyNonWebCode(content: string): boolean {
+  const blocks = extractCodeBlocks(content);
+  if (blocks.length === 0) return false;
+  const NON_WEB = new Set(['python', 'py', 'java', 'ruby', 'rb', 'php', 'go', 'rust', 'c', 'cpp', 'csharp', 'cs', 'swift', 'kotlin']);
+  return blocks.every(b => NON_WEB.has(b.language));
 }
 
 /**

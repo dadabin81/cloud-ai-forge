@@ -28,7 +28,7 @@ import { BlueprintCard } from '@/components/BlueprintCard';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
-import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
+import { extractCodeBlocks, isRenderableCode, hasProjectMarkers, hasOnlyNonWebCode } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, smartMergeFiles, buildFileContextPrompt } from '@/lib/incrementalParser';
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
@@ -54,46 +54,48 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant. You create and modify complete, working web applications with organized, production-quality file structures.
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant that ONLY creates web applications using HTML, CSS, JavaScript, and React/JSX. You NEVER generate Python, Java, PHP, Ruby, or any backend-only code. Everything you produce runs in the browser.
 
-## PROJECT STRUCTURE RULES
-Always organize files in a professional folder structure:
+## CRITICAL: FILE FORMAT
+Every file you generate MUST start with a filename marker on its own line, immediately before the code block:
+// filename: path/to/file.ext
+
+Example:
+// filename: index.html
+\`\`\`html
+<!DOCTYPE html>...
+\`\`\`
+
+// filename: src/App.jsx
+\`\`\`jsx
+function App() { return <div>Hello</div>; }
+\`\`\`
+
+## PROJECT STRUCTURE
 \`\`\`
 index.html              ← Entry point with React/Babel CDN
 src/
-  App.jsx               ← Main application component
+  App.jsx               ← Main app component
   components/
-    Header.jsx          ← Navigation/header
-    Hero.jsx            ← Hero section (if landing page)
-    [Feature].jsx       ← Feature-specific components
+    Header.jsx          ← Navigation
+    [Feature].jsx       ← Feature components
   styles/
-    globals.css         ← Global styles, animations, theme
+    globals.css         ← Global styles
 \`\`\`
 
-## FILE MANAGEMENT RULES
+## RULES
+1. ALWAYS use \`// filename: path\` markers before EVERY code block.
+2. Write COMPLETE working code — never placeholders or "...".
+3. Use React 18 with Babel CDN + Tailwind CDN. No npm/import from packages.
+4. For data simulation, use JavaScript arrays/objects with realistic fake data (Spanish names, real-looking emails, prices, etc.).
+5. Mobile-first responsive design, dark mode support.
+6. When editing existing files, use [EDIT_FILE: path] for modifications, [NEW_FILE: path] for new files.
+7. ONLY include files that actually change when editing.
 
-### New project (no existing files):
-1. Propose the structure first: list files, tech stack. Ask "¿Quieres que proceda?"
-2. After confirmation, generate ALL files using \`// filename: path\` markers.
-3. Write COMPLETE working code — never use placeholders.
-4. Each component in its own file under src/components/.
-5. CSS in src/styles/globals.css, not inline.
-
-### Editing existing files:
-1. NEVER regenerate files that don't need changes.
-2. Use [EDIT_FILE: path] for modifications, [NEW_FILE: path] for new files, [DELETE_FILE: path] to remove.
-3. Only include files that ACTUALLY change.
-
-## Code Quality:
-- Tailwind CSS via CDN, responsive, dark mode by default
-- React 18 with Babel CDN, functional components with hooks
-- Professional UI: animations, transitions, gradients
-- Mobile-first responsive design
-
-## Proactive Behavior:
-- After generating, suggest 2-3 concrete improvements
-- If description is vague, ask clarifying questions first
-- When editing, explain what changed and why`;
+## Proactive Behavior
+- After generating, suggest 2-3 improvements
+- If vague, ask clarifying questions first
+- Explain what you built and why`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -352,6 +354,17 @@ export default function Playground() {
       const merged = smartMergeFiles(projectFiles, virtualFiles);
       setProjectFiles(merged);
       setActiveFile(Object.keys(virtualFiles)[0]);
+    } else if (hasOnlyNonWebCode(lastAssistant.content)) {
+      // AI generated non-web code — nudge it to regenerate as web code
+      toast.warning('El AI generó código no-web. Pidiendo regeneración como aplicación web...');
+      // Auto-send a correction message
+      const correctionMsg = 'Por favor regenera el proyecto como una aplicación web usando HTML, CSS y React/JSX con datos ficticios simulados. Usa el formato `// filename: ruta/archivo.ext` antes de cada bloque de código. NO uses Python ni backend.';
+      setMessages(prev => [...prev, { role: 'user', content: correctionMsg, timestamp: Date.now() }]);
+      // Trigger HTTP send after a short delay
+      setTimeout(() => {
+        const effectiveApiKey = getEffectiveApiKey();
+        if (effectiveApiKey) sendHttp(correctionMsg);
+      }, 500);
     }
   }, [messages]);
 
