@@ -1,13 +1,10 @@
-// Chat Action System
-// Automatically detects intent from AI responses and executes Cloudflare APIs
+// Chat Action System - Simplified for Chat-First architecture
+// Only keeps actions that actually work (RAG + workflows)
 
 import { createCloudflareApi, type RAGSearchResult, type WorkflowInstance } from '@/lib/cloudflareApi';
-import { sandboxService } from '@/lib/sandboxService';
 
 export interface ChatAction {
-  type: 'rag_search' | 'rag_ingest' | 'rag_query' | 'workflow_research' | 'workflow_rag_ingest' | 'workflow_status' | 'project_create'
-    | 'sandbox_create' | 'sandbox_deploy' | 'sandbox_exec' | 'sandbox_start' | 'sandbox_stop'
-    | 'template_select' | 'blueprint_generate' | 'rag_learn' | 'project_rename' | 'project_export';
+  type: 'rag_search' | 'rag_ingest' | 'rag_query' | 'workflow_research' | 'workflow_rag_ingest' | 'workflow_status';
   params: Record<string, string>;
   raw: string;
 }
@@ -63,24 +60,14 @@ export async function executeAction(action: ChatAction, apiKey: string): Promise
         return { action, success: true, summary: `✅ Document ingested! ${res.chunks} chunks. ID: \`${res.documentId}\``, data: res };
       }
 
-      case 'rag_learn': {
-        const content = action.params.content || action.params.url || action.params.value;
-        try {
-          const res = await api.ragIngest(content);
-          return { action, success: true, summary: `🧠 Learned! Ingested ${res.chunks} chunks into knowledge base. ID: \`${res.documentId}\``, data: res };
-        } catch (e) {
-          return { action, success: false, summary: `⚠️ Failed to learn: ${(e as Error).message}` };
-        }
-      }
-
       case 'workflow_research': {
         const res = await api.workflowResearch(action.params.topic || action.params.value);
-        return { action, success: true, summary: `🔬 Research workflow started! ID: \`${res.instanceId}\`\n⏳ Running: analyze → search → synthesize → report.`, data: res };
+        return { action, success: true, summary: `🔬 Research workflow started! ID: \`${res.instanceId}\``, data: res };
       }
 
       case 'workflow_rag_ingest': {
         const res = await api.workflowRAGIngest(action.params.url || action.params.value);
-        return { action, success: true, summary: `📥 RAG ingest workflow started! ID: \`${res.instanceId}\`\n⏳ Processing: fetch → extract → chunk → embed → index.`, data: res };
+        return { action, success: true, summary: `📥 RAG ingest workflow started! ID: \`${res.instanceId}\``, data: res };
       }
 
       case 'workflow_status': {
@@ -98,54 +85,6 @@ export async function executeAction(action: ChatAction, apiKey: string): Promise
         }
         return { action, success: true, summary, data: res };
       }
-
-      case 'project_create': {
-        const res = await api.projectCreate(action.params.name || 'my-project', action.params.template || 'react-vite');
-        return { action, success: true, summary: `🚀 Project "${res.name}" created! Template: ${res.template} | ID: \`${res.id}\``, data: res };
-      }
-
-      // --- Sandbox actions ---
-      case 'sandbox_create': {
-        const res = await sandboxService.createProject(
-          action.params.name || 'my-sandbox',
-          action.params.template || 'react-vite',
-          apiKey,
-        );
-        return { action, success: true, summary: `☁️ Sandbox "${res.name}" created! Status: ${res.status} | ID: \`${res.id}\``, data: res };
-      }
-
-      case 'sandbox_deploy': {
-        const res = await sandboxService.deploy(action.params.projectId || action.params.value, apiKey);
-        return { action, success: true, summary: `🚀 Deployed! URL: ${res.url}\nDeploy ID: \`${res.deployId}\``, data: res };
-      }
-
-      case 'sandbox_exec': {
-        const res = await sandboxService.execCommand(action.params.projectId || action.params.value, action.params.command || 'echo "hello"', apiKey);
-        return { action, success: true, summary: `💻 Command output (exit ${res.exitCode}):\n\`\`\`\n${res.output}\n\`\`\``, data: res };
-      }
-
-      case 'sandbox_start': {
-        const res = await sandboxService.startDevServer(action.params.projectId || action.params.value, apiKey);
-        return { action, success: true, summary: `▶️ Dev server started! Preview: ${res.previewUrl}`, data: res };
-      }
-
-      case 'sandbox_stop': {
-        await sandboxService.stopDevServer(action.params.projectId || action.params.value, apiKey);
-        return { action, success: true, summary: '⏹️ Dev server stopped.' };
-      }
-
-      // --- Template/Blueprint/Project management actions ---
-      case 'template_select':
-        return { action, success: true, summary: `📋 Template "${action.params.templateId || action.params.value}" selected.`, data: { templateId: action.params.templateId || action.params.value } };
-
-      case 'blueprint_generate':
-        return { action, success: true, summary: `🏗️ Blueprint generated with options: ${JSON.stringify(action.params)}`, data: action.params };
-
-      case 'project_rename':
-        return { action, success: true, summary: `✏️ Project renamed to "${action.params.name || action.params.value}".`, data: { name: action.params.name || action.params.value } };
-
-      case 'project_export':
-        return { action, success: true, summary: `📦 Export requested: format=${action.params.format || 'zip'}`, data: { format: action.params.format || 'zip' } };
 
       default:
         return { action, success: false, summary: `Unknown action: ${action.type}` };
@@ -170,4 +109,43 @@ export async function enrichWithRAG(userMessage: string, apiKey: string): Promis
     }
   } catch { /* RAG not available */ }
   return null;
+}
+
+/**
+ * Detect user intent from chat message for automatic orchestration.
+ * Returns detected intents so the Playground can act accordingly.
+ */
+export type UserIntent = 'new_project' | 'modify' | 'deploy' | 'export' | 'general';
+
+export function detectUserIntent(message: string, hasExistingFiles: boolean): UserIntent {
+  const lower = message.toLowerCase();
+
+  // Deploy intent
+  if (/\b(deploy|deploya|publica|publish|sube|subir|hostear|host)\b/.test(lower)) {
+    return 'deploy';
+  }
+
+  // Export intent
+  if (/\b(export|exporta|descarga|download|zip|descargar)\b/.test(lower)) {
+    return 'export';
+  }
+
+  // New project intent (only if no existing files)
+  if (!hasExistingFiles) {
+    const newPatterns = [
+      /\b(crea|create|build|make|genera|develop|diseña|design|haz|hazme|construye)\b/i,
+      /\b(quiero|want|necesito|need)\b.*\b(una?|an?)\b/i,
+    ];
+    if (newPatterns.some(p => p.test(lower))) return 'new_project';
+  }
+
+  // Modify intent (if files exist and user asks for changes)
+  if (hasExistingFiles) {
+    const modifyPatterns = [
+      /\b(agrega|add|cambia|change|modifica|modify|actualiza|update|mejora|improve|arregla|fix|quita|remove|elimina|delete)\b/i,
+    ];
+    if (modifyPatterns.some(p => p.test(lower))) return 'modify';
+  }
+
+  return hasExistingFiles ? 'modify' : 'new_project';
 }

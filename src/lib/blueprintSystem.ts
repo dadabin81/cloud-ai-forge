@@ -1,5 +1,6 @@
 /**
- * Blueprint System - Phased project generation
+ * Blueprint System - Simplified for Chat-First architecture
+ * The AI proposes blueprints naturally in conversation, no forced JSON format.
  */
 
 export interface BlueprintFile {
@@ -16,45 +17,7 @@ export interface Blueprint {
 }
 
 /**
- * Detect if the user prompt is asking for a new project (needs blueprint)
- * vs a modification of an existing project (incremental edit)
- */
-export function detectBlueprintRequest(prompt: string, hasExistingFiles: boolean): boolean {
-  if (hasExistingFiles) return false;
-  const newProjectPatterns = [
-    /\b(crea|create|build|make|genera|develop|diseña|design)\b.*\b(app|application|website|page|sitio|pagina|dashboard|landing|portfolio|blog|tienda|store|proyecto|project)\b/i,
-    /\b(quiero|want|necesito|need)\b.*\b(una?|an?)\b.*\b(app|web|page|sitio|dashboard|landing)\b/i,
-    /\bhaz(me)?\b.*\b(una?|an?)\b/i,
-  ];
-  return newProjectPatterns.some(p => p.test(prompt));
-}
-
-/**
- * Build a system prompt that forces the LLM to respond with a blueprint JSON first
- */
-export function buildBlueprintPrompt(): string {
-  return `Before generating any code, respond ONLY with a JSON blueprint wrapped in \`\`\`json tags.
-The blueprint must follow this exact structure:
-
-\`\`\`json
-{
-  "name": "Project Name",
-  "description": "Brief description of the project",
-  "files": [
-    { "path": "index.html", "description": "Main HTML entry point" },
-    { "path": "styles.css", "description": "Global styles" },
-    { "path": "App.jsx", "description": "Main React component" }
-  ],
-  "cdnDependencies": ["tailwindcss", "chart.js"],
-  "structure": "Brief description of the architecture"
-}
-\`\`\`
-
-Do NOT generate any code yet. Only respond with the blueprint JSON above.`;
-}
-
-/**
- * Parse blueprint JSON from LLM response
+ * Parse blueprint JSON from LLM response (if the AI chooses to include one)
  */
 export function parseBlueprintResponse(content: string): Blueprint | null {
   try {
