@@ -1,70 +1,74 @@
 
-# Fix: Playground en Produccion - URLs, Polling y Generacion de Codigo
+# Rediseno del Chat del Playground - Layout Profesional
 
-## Problemas Detectados
+## Problema Actual
 
-### 1. Todas las llamadas a la API de Cloud van a localhost:8787 y fallan
-El archivo `src/config/api.ts` usa `import.meta.env.PROD` para decidir la URL. En el entorno de preview de Lovable, esto resulta en `http://localhost:8787`, que no existe. Por eso TODAS las funciones de Cloud (health checks, RAG, workflows, ResourceBadges) fallan constantemente.
+El chat esta aplastado en la parte inferior de la pantalla con solo ~35% de altura. Las respuestas de la IA son practicamente invisibles, y el layout vertical (IDE arriba, chat abajo) desperdicia espacio. El diseno actual se siente como un "panel secundario" en vez de la herramienta principal que es.
 
-Mientras tanto, `src/contexts/AuthContext.tsx` tiene la URL de produccion hardcodeada correctamente: `https://binario-api.databin81.workers.dev`. Por eso el chat SI funciona pero el Cloud Panel NO.
+## Solucion: Chat como Panel Lateral Izquierdo
 
-### 2. La IA no genera codigo con el formato multi-archivo
-El usuario pidio "crea una app de restaurante" y la IA (Llama 3.1 8B) respondio con texto descriptivo generico en vez de codigo real con marcadores `// filename:`. Resultado: el File Explorer y el Preview quedan vacios. La IA basicamente ignoro las instrucciones del system prompt.
+Cambiar el layout de **vertical** (IDE arriba / chat abajo) a **horizontal** (chat a la izquierda / IDE a la derecha), similar a como funcionan los IDEs profesionales con asistente AI integrado (como Cursor, Lovable, Windsurf).
 
-### 3. Health checks cada 30 segundos saturan la red
-Los ResourceBadges y el CloudPanel hacen polling constante a `/health` que siempre falla, generando docenas de requests fallidos.
-
-## Plan de Correccion
-
-### Cambio 1: `src/config/api.ts` - Hardcodear la URL de produccion
-- Cambiar `baseUrl` para que SIEMPRE use `https://binario-api.databin81.workers.dev` (igual que AuthContext)
-- Eliminar la logica condicional `import.meta.env.PROD` que causa el problema
-- Esto arregla instantaneamente: CloudPanel, ResourceBadges, RAG enrichment, y chat actions
-
-### Cambio 2: `src/pages/Playground.tsx` - Mejorar el system prompt
-- Simplificar el system prompt para que sea mas directo y efectivo con modelos pequenos como Llama 3.1 8B
-- Agregar ejemplos concretos de output esperado (few-shot) dentro del prompt
-- Eliminar las instrucciones de ACTION markers del prompt por defecto (el modelo las ignora y confunden)
-- Enfocarse en: "Siempre genera codigo completo con el formato `// filename: ruta`"
-
-### Cambio 3: `src/components/ResourceBadges.tsx` - Fetch una sola vez
-- Eliminar el polling periodico de health check
-- Hacer un solo fetch cuando el componente se monta y cuando el usuario cambia la API key
-- Agregar un boton manual de "refresh" en vez de auto-polling
-
-### Cambio 4: `src/lib/chatActions.ts` - Usar la URL correcta
-- Este archivo ya usa `cloudflareApi.ts` que usa `API_CONFIG`, asi que se corrige automaticamente con el Cambio 1
-- Agregar manejo de errores mas silencioso para `enrichWithRAG` cuando el backend no tiene documentos indexados
-
-### Cambio 5: `src/components/CloudPanel.tsx` - Parar polling excesivo
-- Reducir los auto-fetches que se disparan en cada tab change
-- Cachear los resultados de health/models por al menos 60 segundos
-
-## Detalles Tecnicos
-
-### src/config/api.ts
 ```text
-baseUrl: 'https://binario-api.databin81.workers.dev'
-wsUrl: 'wss://binario-api.databin81.workers.dev'
+ANTES (actual):
++----------------------------------+
+| File Explorer | Code | Preview   |  65%
++----------------------------------+
+| Chat (aplastado)                 |  35%
++----------------------------------+
+
+DESPUES (propuesto):
++----------+------------------------+
+|          | File Exp | Code | Prev |
+|  Chat    |          |      |      |
+|  (30%)   |     IDE (70%)         |
+|          |          |      |      |
++----------+------------------------+
 ```
-Sin condicional - siempre apunta a produccion. Para desarrollo local, se puede usar una variable de entorno override.
 
-### System Prompt optimizado (en Playground.tsx)
-El prompt actual tiene demasiadas instrucciones ACTION que el modelo no entiende. Se simplificara a:
-- Instrucciones claras de generacion de codigo
-- Un ejemplo concreto de output con `// filename:`
-- Sin ACTION markers (se pueden re-habilitar con modelos mas potentes)
+## Cambios en Detalle
 
-### ResourceBadges.tsx
-- Quitar el `setInterval` de health check
-- Un solo `useEffect` con fetch al mount
-- Boton de refresh manual
+### Archivo: `src/pages/Playground.tsx`
 
-## Archivos a modificar
+**Layout principal:**
+- Cambiar el `ResizablePanelGroup` principal de `direction="vertical"` a `direction="horizontal"`
+- Chat pasa a ser el primer panel (izquierda) con `defaultSize={30}`
+- IDE pasa a ser el segundo panel (derecha) con `defaultSize={70}`
+- El IDE mantiene su layout interno de 3 columnas (File Explorer, Code, Preview)
 
-| Archivo | Cambio |
-|---------|--------|
-| `src/config/api.ts` | Hardcodear URL de produccion |
-| `src/pages/Playground.tsx` | Simplificar system prompt, eliminar ACTION markers |
-| `src/components/ResourceBadges.tsx` | Eliminar polling, fetch una vez |
-| `src/components/CloudPanel.tsx` | Reducir auto-fetches, cachear resultados |
+**Diseno del Chat (panel izquierdo):**
+- Fondo con gradiente sutil para diferenciarlo del IDE
+- Header con el logo de Binario AI, indicador de modelo activo, y botones de accion
+- Area de mensajes ocupa toda la altura disponible (ya no esta comprimida)
+- Mensajes del usuario: burbuja alineada a la derecha con color primario
+- Mensajes de la IA: burbuja alineada a la izquierda con avatar, fondo con borde gradiente sutil
+- Los bloques de codigo dentro de los mensajes tendran syntax highlighting basico con fondo oscuro
+- Input area fija en la parte inferior con textarea mas grande y boton de envio prominente
+
+**Mensajes de la IA - Diseno Premium:**
+- Avatar circular con icono de Binario y borde gradiente cyan-to-purple
+- Nombre "Binario AI" junto al avatar con badge del modelo activo
+- Contenido con tipografia clara, espaciado generoso
+- Bloques de codigo con fondo diferenciado y boton de copiar
+- Indicador de streaming con animacion de pulso mas elegante (tres puntos animados)
+- Tokens/segundo mostrados de forma sutil durante el streaming
+
+**Input area mejorada:**
+- Textarea con placeholder mas descriptivo y borde con glow sutil al hacer focus
+- Boton de envio mas grande con gradiente primario
+- Barra inferior con: modelo activo (clickeable para cambiar), boton Clear, boton Copy
+- Indicador visual cuando el chat esta procesando
+
+**Estado vacio mejorado:**
+- Logo grande de Binario con animacion sutil
+- 3-4 sugerencias clickeables como chips (ej: "Crea un blog moderno", "Landing page SaaS", "Dashboard de analytics")
+- Al hacer click en una sugerencia, se envia automaticamente como mensaje
+
+### Detalles Tecnicos
+
+- No se necesitan nuevas dependencias
+- Se reutilizan los componentes UI existentes (Badge, Button, Textarea, Avatar)
+- Se mantiene toda la logica de WebSocket, HTTP streaming, y procesamiento de acciones sin cambios
+- Solo cambia la estructura JSX del return del componente y algunos estilos
+- El panel de chat se puede colapsar con un boton toggle que lo reduce a una barra lateral estrecha
+- Se eliminan los estados `chatOpen`/`setChatOpen` por un estado `chatCollapsed` que reduce el panel a ~5% en vez de ocultarlo
