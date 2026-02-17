@@ -37,6 +37,7 @@ import { parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@
 import { suggestTemplate } from '@/lib/templates';
 import { buildErrorCorrectionPrompt, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
 import { exportAsZip } from '@/lib/projectExporter';
+import { sandboxService } from '@/lib/sandboxService';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -1099,6 +1100,7 @@ export default function Playground() {
                       onErrors={handlePreviewErrors}
                       onImportProject={handleImportProject}
                       projectName={project?.name}
+                      hostedPreviewUrl={project ? sandboxService.getPreviewUrl(project.id) : undefined}
                     />
                   </div>
                 </div>

@@ -207,7 +207,7 @@ async function handleRequest(request: Request, env: Env, path: string, url: URL)
         return stub.fetch(new Request(agentUrl.toString(), request));
       }
 
-      // Sandbox/Projects endpoints
+      // Sandbox/Projects endpoints (public for preview, auth-optional for sync)
       if (path.startsWith('/v1/sandbox/') || path.startsWith('/v1/projects/')) {
         if (!env.SANDBOX_PROJECT) {
           return jsonResponse({ error: 'Sandbox not configured' }, 503);
@@ -218,7 +218,21 @@ async function handleRequest(request: Request, env: Env, path: string, url: URL)
         const stub = env.SANDBOX_PROJECT!.get(id);
         const projectUrl = new URL(request.url);
         projectUrl.pathname = '/' + projectPath;
-        return stub.fetch(new Request(projectUrl.toString(), request));
+        const doResponse = await stub.fetch(new Request(projectUrl.toString(), request));
+        
+        // For preview endpoint, return HTML with permissive CORS (shareable links)
+        if (projectPath.endsWith('/preview') || projectPath.endsWith('/preview/')) {
+          const html = await doResponse.text();
+          return new Response(html, {
+            status: doResponse.status,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'public, max-age=60',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+        return doResponse;
       }
 
       // RAG endpoints
