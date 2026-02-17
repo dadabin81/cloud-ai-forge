@@ -1,144 +1,173 @@
 
-
-# Fase 2-4: Mejoras del Preview, Blueprint y Auto-Correccion
+# Fase 5: Deploy a Produccion + Mejoras Finales
 
 ## Resumen
 
-Con la Fase 1 (persistencia y edicion incremental) completada, ahora implementaremos tres mejoras de alto impacto que transforman el Playground en una plataforma de VibeCoding profesional -- todo sin depender de infraestructura externa.
+Esta fase completa la transformacion del Playground anadiendo la capacidad de **exportar y desplegar proyectos**, junto con mejoras necesarias en la gestion de proyectos guardados y la experiencia de usuario.
 
 ---
 
-## Fase 2A: Preview Mejorado (sin WebContainers)
+## Parte A: Gestion de Proyectos Guardados en el Playground
 
-Mientras se prepara la integracion con Cloudflare Containers (que requiere configuracion de infraestructura aparte), mejoramos drasticamente el preview actual:
+Actualmente los proyectos se guardan en la base de datos pero no hay forma de **listar, abrir o eliminar** proyectos guardados desde el Playground.
 
-### Cambios en `src/lib/projectGenerator.ts`
+### Nuevo componente: `src/components/ProjectManager.tsx`
 
-- Agregar **Tailwind CSS via CDN** (`<script src="https://cdn.tailwindcss.com">`) automaticamente cuando se detecta uso de clases Tailwind en el codigo generado
-- Agregar **consola embebida** que captura `console.log`, `console.error`, `console.warn` del iframe y los muestra en un panel colapsable debajo del preview
-- Mejorar el wrapper JSX para soportar hooks de React mas complejos (useState, useEffect, useRef, useMemo)
-
-### Nuevo componente: `src/components/PreviewConsole.tsx`
-
-- Panel colapsable debajo del iframe que muestra logs capturados
-- Iconos por tipo: info (azul), warn (amarillo), error (rojo)
-- Boton "Clear" para limpiar logs
-- Se comunica con el iframe via `window.postMessage`
-
-### Cambios en `src/components/CodePreview.tsx`
-
-- Agregar listener de `postMessage` para recibir logs del iframe
-- Inyectar script de captura de consola en el `srcDoc` generado
-- Agregar el componente `PreviewConsole` debajo del iframe
-- Agregar contador de errores en la toolbar del preview
+- Panel lateral o dialog que muestra la lista de proyectos guardados del usuario
+- Cada proyecto muestra: nombre, fecha de actualizacion, cantidad de archivos, template
+- Acciones: Abrir (carga archivos en el IDE), Renombrar, Eliminar, Duplicar
+- Boton "Nuevo Proyecto" que limpia el estado actual
+- Se integra en la barra superior del Playground con un boton "Projects"
 
 ---
 
-## Fase 2B: Editor de Codigo Editable
+## Parte B: Export del Proyecto
+
+### Nuevo archivo: `src/lib/projectExporter.ts`
+
+Funciones para exportar el proyecto en diferentes formatos:
+
+1. **Export como ZIP**: Empaqueta todos los archivos del proyecto en un archivo ZIP descargable. Se implementara usando la API nativa de Compression Streams o una libreria ligera (`fflate` - 8kb gzipped).
+2. **Export como HTML unico**: Ya existe (`downloadProjectAsHtml`), se mejora para incluir todos los assets.
+3. **Export como JSON**: Exporta el proyecto completo (files + metadata) como JSON para importar despues.
+4. **Importar JSON**: Permite cargar un proyecto exportado previamente.
+
+### Cambios en `src/components/PreviewToolbar.tsx`
+
+- Reemplazar el boton "Download" simple con un dropdown menu con las opciones:
+  - "Download as ZIP"
+  - "Download as HTML"
+  - "Export Project (JSON)"
+  - "Import Project (JSON)"
+  - Separador
+  - "Deploy to Cloudflare" (con badge "Beta")
+
+---
+
+## Parte C: Deploy a Cloudflare Pages
+
+### Nuevo archivo: `src/lib/deployService.ts`
+
+Servicio que permite desplegar el proyecto generado a Cloudflare Pages usando la API directa:
+
+1. El usuario hace click en "Deploy"
+2. Se muestra un dialog pidiendo:
+   - Nombre del proyecto (slug para la URL)
+   - Opcionalmente: API Token de Cloudflare (se guarda encriptado en la DB)
+   - Account ID de Cloudflare
+3. El deploy se ejecuta via un backend function que:
+   - Crea un proyecto en Cloudflare Pages (si no existe)
+   - Sube los archivos como un "direct upload" deployment
+   - Retorna la URL de produccion (ej: `mi-proyecto.pages.dev`)
+4. Se muestra la URL final con un boton para abrir en nueva pestana
+
+### Nuevo backend function: `supabase/functions/deploy-cloudflare/index.ts`
+
+- Recibe: project files, project name, CF API token, CF account ID
+- Crea proyecto en CF Pages via API (`POST /accounts/{id}/pages/projects`)
+- Sube archivos via Direct Upload (`POST /accounts/{id}/pages/projects/{name}/deployments`)
+- Retorna: deployment URL, status
+- Se almacena el historial de deploys en una tabla nueva
+
+### Nueva tabla: `deployments`
+
+```text
+CREATE TABLE deployments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
+  project_id UUID REFERENCES playground_projects(id),
+  provider TEXT DEFAULT 'cloudflare-pages',
+  project_name TEXT NOT NULL,
+  deployment_url TEXT,
+  status TEXT DEFAULT 'pending',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### Nuevo componente: `src/components/DeployDialog.tsx`
+
+- Dialog modal con formulario para configurar el deploy
+- Campos: Project Name (slug), Cloudflare API Token, Account ID
+- Boton "Deploy" con progreso en tiempo real
+- Una vez deployado, muestra la URL con badge verde "Live"
+- Historial de deploys anteriores
+
+---
+
+## Parte D: Mejoras de UX en el Playground
+
+### Cambios en `src/pages/Playground.tsx`
+
+1. Integrar `ProjectManager` en la barra superior (boton "Projects" al lado de "Cloud")
+2. Integrar `DeployDialog` accesible desde el toolbar
+3. Agregar toggle de auto-correccion en la barra de configuracion (Config Sheet)
+4. Mejorar el flujo de Blueprint: cuando el LLM responde con un blueprint, parsearlo automaticamente y mostrar la BlueprintCard (actualmente el parsing esta implementado pero no conectado al flujo de mensajes)
 
 ### Cambios en `src/components/CodeEditor.tsx`
 
-- Convertir el editor de solo-lectura a **editable** usando un `<textarea>` superpuesto con syntax highlighting
-- Los cambios del usuario se propagan al estado `projectFiles` en `Playground.tsx`
-- Auto-save: los cambios se guardan automaticamente a la base de datos (via el hook existente `saveFiles`)
-- Indicador visual de "archivo modificado" (dot amarillo en el tab del archivo)
-
-### Cambios en `src/pages/Playground.tsx`
-
-- Agregar callback `onCodeChange` que actualiza `projectFiles` cuando el usuario edita manualmente
-- El preview se actualiza en tiempo real al editar codigo
+- Agregar numeros de linea al editor
+- Agregar indicador visual de "archivo modificado" (dot amarillo en la pestana)
 
 ---
 
-## Fase 3: Sistema de Blueprint (Generacion por Fases)
+## Parte E: Almacenamiento de Credenciales de Deploy
 
-### Nuevo archivo: `src/lib/blueprintSystem.ts`
-
-- Define la interfaz `Blueprint`: nombre del proyecto, descripcion, lista de archivos planificados, dependencias CDN, estructura de carpetas
-- Funcion `detectBlueprintRequest`: analiza el prompt del usuario para determinar si es un proyecto nuevo (necesita blueprint) o una modificacion (edicion incremental)
-- Funcion `buildBlueprintPrompt`: genera un system prompt especial que fuerza al LLM a responder primero con un JSON blueprint antes de generar codigo
-- Funcion `parseBlueprintResponse`: extrae el blueprint JSON de la respuesta del LLM
-
-### Cambios en `src/pages/Playground.tsx`
-
-- Nuevo estado `currentPhase`: 'idle' | 'planning' | 'generating' | 'refining'
-- Cuando el usuario pide un proyecto nuevo, primero se ejecuta la fase "planning" que muestra el blueprint en el chat como una tarjeta visual
-- El usuario puede aprobar o modificar el blueprint antes de que se genere el codigo
-- Barra de progreso visual mostrando la fase actual
-- Badge "Planning..." / "Generating..." / "Done" en el header del chat
-
-### Nuevo componente: `src/components/BlueprintCard.tsx`
-
-- Tarjeta visual que muestra el plan del proyecto: archivos a crear, dependencias, estructura
-- Botones "Aprobar" y "Modificar"
-- Al aprobar, se envia el blueprint como contexto para la generacion de codigo
-
----
-
-## Fase 4: Deteccion y Auto-Correccion de Errores
-
-### Cambios en `src/components/CodePreview.tsx`
-
-- Capturar errores JavaScript del iframe (via postMessage desde el script inyectado)
-- Detectar errores de React (render failures, hook errors)
-- Nuevo estado `previewErrors` con lista de errores capturados
-
-### Nuevo archivo: `src/lib/errorCorrection.ts`
-
-- Funcion `buildErrorCorrectionPrompt`: toma los errores capturados + el codigo actual y genera un prompt para el LLM que le pide corregir los errores
-- Funcion `shouldAutoCorrect`: decide si un error es auto-corregible (errores de sintaxis, imports faltantes, typos)
-- Maximo 3 intentos de correccion antes de mostrar el error al usuario
-
-### Cambios en `src/pages/Playground.tsx`
-
-- Nuevo estado `errorCorrectionAttempts`
-- Cuando se detecta un error en el preview, se muestra un banner con:
-  - Descripcion del error
-  - Boton "Auto-fix" que envia el error al LLM para correccion
-  - Contador de intentos restantes
-- Opcion de activar auto-correccion automatica (sin click) via toggle en Config
-
----
-
-## Detalles Tecnicos
-
-### Archivos a crear:
-| Archivo | Proposito |
-|---------|-----------|
-| `src/components/PreviewConsole.tsx` | Panel de consola embebida para logs del iframe |
-| `src/components/BlueprintCard.tsx` | Tarjeta visual del plan de proyecto |
-| `src/lib/blueprintSystem.ts` | Logica de planificacion por fases |
-| `src/lib/errorCorrection.ts` | Logica de deteccion y correccion de errores |
-
-### Archivos a modificar:
-| Archivo | Cambio |
-|---------|--------|
-| `src/lib/projectGenerator.ts` | Inyectar Tailwind CDN + script de captura de consola |
-| `src/components/CodePreview.tsx` | Listener de postMessage, PreviewConsole, contador de errores |
-| `src/components/CodeEditor.tsx` | Hacer editable con textarea overlay |
-| `src/pages/Playground.tsx` | Blueprint phases, error correction, onCodeChange callback |
-
-### No se necesitan nuevas dependencias
-Todo se implementa con React, los componentes UI existentes (Badge, Button, Card), y APIs del navegador (postMessage, MutationObserver).
-
-### Flujo de usuario mejorado:
+### Nueva tabla: `user_deploy_configs`
 
 ```text
-1. Usuario escribe "Crea un dashboard de ventas"
-2. Fase PLANNING: LLM responde con blueprint JSON
-3. Se muestra BlueprintCard en el chat:
-   +----------------------------------+
-   | Blueprint: Dashboard de Ventas   |
-   | Files: index.html, styles.css,   |
-   |        App.jsx, Dashboard.jsx    |
-   | CDN: Tailwind, Chart.js          |
-   | [Aprobar]  [Modificar]           |
-   +----------------------------------+
-4. Usuario aprueba -> Fase GENERATING
-5. LLM genera los archivos uno por uno
-6. Preview se actualiza en tiempo real
-7. Si hay errores -> banner "Auto-fix?"
-8. Usuario puede editar codigo manualmente
-9. Cambios se auto-guardan a la DB
+CREATE TABLE user_deploy_configs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) UNIQUE,
+  provider TEXT DEFAULT 'cloudflare',
+  account_id TEXT,
+  encrypted_token TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
+Esto permite que el usuario configure sus credenciales de Cloudflare una sola vez y se reutilicen en futuros deploys.
+
+---
+
+## Archivos a crear
+
+| Archivo | Proposito |
+|---------|-----------|
+| `src/components/ProjectManager.tsx` | Panel de gestion de proyectos guardados |
+| `src/components/DeployDialog.tsx` | Dialog para configurar y ejecutar deploy |
+| `src/lib/projectExporter.ts` | Funciones de export (ZIP, JSON, HTML) |
+| `src/lib/deployService.ts` | Servicio de deploy a Cloudflare Pages |
+| `supabase/functions/deploy-cloudflare/index.ts` | Backend function para deploy seguro |
+
+## Archivos a modificar
+
+| Archivo | Cambio |
+|---------|--------|
+| `src/pages/Playground.tsx` | Integrar ProjectManager, DeployDialog, toggle auto-correct, conectar blueprint parsing |
+| `src/components/PreviewToolbar.tsx` | Dropdown de export con multiples opciones |
+| `src/components/CodeEditor.tsx` | Numeros de linea, indicador de modificado |
+
+## Migracion de base de datos
+
+- Crear tabla `deployments` con RLS para que cada usuario vea solo sus deploys
+- Crear tabla `user_deploy_configs` con RLS para credenciales de deploy
+
+## Dependencias nuevas
+
+- `fflate` (8kb gzipped) - para generar archivos ZIP en el navegador sin servidor
+
+## Flujo completo del usuario
+
+```text
+1. Usuario genera proyecto con AI en el Playground
+2. Edita codigo manualmente si lo desea
+3. Preview en tiempo real con consola de errores
+4. Click "Export" -> elige formato (ZIP/HTML/JSON)
+5. Click "Deploy" -> configura Cloudflare credentials (una sola vez)
+6. Deploy se ejecuta via backend function
+7. Recibe URL de produccion: mi-proyecto.pages.dev
+8. Historial de deploys visible en el dialog
+9. Puede re-deployar con un click tras hacer cambios
+```
