@@ -106,6 +106,16 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 
--- ============ Triggers ============
--- Note: Triggers are created manually or handled in application code
--- D1 SQLite has limitations with CREATE TRIGGER IF NOT EXISTS
+-- ============ Project Versions Table ============
+CREATE TABLE IF NOT EXISTS project_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  files_hash TEXT NOT NULL,
+  changed_files TEXT,
+  message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_versions_project ON project_versions(project_id);
+CREATE INDEX IF NOT EXISTS idx_versions_user ON project_versions(user_id);

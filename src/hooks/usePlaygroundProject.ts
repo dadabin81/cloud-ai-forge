@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectFile } from '@/lib/projectGenerator';
+import { sandboxService } from '@/lib/sandboxService';
 import { toast } from 'sonner';
 
 export interface PlaygroundProject {
@@ -85,10 +86,12 @@ export function usePlaygroundProject() {
     if (error) { console.error('Failed to create project:', error); toast.error('Failed to create project'); return null; }
     const proj = data as unknown as PlaygroundProject;
     setProject(proj);
+    // Background sync to Cloudflare
+    sandboxService.syncProject(proj.id, user.id, name, files).catch(() => {});
     return proj;
   }, []);
 
-  // Save files to current project (debounced - fast 500ms)
+  // Save files to current project (debounced - fast 500ms) + sync to Cloudflare
   const saveFiles = useCallback((files: Record<string, ProjectFile>) => {
     if (!project) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -99,7 +102,9 @@ export function usePlaygroundProject() {
         .update({ files: JSON.parse(JSON.stringify(files)) })
         .eq('id', project.id);
       setIsSaving(false);
-      if (error) console.error('Auto-save failed:', error);
+      if (error) { console.error('Auto-save failed:', error); return; }
+      // Background sync to Cloudflare (non-blocking)
+      sandboxService.syncProject(project.id, project.user_id, project.name, files).catch(() => {});
     }, 500);
   }, [project]);
 

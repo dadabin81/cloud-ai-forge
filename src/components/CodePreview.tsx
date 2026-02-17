@@ -16,6 +16,7 @@ interface CodePreviewProps {
   onErrors?: (errors: PreviewError[]) => void;
   onImportProject?: (files: Record<string, ProjectFile>, name: string) => void;
   projectName?: string;
+  hostedPreviewUrl?: string;
 }
 
 const VIEWPORT_WIDTHS: Record<Viewport, string> = {
@@ -24,7 +25,7 @@ const VIEWPORT_WIDTHS: Record<Viewport, string> = {
   mobile: '375px',
 };
 
-export function CodePreview({ content, files, className, onErrors, onImportProject, projectName }: CodePreviewProps) {
+export function CodePreview({ content, files, className, onErrors, onImportProject, projectName, hostedPreviewUrl }: CodePreviewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [viewport, setViewport] = useState<Viewport>('desktop');
@@ -123,7 +124,7 @@ export function CodePreview({ content, files, className, onErrors, onImportProje
       <div className="flex-1 flex justify-center bg-muted/20 overflow-auto">
         <iframe
           key={refreshKey}
-          srcDoc={previewDoc}
+          {...(hostedPreviewUrl ? { src: hostedPreviewUrl } : { srcDoc: previewDoc })}
           sandbox="allow-scripts allow-same-origin"
           className="bg-white transition-all duration-300"
           style={{

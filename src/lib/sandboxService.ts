@@ -1,109 +1,115 @@
-// Cloudflare Sandbox Service - Connects frontend to Durable Object SandboxProject
+// Cloudflare Sandbox Service - Connects frontend to Cloudflare Worker project sync/preview/versions
 import { API_CONFIG } from '@/config/api';
 import type { ProjectFile } from '@/lib/projectGenerator';
 
-export interface SandboxProject {
-  id: string;
-  name: string;
-  template: string;
-  status: 'creating' | 'ready' | 'running' | 'stopped' | 'error';
-  previewUrl?: string;
-  createdAt: string;
+export interface SyncResult {
+  success: boolean;
+  summary: ProjectSummary;
+  version: string;
+  changedFiles: string[];
+  previewUrl: string;
 }
 
-export interface SandboxStatus {
-  status: string;
-  files: string[];
-  previewUrl?: string;
-  logs?: string[];
+export interface ProjectSummary {
+  fileCount: number;
+  filePaths: string[];
+  components: string[];
+  routes: string[];
+  hasCSS: boolean;
+  hasTailwind: boolean;
+  totalSize: number;
 }
 
-export interface SandboxExecResult {
-  output: string;
-  exitCode: number;
+export interface ProjectVersion {
+  id: number;
+  project_id: string;
+  user_id: string;
+  files_hash: string;
+  changed_files: string;
+  message: string | null;
+  created_at: string;
 }
 
 class SandboxServiceClient {
   private get baseUrl() { return API_CONFIG.baseUrl; }
 
-  private headers(apiKey: string): HeadersInit {
-    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+  private headers(apiKey?: string): HeadersInit {
+    const h: HeadersInit = { 'Content-Type': 'application/json' };
+    if (apiKey) h['Authorization'] = `Bearer ${apiKey}`;
+    return h;
   }
 
-  async createProject(name: string, template: string, apiKey: string): Promise<SandboxProject> {
-    const res = await fetch(`${this.baseUrl}/v1/projects`, {
-      method: 'POST', headers: this.headers(apiKey),
-      body: JSON.stringify({ name, template }),
-    });
-    if (!res.ok) throw new Error(`Failed to create sandbox: ${res.statusText}`);
-    return res.json();
-  }
-
-  async getStatus(projectId: string, apiKey: string): Promise<SandboxStatus> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/status`, { headers: this.headers(apiKey) });
-    if (!res.ok) throw new Error(`Failed to get sandbox status: ${res.statusText}`);
-    return res.json();
-  }
-
-  async writeFiles(projectId: string, files: Record<string, ProjectFile>, apiKey: string): Promise<void> {
-    const payload = Object.entries(files).map(([path, file]) => ({ path, content: file.code }));
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/files`, {
-      method: 'PUT', headers: this.headers(apiKey),
-      body: JSON.stringify({ files: payload }),
-    });
-    if (!res.ok) throw new Error(`Failed to write files: ${res.statusText}`);
-  }
-
-  async readFiles(projectId: string, apiKey: string): Promise<Record<string, ProjectFile>> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/files`, { headers: this.headers(apiKey) });
-    if (!res.ok) throw new Error(`Failed to read files: ${res.statusText}`);
-    const data = await res.json();
-    const result: Record<string, ProjectFile> = {};
-    for (const f of data.files || []) {
-      const ext = f.path.split('.').pop()?.toLowerCase() || '';
-      const langMap: Record<string, string> = { js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', html: 'html', css: 'css', json: 'json', md: 'markdown', py: 'python' };
-      result[f.path] = { code: f.content, language: langMap[ext] || 'text' };
-    }
-    return result;
-  }
-
-  async execCommand(projectId: string, command: string, apiKey: string): Promise<SandboxExecResult> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/exec`, {
-      method: 'POST', headers: this.headers(apiKey),
-      body: JSON.stringify({ command }),
-    });
-    if (!res.ok) throw new Error(`Command execution failed: ${res.statusText}`);
-    return res.json();
-  }
-
-  async startDevServer(projectId: string, apiKey: string): Promise<{ previewUrl: string }> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/start`, {
-      method: 'POST', headers: this.headers(apiKey),
-    });
-    if (!res.ok) throw new Error(`Failed to start dev server: ${res.statusText}`);
-    return res.json();
-  }
-
-  async stopDevServer(projectId: string, apiKey: string): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/stop`, {
-      method: 'POST', headers: this.headers(apiKey),
-    });
-    if (!res.ok) throw new Error(`Failed to stop dev server: ${res.statusText}`);
-  }
-
-  async getPreviewUrl(projectId: string, apiKey: string): Promise<string | null> {
+  /**
+   * Sync project files from Supabase to Cloudflare KV + create version.
+   * Called in background after every Supabase save.
+   */
+  async syncProject(
+    projectId: string,
+    userId: string,
+    name: string,
+    files: Record<string, ProjectFile>,
+    message?: string
+  ): Promise<SyncResult | null> {
     try {
-      const status = await this.getStatus(projectId, apiKey);
-      return status.previewUrl || null;
-    } catch { return null; }
+      // Convert ProjectFile format to plain string map
+      const plainFiles: Record<string, string> = {};
+      for (const [path, file] of Object.entries(files)) {
+        plainFiles[path] = file.code;
+      }
+
+      const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/sync`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ projectId, userId, name, files: plainFiles, message }),
+      });
+
+      if (!res.ok) {
+        console.warn(`Cloudflare sync failed: ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn('Cloudflare sync error (non-blocking):', err);
+      return null;
+    }
   }
 
-  async deploy(projectId: string, apiKey: string): Promise<{ url: string; deployId: string }> {
-    const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/deploy`, {
-      method: 'POST', headers: this.headers(apiKey),
-    });
-    if (!res.ok) throw new Error(`Deployment failed: ${res.statusText}`);
-    return res.json();
+  /**
+   * Get the hosted preview URL for a project.
+   */
+  getPreviewUrl(projectId: string): string {
+    return `${this.baseUrl}/v1/projects/${projectId}/preview`;
+  }
+
+  /**
+   * Get version history for a project.
+   */
+  async getVersions(projectId: string): Promise<ProjectVersion[]> {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/versions?projectId=${projectId}`, {
+        headers: this.headers(),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.versions || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get project summary (AI context optimization).
+   */
+  async getSummary(projectId: string): Promise<ProjectSummary | null> {
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/projects/${projectId}/summary`, {
+        headers: this.headers(),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 }
 
