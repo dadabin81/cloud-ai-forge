@@ -42,23 +42,26 @@ class_name = "SandboxProject"
 tag = "v1"
 new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 
-# ============ DISABLED FEATURES ============
-
-# Vectorize for RAG (requires: wrangler vectorize create binario-embeddings --preset @cf/baai/bge-base-en-v1.5)
+# ============ OPTIONAL FEATURES ============
+# To enable RAG, first create the index:
+#   npx wrangler vectorize create binario-embeddings --dimensions=768 --metric=cosine
+# Then uncomment below:
 # [[vectorize]]
 # binding = "VECTORIZE_INDEX"
 # index_name = "binario-embeddings"
 
-# Workflows for Multi-step Agents
+# To enable Workflows, uncomment below and redeploy:
 # [[workflows]]
 # binding = "RESEARCH_WORKFLOW"
 # name = "research-workflow"
 # class_name = "ResearchWorkflow"
+# script_name = "binario-api"
 
 # [[workflows]]
 # binding = "RAG_WORKFLOW"
 # name = "rag-workflow"
 # class_name = "RAGWorkflow"
+# script_name = "binario-api"
 
 # ============ END FEATURES ============
 
