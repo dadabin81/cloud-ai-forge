@@ -11,7 +11,9 @@ import {
   Workflow,
   Bot,
   FileJson,
-  DollarSign
+  DollarSign,
+  Search,
+  GitBranch
 } from 'lucide-react';
 
 const features = [
@@ -30,6 +32,18 @@ const features = [
     icon: Bot,
     title: 'Agent Framework',
     description: 'Multi-step reasoning agents with tool calling. Uses Hermes 2 Pro for function calling.',
+  },
+  {
+    icon: Search,
+    title: 'RAG Pipeline',
+    description: 'Built-in Retrieval-Augmented Generation with Vectorize. Ingest, chunk, embed, and query documents.',
+    highlight: true,
+  },
+  {
+    icon: GitBranch,
+    title: 'Workflows Engine',
+    description: 'Durable, multi-step workflows for research and RAG ingestion. Runs on Cloudflare Workers.',
+    highlight: true,
   },
   {
     icon: Layers,
@@ -59,7 +73,7 @@ const features = [
   {
     icon: Code2,
     title: 'React Hooks',
-    description: 'useBinarioChat, useBinarioStream, useBinarioAgent, and useBinarioStructured for React.',
+    description: 'useChat, useStream, useAgent, useUsage — production-ready hooks for any React app.',
   },
   {
     icon: Workflow,

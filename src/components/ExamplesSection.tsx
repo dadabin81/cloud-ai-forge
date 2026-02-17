@@ -200,6 +200,43 @@ await ai.chat(messages, { provider: 'lovable' });
 // Use Claude for complex reasoning
 await ai.chat(messages, { provider: 'anthropic' });`,
   },
+  rag: {
+    title: 'RAG Pipeline',
+    description: 'Ingest documents, search by similarity, and query with context',
+    code: `// Ingest a document into the RAG pipeline
+const ingestRes = await fetch(API_URL + '/v1/rag/ingest', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+  body: JSON.stringify({
+    content: 'Binario is an AI SDK for Cloudflare Workers...',
+    metadata: { source: 'docs', topic: 'overview' },
+  }),
+});
+// → { documentId: "abc-123", chunks: 3, inserted: 3 }
+
+// Search for similar documents
+const searchRes = await fetch(API_URL + '/v1/rag/search', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+  body: JSON.stringify({
+    query: 'How does Binario work?',
+    topK: 5,
+  }),
+});
+// → [{ id, score: 0.92, content: "..." }]
+
+// RAG Query - search + generate answer
+const queryRes = await fetch(API_URL + '/v1/rag/query', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+  body: JSON.stringify({
+    query: 'Explain Binario architecture',
+    topK: 5,
+    model: '@cf/meta/llama-3.1-8b-instruct',
+  }),
+});
+// → { answer: "Binario uses...", sources: [...] }`,
+  },
 };
 
 type ExampleKey = keyof typeof examples;
