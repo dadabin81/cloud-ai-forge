@@ -291,18 +291,23 @@ export default function Playground() {
   }, []);
 
   // Auto-connect when WebSocket mode is enabled and API key is valid
+  // NOTE: wsStatus is intentionally NOT a dependency to avoid reconnect loops
   useEffect(() => {
-    if (useWebSocket && isApiKeyValid && wsStatus === 'disconnected') {
-      reconnectAttemptsRef.current = 0;
-      connectWebSocket();
-    } else if (!useWebSocket && wsStatus === 'connected') {
+    if (useWebSocket && isApiKeyValid) {
+      // Only connect if not already connected/connecting
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        reconnectAttemptsRef.current = 0;
+        connectWebSocket();
+      }
+    } else if (!useWebSocket) {
       disconnectWebSocket();
     }
     
     return () => {
       wsRef.current?.close();
     };
-  }, [useWebSocket, isApiKeyValid, wsStatus, connectWebSocket, disconnectWebSocket]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useWebSocket, isApiKeyValid]);
 
   // Update model when provider changes
   useEffect(() => {
