@@ -20,8 +20,14 @@ export * from './memory';
 export * from './embeddings';
 
 // React Hooks
-export { useAgent } from './hooks';
-export type { UseAgentOptions, UseAgentReturn, AgentMessage } from './hooks';
+export { useBinarioAgent } from './hooks';
+export type { UseBinarioAgentOptions, UseBinarioAgentReturn } from './hooks';
+
+// Observability & Usage
+export { consoleHooks } from './observability';
+export type { ObservabilityHooks, RequestStartEvent, RequestEndEvent } from './observability';
+export { createUsageTracker } from './usage';
+export type { UsageTracker, TrackRequestParams } from './usage';
 
 // Types
 export type {

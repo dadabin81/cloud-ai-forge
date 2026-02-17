@@ -963,7 +963,6 @@ export function useBinarioChatWithMemory(
 // ============= Embeddings Hook =============
 
 import type { 
-  EmbeddingsProvider, 
   EmbeddingResult, 
   BatchEmbeddingResult 
 } from './embeddings/types';
