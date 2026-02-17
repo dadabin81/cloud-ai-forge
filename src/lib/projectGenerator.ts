@@ -46,13 +46,14 @@ export function parseProjectFiles(content: string): Record<string, ProjectFile> 
   const files: Record<string, ProjectFile> = {};
 
   // Pattern: filename marker followed by a code block
-  const regex = /(?:\/\/\s*filename:\s*(.+?)\s*\n|<!--\s*filename:\s*(.+?)\s*-->\s*\n|\*\*`?([^`*\n]+\.\w+)`?\*\*\s*\n|#{1,6}\s*`?([^`\n]+\.\w+)`?\s*\n)```(\w+)?\s*\n([\s\S]*?)```/g;
+  // Supports: // filename: path, <!-- filename: path -->, **path.ext**, #### path.ext, [NEW_FILE: path], [EDIT_FILE: path]
+  const regex = /(?:\/\/\s*filename:\s*(.+?)\s*\n|<!--\s*filename:\s*(.+?)\s*-->\s*\n|\*\*`?([^`*\n]+\.\w+)`?\*\*\s*\n|#{1,6}\s*`?([^`\n]+\.\w+)`?\s*\n|\[(?:NEW_FILE|EDIT_FILE):\s*(.+?)\]\s*\n)```(\w+)?\s*\n([\s\S]*?)```/g;
 
   let match;
   while ((match = regex.exec(content)) !== null) {
-    const filepath = (match[1] || match[2] || match[3] || match[4]).trim();
-    const explicitLang = match[5];
-    const code = match[6].trim();
+    const filepath = (match[1] || match[2] || match[3] || match[4] || match[5]).trim();
+    const explicitLang = match[6];
+    const code = match[7].trim();
     
     if (filepath && code) {
       files[filepath] = {

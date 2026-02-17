@@ -102,12 +102,15 @@ export async function executeAllActions(actions: ChatAction[], apiKey: string): 
 // Pre-chat RAG enrichment
 export async function enrichWithRAG(userMessage: string, apiKey: string): Promise<string | null> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000); // 3s max
     const api = createCloudflareApi(apiKey);
     const res = await api.ragSearch(userMessage, 3);
+    clearTimeout(timeout);
     if (res.results && res.results.length > 0 && res.results[0].score > 0.7) {
       return `[Relevant context from knowledge base]\n${res.results.map((r: RAGSearchResult) => r.content).join('\n---\n')}\n[End context]`;
     }
-  } catch { /* RAG not available */ }
+  } catch { /* RAG not available - silently continue */ }
   return null;
 }
 
