@@ -38,9 +38,12 @@ import {
   WifiOff,
   RefreshCw,
   AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { CodePreview } from '@/components/CodePreview';
+import { extractCodeBlocks, isRenderableCode } from '@/lib/codeExtractor';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -104,6 +107,10 @@ export default function Playground() {
   // HTTP mode state
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Preview tab state
+  const [activeTab, setActiveTab] = useState('chat');
+  const [previewContent, setPreviewContent] = useState('');
 
   // Persist preferences
   useEffect(() => {
@@ -332,6 +339,18 @@ export default function Playground() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
+
+  // Auto-detect renderable code in the latest assistant message and switch to Preview
+  useEffect(() => {
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    if (lastAssistant) {
+      const blocks = extractCodeBlocks(lastAssistant.content);
+      if (isRenderableCode(blocks)) {
+        setPreviewContent(lastAssistant.content);
+        setActiveTab('preview');
+      }
+    }
+  }, [messages]);
 
   // Handle regenerating API key
   const handleRegenerateApiKey = async () => {
@@ -662,7 +681,7 @@ const response = await ai.chat([
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Chat Panel */}
             <div className="lg:col-span-2 flex flex-col">
-              <Tabs defaultValue="chat" className="flex-1 flex flex-col">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
                 <TabsList className="mb-4">
                   <TabsTrigger value="chat" className="gap-2">
                     <MessageSquare className="w-4 h-4" />
@@ -671,6 +690,13 @@ const response = await ai.chat([
                   <TabsTrigger value="code" className="gap-2">
                     <Code className="w-4 h-4" />
                     Code
+                  </TabsTrigger>
+                  <TabsTrigger value="preview" className="gap-2">
+                    <Eye className="w-4 h-4" />
+                    Preview
+                    {previewContent && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    )}
                   </TabsTrigger>
                 </TabsList>
 
@@ -846,6 +872,10 @@ const response = await ai.chat([
                       ? 'WebSocket mode provides real-time streaming and persistent conversation history.'
                       : 'HTTP mode uses standard streaming for responses.'}
                   </p>
+                </TabsContent>
+
+                <TabsContent value="preview" className="flex-1 mt-0">
+                  <CodePreview content={previewContent || ''} />
                 </TabsContent>
               </Tabs>
             </div>
