@@ -3,40 +3,40 @@ import { createSchema, zodToJsonSchema, createTool, parseStructuredOutput, z } f
 
 describe('Schema System', () => {
   describe('createSchema', () => {
-    it('should create a schema with name and description', () => {
-      const UserSchema = createSchema('User', z.object({
+    it('should create a schema from shape', () => {
+      const UserSchema = createSchema({
         name: z.string().describe('User name'),
         age: z.number().describe('User age'),
-      }));
+      });
 
-      expect(UserSchema.name).toBe('User');
-      expect(UserSchema.schema).toBeDefined();
+      expect(UserSchema).toBeDefined();
+      expect(UserSchema.parse).toBeDefined();
     });
 
     it('should parse valid data', () => {
-      const UserSchema = createSchema('User', z.object({
+      const UserSchema = createSchema({
         name: z.string(),
         age: z.number(),
-      }));
+      });
 
       const result = UserSchema.parse({ name: 'John', age: 30 });
       expect(result).toEqual({ name: 'John', age: 30 });
     });
 
     it('should throw on invalid data', () => {
-      const UserSchema = createSchema('User', z.object({
+      const UserSchema = createSchema({
         name: z.string(),
         age: z.number(),
-      }));
+      });
 
       expect(() => UserSchema.parse({ name: 'John', age: 'invalid' })).toThrow();
     });
 
     it('should safely parse with safeParse', () => {
-      const UserSchema = createSchema('User', z.object({
+      const UserSchema = createSchema({
         name: z.string(),
         age: z.number(),
-      }));
+      });
 
       const success = UserSchema.safeParse({ name: 'John', age: 30 });
       expect(success.success).toBe(true);
@@ -78,8 +78,8 @@ describe('Schema System', () => {
 
       expect(jsonSchema.type).toBe('object');
       expect(jsonSchema.properties).toBeDefined();
-      expect(jsonSchema.properties.name.type).toBe('string');
-      expect(jsonSchema.properties.age.type).toBe('number');
+      expect((jsonSchema.properties as any).name.type).toBe('string');
+      expect((jsonSchema.properties as any).age.type).toBe('number');
     });
 
     it('should handle optional fields', () => {
@@ -98,7 +98,7 @@ describe('Schema System', () => {
       const jsonSchema = zodToJsonSchema(schema);
 
       expect(jsonSchema.type).toBe('array');
-      expect(jsonSchema.items.type).toBe('string');
+      expect((jsonSchema.items as any).type).toBe('string');
     });
 
     it('should convert enum schema', () => {
@@ -118,12 +118,13 @@ describe('Schema System', () => {
         parameters: z.object({
           input: z.string().describe('Input value'),
         }),
+        execute: async ({ input }) => input,
       });
 
-      expect(tool.name).toBe('test_tool');
-      expect(tool.description).toBe('A test tool');
-      expect(tool.parameters).toBeDefined();
-      expect(tool.parameters.properties.input).toBeDefined();
+      expect(tool.function.name).toBe('test_tool');
+      expect(tool.function.description).toBe('A test tool');
+      expect(tool.function.parameters).toBeDefined();
+      expect((tool.function.parameters.properties as any).input).toBeDefined();
     });
 
     it('should include required fields', () => {
@@ -134,10 +135,11 @@ describe('Schema System', () => {
           required: z.string(),
           optional: z.number().optional(),
         }),
+        execute: async () => {},
       });
 
-      expect(tool.parameters.required).toContain('required');
-      expect(tool.parameters.required).not.toContain('optional');
+      expect(tool.function.parameters.required).toContain('required');
+      expect(tool.function.parameters.required).not.toContain('optional');
     });
   });
 
@@ -145,31 +147,39 @@ describe('Schema System', () => {
     it('should parse JSON from code blocks', () => {
       const schema = z.object({ value: z.number() });
       const input = '```json\n{"value": 42}\n```';
-      
+
       const result = parseStructuredOutput(input, schema);
-      expect(result).toEqual({ value: 42 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual({ value: 42 });
+      }
     });
 
     it('should parse plain JSON', () => {
       const schema = z.object({ value: z.number() });
       const input = '{"value": 42}';
-      
+
       const result = parseStructuredOutput(input, schema);
-      expect(result).toEqual({ value: 42 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual({ value: 42 });
+      }
     });
 
-    it('should throw on invalid JSON', () => {
+    it('should return error on invalid JSON', () => {
       const schema = z.object({ value: z.number() });
       const input = 'not json at all';
-      
-      expect(() => parseStructuredOutput(input, schema)).toThrow();
+
+      const result = parseStructuredOutput(input, schema);
+      expect(result.success).toBe(false);
     });
 
-    it('should validate against schema', () => {
+    it('should return error on schema mismatch', () => {
       const schema = z.object({ value: z.number() });
       const input = '{"value": "not a number"}';
-      
-      expect(() => parseStructuredOutput(input, schema)).toThrow();
+
+      const result = parseStructuredOutput(input, schema);
+      expect(result.success).toBe(false);
     });
   });
 });

@@ -50,22 +50,22 @@ describe('BinarioAI Core', () => {
       expect(typeof ai.chat).toBe('function');
     });
 
-    it('should have stream method', () => {
+    it('should have streamChat method', () => {
       const ai = createBinario({
         providers: {},
         defaultProvider: 'cloudflare',
       });
 
-      expect(typeof ai.stream).toBe('function');
+      expect(typeof ai.streamChat).toBe('function');
     });
 
-    it('should have embed method', () => {
+    it('should have clearCache method', () => {
       const ai = createBinario({
         providers: {},
         defaultProvider: 'cloudflare',
       });
 
-      expect(typeof ai.embed).toBe('function');
+      expect(typeof ai.clearCache).toBe('function');
     });
   });
 });

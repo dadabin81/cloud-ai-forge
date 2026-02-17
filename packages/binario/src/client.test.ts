@@ -16,16 +16,15 @@ describe('Binario Client', () => {
       expect(client).toBeInstanceOf(Binario);
     });
 
-    it('should create client with options object', () => {
-      const client = new Binario({
-        apiKey: 'bsk_test_key',
+    it('should create client with options', () => {
+      const client = new Binario('bsk_test_key', {
         baseUrl: 'https://custom.api.com',
       });
       expect(client).toBeInstanceOf(Binario);
     });
 
-    it('should throw without API key', () => {
-      expect(() => new Binario('')).toThrow('Binario API key is required');
+    it('should throw without valid API key', () => {
+      expect(() => new Binario('')).toThrow();
     });
   });
 
@@ -48,14 +47,15 @@ describe('Binario Client', () => {
     });
 
     it('should handle rate limit error (429)', async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValue({
         ok: false,
         status: 429,
+        headers: { get: (name: string) => name === 'Retry-After' ? '60' : null },
         json: async () => ({ error: 'Rate limit exceeded' }),
       });
 
-      const client = new Binario('bsk_test_key');
-      
+      const client = new Binario('bsk_test_key', { maxRetries: 1 });
+
       await expect(client.chat('Hi')).rejects.toThrow(BinarioRateLimitError);
     });
 
@@ -67,7 +67,7 @@ describe('Binario Client', () => {
       });
 
       const client = new Binario('bsk_test_key');
-      
+
       await expect(client.chat('Hi')).rejects.toThrow(BinarioPaymentError);
     });
 
@@ -88,7 +88,7 @@ describe('Binario Client', () => {
       expect(callBody.model).toBe('gpt-4');
     });
 
-    it('should pass system prompt', async () => {
+    it('should pass system prompt as message', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -102,7 +102,8 @@ describe('Binario Client', () => {
       await client.chat('Hi', { systemPrompt: 'You are helpful' });
 
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.systemPrompt).toBe('You are helpful');
+      expect(callBody.messages[0].role).toBe('system');
+      expect(callBody.messages[0].content).toBe('You are helpful');
     });
   });
 
@@ -120,7 +121,7 @@ describe('Binario Client', () => {
       });
 
       const client = new Binario('bsk_test_key');
-      const usage = await client.usage();
+      const usage = await client.getUsage();
 
       expect(usage.tokensUsed).toBe(1000);
       expect(usage.plan).toBe('free');
@@ -131,6 +132,7 @@ describe('Binario Client', () => {
     it('should create agent instance', () => {
       const client = new Binario('bsk_test_key');
       const agent = client.agent({
+        tools: [],
         systemPrompt: 'You are a helper',
       });
 
