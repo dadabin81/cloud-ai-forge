@@ -660,6 +660,7 @@ export function useBinarioMemory(
 
   // Create memory instance
   const memory = useRef<Memory | null>(null);
+  const [memoryState, setMemoryState] = useState<Memory | null>(null);
   const [conversationId, setConversationId] = useState(
     initialConversationId || `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   );
@@ -668,8 +669,8 @@ export function useBinarioMemory(
   const [isLoading, setIsLoading] = useState(false);
   const isInitialLoad = useRef(true);
 
-  // Initialize memory
-  useEffect(() => {
+  // Create memory instance synchronously based on type
+  const createMemory = useCallback(() => {
     const memoryOptions = {
       store: store.current,
       conversationId,
@@ -677,26 +678,42 @@ export function useBinarioMemory(
       maxTokens,
     };
 
+    let mem: Memory;
     switch (type) {
-      case 'summary':
+      case 'summary': {
         const summaryMem = new SummaryMemory({ ...memoryOptions, summarizer });
         if (summarizer) summaryMem.setSummarizer(summarizer);
-        memory.current = summaryMem;
+        mem = summaryMem;
         break;
-      case 'summary-buffer':
+      }
+      case 'summary-buffer': {
         const sbMem = new SummaryBufferMemory({ ...memoryOptions, bufferSize, summarizer });
         if (summarizer) sbMem.setSummarizer(summarizer);
-        memory.current = sbMem;
+        mem = sbMem;
         break;
+      }
       case 'vector':
         if (!embeddings) {
           throw new Error('VectorMemory requires an embeddings provider');
         }
-        memory.current = new VectorMemory({ ...memoryOptions, embeddings, topK, minScore });
+        mem = new VectorMemory({ ...memoryOptions, embeddings, topK, minScore });
         break;
       default:
-        memory.current = new BufferMemory(memoryOptions);
+        mem = new BufferMemory(memoryOptions);
     }
+    return mem;
+  }, [type, conversationId, maxMessages, maxTokens, summarizer, bufferSize, embeddings, topK, minScore]);
+
+  // Initialize memory synchronously on first render
+  if (!memory.current) {
+    memory.current = createMemory();
+    setMemoryState(memory.current);
+  }
+
+  // Re-initialize memory when type/conversationId changes
+  useEffect(() => {
+    memory.current = createMemory();
+    setMemoryState(memory.current);
 
     // Load initial messages
     loadMessages(isInitialLoad.current);
@@ -757,7 +774,7 @@ export function useBinarioMemory(
   }, []);
 
   return {
-    memory: memory.current!,
+    memory: memoryState!,
     messages,
     context,
     isLoading,
@@ -1267,7 +1284,7 @@ export function useBinarioSemanticSearch(
 ): UseBinarioSemanticSearchReturn {
   const { minScore = 0.5, maxResults = 10, ...embedOptions } = options;
   
-  const { embedMany, clearCache } = useBinarioEmbed(embedOptions);
+  const { embedMany, clearCache, error: embedError } = useBinarioEmbed(embedOptions);
   
   // Document index with embeddings
   const indexRef = useRef<Map<string, { document: SearchDocument; embedding: number[] }>>(new Map());
@@ -1285,10 +1302,19 @@ export function useBinarioSemanticSearch(
 
     try {
       const texts = documents.map(d => d.text);
-      const embeddings = await embedMany(texts);
+      let embeddings;
+      try {
+        embeddings = await embedMany(texts);
+      } catch (err) {
+        setError(err as Error);
+        setIsIndexing(false);
+        return;
+      }
       
       if (!embeddings) {
-        throw new Error('Failed to generate embeddings');
+        setError(embedError || new Error('Failed to generate embeddings'));
+        setIsIndexing(false);
+        return;
       }
 
       for (let i = 0; i < documents.length; i++) {

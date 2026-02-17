@@ -30,110 +30,70 @@ export function zodToJsonSchema(schema: z.ZodType<unknown>): Record<string, unkn
 }
 
 function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
-  const def = schema._def as { typeName?: string; description?: string };
-  const typeName = def.typeName;
-
+  const def = schema._def as Record<string, unknown>;
   const result: Record<string, unknown> = {};
 
-  if (def.description) {
-    result.description = def.description;
+  // Extract description - check both _def.description and schema.description
+  const desc = (def && def.description) || (schema as any).description;
+  if (desc && typeof desc === 'string') {
+    result.description = desc;
   }
 
-  switch (typeName) {
-    case 'ZodString':
-      result.type = 'string';
-      break;
-
-    case 'ZodNumber':
-      result.type = 'number';
-      break;
-
-    case 'ZodBoolean':
-      result.type = 'boolean';
-      break;
-
-    case 'ZodArray': {
-      const arrayDef = def as { typeName: string; type: z.ZodType<unknown> };
-      result.type = 'array';
-      result.items = convertZodToJson(arrayDef.type);
-      break;
+  // Use instanceof checks for robustness across zod versions
+  if (schema instanceof z.ZodString) {
+    result.type = 'string';
+  } else if (schema instanceof z.ZodNumber) {
+    result.type = 'number';
+  } else if (schema instanceof z.ZodBoolean) {
+    result.type = 'boolean';
+  } else if (schema instanceof z.ZodArray) {
+    result.type = 'array';
+    // Zod 3.25+ uses 'element', older versions use 'type'
+    const innerType = def.type || def.element || (schema as any)._def?.type || (schema as any).element;
+    if (innerType) {
+      result.items = convertZodToJson(innerType as z.ZodType<unknown>);
     }
+  } else if (schema instanceof z.ZodObject) {
+    result.type = 'object';
+    const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
 
-    case 'ZodObject': {
-      const objectDef = def as { typeName: string; shape: () => Record<string, z.ZodType<unknown>> };
-      result.type = 'object';
-      const shape = objectDef.shape();
-      const properties: Record<string, unknown> = {};
-      const required: string[] = [];
-
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = convertZodToJson(value);
-        // Check if the field is optional
-        const valueDef = (value as z.ZodType<unknown>)._def as { typeName?: string };
-        if (valueDef.typeName !== 'ZodOptional') {
-          required.push(key);
-        }
+    for (const [key, value] of Object.entries(shape)) {
+      properties[key] = convertZodToJson(value as z.ZodType<unknown>);
+      if (!(value instanceof z.ZodOptional)) {
+        required.push(key);
       }
-
-      result.properties = properties;
-      if (required.length > 0) {
-        result.required = required;
-      }
-      break;
     }
 
-    case 'ZodEnum': {
-      const enumDef = def as { typeName: string; values: string[] };
-      result.type = 'string';
-      result.enum = enumDef.values;
-      break;
+    result.properties = properties;
+    if (required.length > 0) {
+      result.required = required;
     }
-
-    case 'ZodOptional': {
-      const optionalDef = def as { typeName: string; innerType: z.ZodType<unknown> };
-      return convertZodToJson(optionalDef.innerType);
-    }
-
-    case 'ZodNullable': {
-      const nullableDef = def as { typeName: string; innerType: z.ZodType<unknown> };
-      const inner = convertZodToJson(nullableDef.innerType);
-      return { ...inner, nullable: true };
-    }
-
-    case 'ZodDefault': {
-      const defaultDef = def as { typeName: string; innerType: z.ZodType<unknown>; defaultValue: () => unknown };
-      const inner = convertZodToJson(defaultDef.innerType);
-      return { ...inner, default: defaultDef.defaultValue() };
-    }
-
-    case 'ZodUnion': {
-      const unionDef = def as { typeName: string; options: z.ZodType<unknown>[] };
-      result.oneOf = unionDef.options.map(convertZodToJson);
-      break;
-    }
-
-    case 'ZodLiteral': {
-      const literalDef = def as { typeName: string; value: unknown };
-      result.const = literalDef.value;
-      break;
-    }
-
-    case 'ZodRecord': {
-      const recordDef = def as { typeName: string; valueType: z.ZodType<unknown> };
-      result.type = 'object';
-      result.additionalProperties = convertZodToJson(recordDef.valueType);
-      break;
-    }
-
-    case 'ZodTuple': {
-      const tupleDef = def as { typeName: string; items: z.ZodType<unknown>[] };
-      result.type = 'array';
-      result.items = tupleDef.items.map(convertZodToJson);
-      break;
-    }
-
-    default:
-      result.type = 'string'; // Fallback
+  } else if (schema instanceof z.ZodEnum) {
+    result.type = 'string';
+    result.enum = (def.values as string[]) || (schema as any).options || (schema as any)._def?.values;
+  } else if (schema instanceof z.ZodOptional) {
+    return convertZodToJson((schema as z.ZodOptional<z.ZodType<unknown>>)._def.innerType);
+  } else if (schema instanceof z.ZodNullable) {
+    const inner = convertZodToJson((schema as z.ZodNullable<z.ZodType<unknown>>)._def.innerType);
+    return { ...inner, nullable: true };
+  } else if (schema instanceof z.ZodDefault) {
+    const defaultDef = (schema as z.ZodDefault<z.ZodType<unknown>>)._def;
+    const inner = convertZodToJson(defaultDef.innerType);
+    return { ...inner, default: defaultDef.defaultValue() };
+  } else if (schema instanceof z.ZodUnion) {
+    result.oneOf = ((schema as z.ZodUnion<[z.ZodType<unknown>, ...z.ZodType<unknown>[]]>)._def.options as z.ZodType<unknown>[]).map(convertZodToJson);
+  } else if (schema instanceof z.ZodLiteral) {
+    result.const = (schema as z.ZodLiteral<unknown>)._def.value;
+  } else if (schema instanceof z.ZodRecord) {
+    result.type = 'object';
+    result.additionalProperties = convertZodToJson((schema as z.ZodRecord<z.ZodString, z.ZodType<unknown>>)._def.valueType);
+  } else if (schema instanceof z.ZodTuple) {
+    result.type = 'array';
+    result.items = ((schema as z.ZodTuple)._def.items as z.ZodType<unknown>[]).map(convertZodToJson);
+  } else {
+    result.type = 'string'; // Fallback
   }
 
   return result;

@@ -815,7 +815,7 @@ describe('useBinarioSemanticSearch', () => {
       });
 
       expect(result.current.error).not.toBeNull();
-      expect(result.current.error?.message).toBe('Indexing failed');
+      expect(result.current.error?.message).toBe('Failed to generate embeddings');
     });
 
     it('should handle embedding errors during search', async () => {
