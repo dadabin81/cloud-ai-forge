@@ -355,16 +355,8 @@ export default function Playground() {
       setProjectFiles(merged);
       setActiveFile(Object.keys(virtualFiles)[0]);
     } else if (hasOnlyNonWebCode(lastAssistant.content)) {
-      // AI generated non-web code — nudge it to regenerate as web code
-      toast.warning('El AI generó código no-web. Pidiendo regeneración como aplicación web...');
-      // Auto-send a correction message
-      const correctionMsg = 'Por favor regenera el proyecto como una aplicación web usando HTML, CSS y React/JSX con datos ficticios simulados. Usa el formato `// filename: ruta/archivo.ext` antes de cada bloque de código. NO uses Python ni backend.';
-      setMessages(prev => [...prev, { role: 'user', content: correctionMsg, timestamp: Date.now() }]);
-      // Trigger HTTP send after a short delay
-      setTimeout(() => {
-        const effectiveApiKey = getEffectiveApiKey();
-        if (effectiveApiKey) sendHttp(correctionMsg);
-      }, 500);
+      // AI generated non-web code — show warning, don't auto-retry (avoids 429)
+      toast.warning('El AI generó código no-web (Python/Java). Envía un mensaje pidiendo que lo genere como app web con HTML/CSS/React.');
     }
   }, [messages]);
 
@@ -449,9 +441,9 @@ export default function Playground() {
       return;
     }
 
-    // Auto-enrich with RAG context (silent)
-    let ragContext: string | null = null;
-    try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
+    // Auto-enrich with RAG context (disabled - Vectorize returns 500)
+    const ragContext: string | null = null;
+    // try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
 
     // Build system prompt with file context for incremental editing
     const fileContext = buildFileContextPrompt(projectFiles);

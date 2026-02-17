@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { cn } from '@/lib/utils';
 import { FileCode, FilePlus, Trash2 } from 'lucide-react';
 
@@ -11,15 +12,15 @@ interface ChatMessageProps {
  * Renders a chat message with professional markdown formatting.
  * Separates explanatory text from code blocks, showing file operations as compact badges.
  */
-export function ChatMessage({ content, role, className }: ChatMessageProps) {
+export const ChatMessage = forwardRef<HTMLDivElement, ChatMessageProps>(({ content, role, className }, ref) => {
   if (role === 'user') {
-    return <span className="text-[13px] leading-relaxed">{content}</span>;
+    return <span ref={ref as React.Ref<HTMLSpanElement>} className="text-[13px] leading-relaxed">{content}</span>;
   }
 
   const segments = parseMessageContent(content);
 
   return (
-    <div className={cn('text-[13px] leading-relaxed space-y-2', className)}>
+    <div ref={ref} className={cn('text-[13px] leading-relaxed space-y-2', className)}>
       {segments.map((seg, i) => {
         if (seg.type === 'file-badge') {
           return (
@@ -61,7 +62,10 @@ export function ChatMessage({ content, role, className }: ChatMessageProps) {
       })}
     </div>
   );
-}
+});
+
+
+
 
 type Segment =
   | { type: 'text'; text: string }
