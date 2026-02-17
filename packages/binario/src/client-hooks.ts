@@ -248,9 +248,9 @@ export function useAgent(client: Binario, options: UseAgentOptions): UseAgentRet
       
       if (abortRef.current) return null;
 
-      setOutput(result.output || result.result || '');
-      if (result.toolCalls || result.toolResults) {
-        const calls = (result.toolCalls || result.toolResults || []).map((tc: any) => ({
+      setOutput(result.output || '');
+      if (result.toolCalls) {
+        const calls = result.toolCalls.map((tc: any) => ({
           tool: tc.tool || tc.name,
           args: tc.args || tc.arguments,
         }));
@@ -258,7 +258,7 @@ export function useAgent(client: Binario, options: UseAgentOptions): UseAgentRet
         calls.forEach((tc: any) => options.onToolCall?.(tc.tool, tc.args));
       }
       
-      return result.output || result.result || '';
+      return result.output || '';
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       setError(e);
