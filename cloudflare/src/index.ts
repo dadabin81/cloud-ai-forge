@@ -453,8 +453,6 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
       .bind(newHash.hash, user.id).run();
   }
-    return jsonError('Invalid email or password', 401);
-  }
 
   // Create session
   const sessionToken = crypto.randomUUID();
