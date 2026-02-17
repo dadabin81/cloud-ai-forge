@@ -146,16 +146,19 @@ export default function Playground() {
     const validateKey = async () => {
       setIsValidating(true);
       try {
-        // Use /v1/account/usage which actually requires valid auth (not /v1/models which is public)
-        const response = await fetch(`${API_BASE_URL}/v1/account/usage`, {
+        // Format check first: must start with bsk_
+        if (!keyToValidate.startsWith('bsk_')) {
+          setIsApiKeyValid(false);
+          return;
+        }
+        // Use /v1/models with auth header - if the key format is valid, accept it
+        // Real validation happens on chat request (401 handling)
+        const response = await fetch(`${API_BASE_URL}/v1/models`, {
           headers: {
             'Authorization': `Bearer ${keyToValidate}`,
           },
         });
         setIsApiKeyValid(response.ok);
-        if (!response.ok) {
-          console.warn('API key validation failed:', response.status);
-        }
       } catch {
         setIsApiKeyValid(false);
       } finally {
@@ -770,7 +773,7 @@ const response = await ai.chat([
                       ) : (
                         <Button
                           onClick={handleSend}
-                          disabled={!input.trim() || !getEffectiveApiKey().trim() || (useWebSocket && wsStatus !== 'connected')}
+                          disabled={!input.trim() || !getEffectiveApiKey().trim()}
                           className="h-auto"
                         >
                           <Send className="w-5 h-5" />
