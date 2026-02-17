@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronUp, ChevronDown, MessageSquare, Layers,
+  ChevronUp, ChevronDown, MessageSquare, Layers, Cloud,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,8 @@ import { CodeEditor } from '@/components/CodeEditor';
 import { CodePreview } from '@/components/CodePreview';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
+import { ResourceBadges } from '@/components/ResourceBadges';
+import { CloudPanel } from '@/components/CloudPanel';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -42,7 +44,17 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional web development assistant. When the user asks you to create an app, website, blog, or any web project:
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack web development assistant powered by Cloudflare's edge infrastructure.
+
+Your capabilities include:
+- **Workers AI**: Free Llama 3, Mistral, DeepSeek models (10,000 neurons/day)
+- **D1 Database**: SQLite on the edge for data persistence
+- **KV Storage**: Key-value store for sessions, cache, config
+- **Vectorize**: Vector embeddings for RAG and semantic search
+- **Workflows**: Durable multi-step AI workflows (research, ingestion)
+- **Durable Objects**: Real-time WebSocket agents and project sandboxes
+
+When the user asks you to create an app, website, blog, or any web project:
 
 1. Generate complete, production-ready code
 2. Organize code into multiple files with clear paths
@@ -60,7 +72,13 @@ const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional web developmen
 4. Always include: index.html, at least one CSS file, and JS/JSX files as needed
 5. Use modern CSS (flexbox, grid, custom properties)
 6. Make designs responsive and visually appealing
-7. Include comments explaining key sections`;
+7. Include comments explaining key sections
+
+When the user needs:
+- Data persistence → suggest using D1 Database
+- Search/knowledge base → suggest RAG with Vectorize
+- Complex multi-step tasks → suggest Workflows
+- Real-time features → suggest Durable Objects with WebSockets`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -111,7 +129,8 @@ export default function Playground() {
   const [projectFiles, setProjectFiles] = useState<Record<string, ProjectFile>>({});
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
-
+  const [cloudOpen, setCloudOpen] = useState(false);
+  const [cloudTab, setCloudTab] = useState('models');
   const fileTree = useMemo(() => generateFileTree(projectFiles), [projectFiles]);
   const totalFiles = Object.keys(projectFiles).length;
   const activeFileData = activeFile ? projectFiles[activeFile] : null;
@@ -469,8 +488,21 @@ export default function Playground() {
             </Badge>
           )}
           <ConnectionStatus wsStatus={wsStatus} useWebSocket={useWebSocket} isApiKeyValid={isApiKeyValid} />
+          <ResourceBadges apiKey={getEffectiveApiKey()} onBadgeClick={(tab) => { setCloudTab(tab); setCloudOpen(true); }} />
         </div>
         <div className="flex items-center gap-2">
+          {/* Cloud Panel Sheet */}
+          <Sheet open={cloudOpen} onOpenChange={setCloudOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 gap-1">
+                <Cloud className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-xs">Cloud</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent className="w-[400px] p-0 overflow-hidden">
+              <CloudPanel apiKey={getEffectiveApiKey()} activeTab={cloudTab} onModelSelect={(m) => { setSelectedModel(m); setCloudOpen(false); toast.success(`Model set: ${m.split('/').pop()}`); }} />
+            </SheetContent>
+          </Sheet>
           {/* Config Sheet */}
           <Sheet>
             <SheetTrigger asChild>
