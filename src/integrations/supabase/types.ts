@@ -41,6 +41,50 @@ export type Database = {
         }
         Relationships: []
       }
+      deployments: {
+        Row: {
+          created_at: string
+          deployment_url: string | null
+          id: string
+          metadata: Json | null
+          project_id: string | null
+          project_name: string
+          provider: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deployment_url?: string | null
+          id?: string
+          metadata?: Json | null
+          project_id?: string | null
+          project_name: string
+          provider?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          deployment_url?: string | null
+          id?: string
+          metadata?: Json | null
+          project_id?: string | null
+          project_name?: string
+          provider?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deployments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "playground_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       playground_projects: {
         Row: {
           created_at: string
@@ -69,6 +113,36 @@ export type Database = {
           name?: string
           status?: string | null
           template?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_deploy_configs: {
+        Row: {
+          account_id: string | null
+          created_at: string
+          encrypted_token: string | null
+          id: string
+          provider: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string
+          encrypted_token?: string | null
+          id?: string
+          provider?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string
+          encrypted_token?: string | null
+          id?: string
+          provider?: string
           updated_at?: string
           user_id?: string
         }
