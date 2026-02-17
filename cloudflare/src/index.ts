@@ -60,6 +60,7 @@ function getCorsHeaders(request: Request): Record<string, string> {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
     'Access-Control-Allow-Credentials': 'true',
   };
+}
 // Default CORS headers for non-request contexts (fallback)
 const corsHeaders = getCorsHeaders(new Request('https://binarioai-sdk.lovable.app'));
 
