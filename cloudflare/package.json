@@ -14,7 +14,7 @@
     "kv:create": "wrangler kv:namespace create CACHE",
     "tail": "wrangler tail",
     "types": "wrangler types",
-    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --target=es2022"
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --target=es2022 --external:cloudflare:workers"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
