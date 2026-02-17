@@ -1,176 +1,145 @@
 
+# Unleashing Binario's Full Cloudflare Arsenal in the Playground
 
-# Playground Profesional: IDE de Creacion de Apps con IA
+## The Problem
 
-## Resumen
+Right now, the Playground only uses ONE endpoint (`/v1/chat/completions`). Meanwhile, the backend has **8 active Cloudflare bindings** that are completely hidden from users:
 
-Transformar el Playground actual de un simple chat con preview en un **mini-IDE profesional** donde la IA genera proyectos completos con multiples archivos, estructura de carpetas visible, editor de codigo, y preview en vivo. Todo usando el poder gratuito de Cloudflare Workers AI.
+| Binding | Status in Playground |
+|---------|---------------------|
+| env.AI (Workers AI) | Used (chat only) |
+| env.BINARIO_AGENT (Durable Object) | WebSocket toggle exists, but not showcased |
+| env.SANDBOX_PROJECT (Durable Object) | Completely unused |
+| env.DB (D1 Database) | Hidden from users |
+| env.KV (KV Namespace) | Hidden from users |
+| env.VECTORIZE_INDEX (Vectorize) | Completely unused |
+| env.RESEARCH_WORKFLOW (Workflow) | Completely unused |
+| env.RAG_WORKFLOW (Workflow) | Completely unused |
 
-## Que se va a construir
+## The Solution
 
-```text
-+------------------+------------------------+--------------------+
-|  FILE EXPLORER   |     CODE EDITOR        |   LIVE PREVIEW     |
-|                  |                        |                    |
-|  > src/          | // App.jsx             |  [Rendered App]    |
-|    App.jsx       | function App() {       |                    |
-|    styles.css    |   return <div>...</div> |  [Desktop/Mobile]  |
-|  > public/       | }                      |                    |
-|    index.html    |                        |  [Download ZIP]    |
-|                  |                        |                    |
-+------------------+------------------------+--------------------+
-|  CHAT - "Crea una landing page para una startup de IA"         |
-+----------------------------------------------------------------+
-```
+Add a **"Binario Cloud" panel** to the Playground that exposes all backend capabilities as interactive features, demonstrating Binario's dominance as a full-stack AI SDK.
 
-## Cambios tecnicos detallados
+## Changes
 
-### 1. Nuevo: `src/lib/projectGenerator.ts` - Motor de proyectos multi-archivo
+### 1. New Component: `src/components/CloudPanel.tsx` - Infrastructure Dashboard
 
-Utilidad que parsea la respuesta de la IA y extrae multiples archivos con sus rutas:
+A tabbed panel that replaces the empty state in the File Explorer area (or appears as a new sidebar section) showing all available Cloudflare resources:
 
-- Detecta bloques de codigo con nombres de archivo en comentarios o headers (ej: `// src/App.jsx`, `<!-- index.html -->`)
-- Funcion `parseProjectFiles(content)` que retorna un mapa `Record<string, { code: string, language: string }>`
-- Funcion `buildProjectPreview(files)` que combina todos los archivos en un documento HTML ejecutable
-- Funcion `generateFileTree(files)` que crea la estructura de arbol para el explorador
-- Soporte para detectar patrones como: `**archivo: src/App.jsx**`, lineas con `// filename:`, headers markdown con rutas
+**Tab: AI Models**
+- Show the 6 available models from `/v1/models` with tier badges
+- One-click model switching
+- Live token/neuron counter
 
-### 2. Nuevo: `src/components/FileExplorer.tsx` - Panel de archivos tipo VS Code
+**Tab: RAG (Vectorize)**
+- Text input to **ingest documents** via `/v1/rag/ingest`
+- Search box to **query documents** via `/v1/rag/query`
+- Show embedding info via `/v1/rag/info`
+- Display search results with relevance scores
+- This demonstrates the Vectorize binding in action
 
-Componente de arbol de archivos con iconos por tipo:
+**Tab: Workflows**
+- Button to launch **Research Workflow** via `/v1/workflows/research`
+- Button to launch **RAG Ingest Workflow** via `/v1/workflows/rag-ingest`
+- Status checker via `/v1/workflows/status/:id` with polling
+- Shows step-by-step progress of multi-step AI workflows
+- This demonstrates the durable Workflows binding
 
-- Arbol colapsable con carpetas y archivos
-- Iconos diferenciados: HTML (naranja), CSS (azul), JS/JSX (amarillo), JSON (verde), imagenes (purpura)
-- Click en archivo selecciona y muestra su codigo en el editor
-- Indicador visual del archivo activo
-- Contador de archivos totales
-- Animaciones suaves de expansion/colapso usando Radix Collapsible
+**Tab: Sandbox (Projects)**
+- Template selector (react-vite, node-express, vanilla-js, python-flask)
+- Create project button via `/v1/projects/` endpoints
+- File manager using the SandboxProject DO
+- This demonstrates the Durable Object binding for project management
 
-### 3. Nuevo: `src/components/CodeEditor.tsx` - Visor de codigo con syntax highlighting
+**Tab: Status**
+- Live health dashboard from `/health` showing all binding statuses
+- Provider status from `/v1/providers/status`
+- Visual indicators: AI, D1, KV, Vectorize, Workflows, Durable Objects all green
 
-Panel de visualizacion de codigo con numeracion de lineas:
+### 2. Modify: `src/pages/Playground.tsx` - Add Cloud Panel
 
-- Numeracion de lineas
-- Coloreado basico por lenguaje (HTML tags, CSS properties, JS keywords) usando regex simple
-- Nombre del archivo activo en la barra superior
-- Boton para copiar el archivo actual
-- Boton para copiar todo el proyecto
-- Scroll independiente
+- Add a new "Cloud" tab/button in the top bar next to "Config"
+- When clicked, shows the CloudPanel as a Sheet or as a fourth resizable panel
+- The panel connects to all the backend endpoints using the user's API key
+- Auto-refresh health status on load
 
-### 4. Nuevo: `src/components/PreviewToolbar.tsx` - Barra de herramientas del preview
+### 3. New Component: `src/components/ResourceBadges.tsx` - Top Bar Indicators
 
-Controles profesionales para el preview:
+A row of small badges in the Playground top bar showing live status of each binding:
+- AI (green) | D1 (green) | KV (green) | Vectorize (green) | Workflows (green) | DO (green)
+- Clicking any badge opens the corresponding Cloud Panel tab
+- This immediately communicates to users the breadth of Binario's infrastructure
 
-- Botones de viewport: Desktop (1280px), Tablet (768px), Mobile (375px)
-- Boton de pantalla completa
-- Boton de refrescar
-- Boton "Download Project" que genera un ZIP con todos los archivos (usando Blob API, sin dependencias externas)
-- Indicador del tamano actual del viewport
+### 4. Modify: System Prompt Enhancement
 
-### 5. Modificar: `src/components/CodePreview.tsx` - Preview mejorado
+Update the DEFAULT_SYSTEM_PROMPT to be aware of all Cloudflare capabilities:
+- When user asks for a project with data persistence, mention D1
+- When user asks for search/knowledge base, mention RAG with Vectorize
+- When user asks for complex multi-step tasks, mention Workflows
+- This makes the AI assistant itself a demo of the platform's knowledge
 
-Mejorar el componente existente:
+### 5. New Utility: `src/lib/cloudflareApi.ts` - API Client for All Endpoints
 
-- Recibir `files: Record<string, {code, language}>` en vez de solo `content: string`
-- Construir el preview combinando todos los archivos del proyecto
-- Soporte para viewport responsivo (width configurable)
-- Barra de URL simulada mostrando "localhost:3000"
-- Fondo blanco por defecto para que el preview se vea limpio
+Centralized API client with typed methods for every backend endpoint:
+- `ragIngest(content, metadata)` - Ingest documents
+- `ragSearch(query, topK)` - Semantic search
+- `ragQuery(query)` - RAG query with AI answer
+- `workflowResearch(topic)` - Start research workflow
+- `workflowStatus(instanceId)` - Check workflow status
+- `projectCreate(name, template)` - Create sandbox project
+- `projectFiles(id)` - List project files
+- `healthCheck()` - Full health status
 
-### 6. Modificar: `src/pages/Playground.tsx` - Layout de IDE completo
-
-Reestructurar el layout completo:
-
-- **Layout principal**: Dividir en 3 columnas con `react-resizable-panels` (ya instalado):
-  - Izquierda (20%): FileExplorer 
-  - Centro (40%): CodeEditor
-  - Derecha (40%): LivePreview con toolbar
-- **Chat en la parte inferior**: Panel colapsable en la parte baja que contiene el chat actual
-- **System prompt mejorado**: Prompt por defecto que instruye a la IA a generar proyectos con multiples archivos, usando el formato `// filename: ruta/archivo.ext`
-- **Estado nuevo**: `projectFiles` (mapa de archivos), `activeFile` (archivo seleccionado), `viewport` (desktop/tablet/mobile)
-- **Auto-deteccion**: Cuando la IA responde, parsear automaticamente los archivos y poblar el FileExplorer
-- **Panel de config**: Mover configuracion de API key, provider, y modelo a un drawer/sheet lateral para maximizar espacio
-
-### 7. Modificar: `src/lib/codeExtractor.ts` - Ampliar extraccion
-
-Agregar soporte para el nuevo formato multi-archivo:
-
-- Mantener compatibilidad con el formato actual de bloques simples
-- Agregar deteccion de patrones de nombre de archivo
-- Funcion `extractProjectFromMarkdown(content)` que detecta multiples archivos en una sola respuesta
-- Fallback: si no se detectan nombres de archivo, usar el comportamiento actual (preview de bloque unico)
-
-### 8. System prompt optimizado para generacion de proyectos
-
-El prompt por defecto se actualizara para instruir a la IA:
+## User Experience Flow
 
 ```text
-You are Binario AI, a professional web development assistant. When the user asks 
-you to create an app, website, blog, or any web project:
+1. User opens Playground
+   -> Top bar shows: AI | D1 | KV | Vectorize | Workflows | DO - all green
+   -> This immediately shows the platform's power
 
-1. Generate complete, production-ready code
-2. Organize code into multiple files with clear paths
-3. Use this format for each file:
+2. User clicks "Cloud" button
+   -> Panel opens showing all resources in tabs
 
-// filename: src/App.jsx
-[code here]
+3. RAG Demo:
+   -> User pastes a document into "Ingest" tab
+   -> Clicks "Ingest" -> document is chunked, embedded, stored
+   -> User types a question in "Query" -> gets AI answer with sources
+   -> User sees: "Powered by Vectorize + Workers AI"
 
-// filename: src/styles.css  
-[code here]
+4. Workflow Demo:
+   -> User types a research topic
+   -> Clicks "Research" -> workflow starts
+   -> Live status: "Step 1/4: Analyzing query..." 
+   -> Shows final research report with sources
 
-// filename: index.html
-[code here]
+5. Sandbox Demo:
+   -> User selects "React Vite" template
+   -> Clicks "Create Project"
+   -> File Explorer populates with template files
+   -> Shows project managed by Durable Object
 
-4. Always include: index.html, at least one CSS file, and JS/JSX files as needed
-5. Use modern CSS (flexbox, grid, custom properties)
-6. Make designs responsive and visually appealing
-7. Include comments explaining key sections
+6. Regular Chat:
+   -> All existing chat + code preview + file explorer functionality preserved
 ```
 
-## Flujo del usuario
+## Why This Dominates the VibeCoding SDK Market
 
-```text
-1. Usuario abre el Playground
-   -> Ve interfaz tipo IDE con 3 paneles + chat abajo
+No other SDK (Vercel AI, LangChain, etc.) offers ALL of these in one playground:
+- Real-time WebSocket chat via Durable Objects
+- Persistent project management via Durable Objects
+- Semantic search via Vectorize embeddings
+- Multi-step AI workflows via Cloudflare Workflows
+- Persistent storage via D1 + KV
+- 6 free AI models via Workers AI
+- All running on edge, globally distributed, zero cold start
 
-2. Usuario escribe: "Crea un blog moderno sobre tecnologia"
-   -> IA genera multiples archivos (index.html, styles.css, app.js, etc.)
+## Files to Create/Modify
 
-3. Auto-deteccion de archivos
-   -> FileExplorer se llena con la estructura del proyecto
-   -> Preview muestra el resultado renderizado
-   -> CodeEditor muestra el primer archivo
+| File | Action |
+|------|--------|
+| `src/lib/cloudflareApi.ts` | CREATE - Typed API client for all endpoints |
+| `src/components/CloudPanel.tsx` | CREATE - Infrastructure dashboard with tabs |
+| `src/components/ResourceBadges.tsx` | CREATE - Status badges for top bar |
+| `src/pages/Playground.tsx` | MODIFY - Add Cloud button, resource badges, panel integration |
 
-4. Usuario navega archivos
-   -> Click en styles.css -> ve el CSS con syntax highlighting
-   -> Click en app.js -> ve el JavaScript
-
-5. Usuario ajusta viewport
-   -> Click en "Mobile" -> preview se reduce a 375px
-   -> Click en "Desktop" -> preview vuelve a 1280px
-
-6. Usuario descarga
-   -> Click en "Download" -> descarga ZIP con todos los archivos
-```
-
-## Monetizacion y valor profesional
-
-- **Free tier**: Usa Cloudflare Workers AI (Llama 3) gratis, 10k neurons/dia
-- **Diferenciador**: Ningun otro SDK ofrece un IDE playground gratuito que genera proyectos completos
-- **Upsell natural**: Usuarios que necesitan mas generaciones o modelos premium -> plan Pro
-- **Valor demostrable**: El Playground mismo demuestra la potencia del SDK, convirtiendo visitantes en usuarios
-
-## Archivos a crear/modificar
-
-| Archivo | Accion |
-|---------|--------|
-| `src/lib/projectGenerator.ts` | CREAR - Parser de proyectos multi-archivo |
-| `src/components/FileExplorer.tsx` | CREAR - Arbol de archivos |
-| `src/components/CodeEditor.tsx` | CREAR - Visor de codigo |
-| `src/components/PreviewToolbar.tsx` | CREAR - Controles del preview |
-| `src/components/CodePreview.tsx` | MODIFICAR - Soporte multi-archivo + viewport |
-| `src/pages/Playground.tsx` | MODIFICAR - Layout IDE completo |
-| `src/lib/codeExtractor.ts` | MODIFICAR - Extraccion multi-archivo |
-
-No se requieren dependencias nuevas: se usa `react-resizable-panels` (ya instalado), Radix UI (ya instalado), y Blob API nativa para la descarga ZIP.
-
+No new dependencies required. Uses existing UI components (Tabs, Badge, Sheet, Button) and the existing API_BASE_URL.
