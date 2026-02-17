@@ -146,12 +146,16 @@ export default function Playground() {
     const validateKey = async () => {
       setIsValidating(true);
       try {
-        const response = await fetch(`${API_BASE_URL}/v1/models`, {
+        // Use /v1/account/usage which actually requires valid auth (not /v1/models which is public)
+        const response = await fetch(`${API_BASE_URL}/v1/account/usage`, {
           headers: {
             'Authorization': `Bearer ${keyToValidate}`,
           },
         });
         setIsApiKeyValid(response.ok);
+        if (!response.ok) {
+          console.warn('API key validation failed:', response.status);
+        }
       } catch {
         setIsApiKeyValid(false);
       } finally {
@@ -445,15 +449,18 @@ export default function Playground() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          toast.error('Invalid API key');
+          toast.error('API key inválida. Regenera tu API key desde el Dashboard.');
           setIsApiKeyValid(false);
+          // Remove the failed user message so UI stays clean
+          setMessages(prev => prev.slice(0, -1));
           return;
         }
         if (response.status === 429) {
-          toast.error('Rate limit exceeded');
+          toast.error('Límite de peticiones excedido. Espera un momento.');
           return;
         }
-        throw new Error(`API error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
 
       const contentType = response.headers.get('content-type') || '';
