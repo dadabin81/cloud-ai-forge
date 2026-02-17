@@ -115,10 +115,18 @@ interface ChatRequest {
 // Provider-specific model mappings
 const PROVIDER_MODELS: Record<string, string[]> = {
   cloudflare: [
+    '@cf/meta/llama-3.2-1b-instruct',
+    '@cf/meta/llama-3.2-3b-instruct',
     '@cf/meta/llama-3.1-8b-instruct',
+    '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
+    '@cf/mistral/mistral-7b-instruct-v0.2',
     '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
     '@cf/meta/llama-3.2-11b-vision-instruct',
     '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
+    '@cf/qwen/qwen2.5-coder-32b-instruct',
+    '@cf/mistralai/mistral-small-3.1-24b-instruct',
+    '@cf/qwen/qwen3-30b-a3b-fp8',
   ],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
   anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
@@ -1598,13 +1606,25 @@ function getNextMonthResetTimestamp(): number {
 }
 
 function getAvailableModels(env?: Env) {
-  const models: Array<{ id: string; name: string; tier: string; provider: string }> = [
-    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare' },
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare' },
-    { id: '@cf/mistral/mistral-7b-instruct-v0.2', name: 'Mistral 7B', tier: 'free', provider: 'cloudflare' },
-    { id: '@cf/qwen/qwen1.5-14b-chat-awq', name: 'Qwen 1.5 14B', tier: 'pro', provider: 'cloudflare' },
-    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', tier: 'pro', provider: 'cloudflare' },
-    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare' },
+  const models: Array<{
+    id: string; name: string; tier: string; provider: string;
+    neurons_per_m_input?: number; neurons_per_m_output?: number;
+    capabilities?: string[]; context_window?: number;
+  }> = [
+    // Free tier models (included in 10,000 neurons/day)
+    { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 2457, neurons_per_m_output: 18252, capabilities: ['chat'], context_window: 131072 },
+    { id: '@cf/meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4625, neurons_per_m_output: 34375, capabilities: ['chat', 'code'], context_window: 131072 },
+    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
+    { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
+    { id: '@cf/mistral/mistral-7b-instruct-v0.2', name: 'Mistral 7B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 3800, neurons_per_m_output: 28000, capabilities: ['chat'], context_window: 32768 },
+    // Pro tier models (low cost per neuron)
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 26668, neurons_per_m_output: 204805, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072 },
+    { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 10000, neurons_per_m_output: 75000, capabilities: ['chat', 'code', 'vision'], context_window: 131072 },
+    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 8500, neurons_per_m_output: 63000, capabilities: ['chat', 'vision'], context_window: 131072 },
+    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['chat', 'reasoning'], context_window: 65536 },
+    { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['code'], context_window: 131072 },
+    { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1 24B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 12000, neurons_per_m_output: 90000, capabilities: ['chat', 'code'], context_window: 131072 },
+    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen 3 30B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 14000, neurons_per_m_output: 105000, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072 },
   ];
 
   // Add external provider models only if configured

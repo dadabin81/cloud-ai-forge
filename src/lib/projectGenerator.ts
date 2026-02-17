@@ -140,7 +140,7 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
   
   const cssFiles = entries.filter(([p]) => p.endsWith('.css')).map(([, f]) => f.code);
   const jsFiles = entries.filter(([p]) => /\.(js|mjs)$/.test(p) && !/\.jsx$/.test(p)).map(([, f]) => f.code);
-  const jsxFiles = entries.filter(([p]) => /\.(jsx|tsx)$/.test(p)).map(([, f]) => f.code);
+  const jsxFiles = entries.filter(([p]) => /\.(jsx|tsx)$/.test(p));
   const htmlFiles = entries.filter(([p]) => /\.html?$/.test(p)).map(([, f]) => f.code);
 
   const hasJsx = jsxFiles.length > 0;
@@ -189,9 +189,20 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
   }
 
 
-  // JSX/React mode - load React from CDN
+  // JSX/React mode - concatenate all JSX in dependency order (components first, App last)
   if (hasJsx) {
-    const jsxCode = jsxFiles.join('\n\n');
+    const sortedJsx = [...jsxFiles].sort(([pathA], [pathB]) => {
+      const isCompA = pathA.includes('/components/');
+      const isCompB = pathB.includes('/components/');
+      const isAppA = pathA.toLowerCase().includes('app.');
+      const isAppB = pathB.toLowerCase().includes('app.');
+      if (isCompA && !isCompB) return -1;
+      if (!isCompA && isCompB) return 1;
+      if (isAppA && !isAppB) return 1;
+      if (!isAppA && isAppB) return -1;
+      return pathA.localeCompare(pathB);
+    });
+    const jsxCode = sortedJsx.map(([, f]) => f.code).join('\n\n');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
