@@ -33,9 +33,10 @@ function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
   const def = schema._def as Record<string, unknown>;
   const result: Record<string, unknown> = {};
 
-  // Extract description
-  if (def.description && typeof def.description === 'string') {
-    result.description = def.description;
+  // Extract description - check both _def.description and schema.description
+  const desc = (def && def.description) || (schema as any).description;
+  if (desc && typeof desc === 'string') {
+    result.description = desc;
   }
 
   // Use instanceof checks for robustness across zod versions
@@ -47,7 +48,11 @@ function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
     result.type = 'boolean';
   } else if (schema instanceof z.ZodArray) {
     result.type = 'array';
-    result.items = convertZodToJson((schema as z.ZodArray<z.ZodType<unknown>>)._def.type);
+    // Zod 3.25+ uses 'element', older versions use 'type'
+    const innerType = def.type || def.element || (schema as any)._def?.type || (schema as any).element;
+    if (innerType) {
+      result.items = convertZodToJson(innerType as z.ZodType<unknown>);
+    }
   } else if (schema instanceof z.ZodObject) {
     result.type = 'object';
     const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
@@ -67,7 +72,8 @@ function convertZodToJson(schema: z.ZodType<unknown>): Record<string, unknown> {
     }
   } else if (schema instanceof z.ZodEnum) {
     result.type = 'string';
-    result.enum = (schema as z.ZodEnum<[string, ...string[]]>)._def.values;
+    // Zod 3.25+ may store values differently
+    result.enum = (def.values as string[]) || (schema as any).options || (schema as any)._def?.values;
   } else if (schema instanceof z.ZodOptional) {
     return convertZodToJson((schema as z.ZodOptional<z.ZodType<unknown>>)._def.innerType);
   } else if (schema instanceof z.ZodNullable) {

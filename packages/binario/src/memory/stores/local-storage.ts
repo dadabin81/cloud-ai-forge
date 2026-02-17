@@ -58,12 +58,16 @@ export class LocalStorageStore implements MemoryStore {
     } catch (e) {
       // Handle quota exceeded
       if (e instanceof Error && e.name === 'QuotaExceededError') {
-        // Remove oldest messages and retry
-        const trimmed = messages.slice(-Math.floor(messages.length / 2));
-        storage.setItem(
-          this.getMessagesKey(message.conversationId),
-          JSON.stringify(trimmed)
-        );
+        try {
+          // Remove oldest messages and retry
+          const trimmed = messages.slice(-Math.floor(messages.length / 2));
+          storage.setItem(
+            this.getMessagesKey(message.conversationId),
+            JSON.stringify(trimmed)
+          );
+        } catch {
+          // If retry also fails, silently ignore
+        }
       }
     }
   }
