@@ -26,7 +26,7 @@ export interface Env {
 }
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://binarioai-sdk.lovable.app',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
 };
@@ -1308,7 +1308,7 @@ async function trackUsage(env: Env, keyInfo: ApiKeyInfo, model: string, messages
 async function hashKey(key: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(key);
-  const hashBuffer = await crypto.subtle.digest('PBKDF2', data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
