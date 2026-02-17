@@ -38,6 +38,16 @@ export function isRenderableCode(blocks: CodeBlock[]): boolean {
 }
 
 /**
+ * Check if content contains multi-file project markers
+ */
+export function hasProjectMarkers(content: string): boolean {
+  return /\/\/\s*filename:\s*.+/m.test(content) ||
+    /<!--\s*filename:\s*.+-->/m.test(content) ||
+    /\*\*`?[^`*\n]+\.\w+`?\*\*\s*\n```/m.test(content) ||
+    /#{1,6}\s*`?[^`\n]+\.\w+`?\s*\n```/m.test(content);
+}
+
+/**
  * Build a complete HTML document from extracted code blocks
  */
 export function buildPreviewDocument(blocks: CodeBlock[]): string {
@@ -48,7 +58,6 @@ export function buildPreviewDocument(blocks: CodeBlock[]): string {
 
   const hasJsx = jsxBlocks.length > 0;
 
-  // If there's a full HTML document, use it directly (inject CSS/JS if separate)
   const fullHtml = htmlBlocks.find(h => h.toLowerCase().includes('<!doctype') || h.toLowerCase().includes('<html'));
   if (fullHtml && !hasJsx) {
     let doc = fullHtml;
@@ -63,7 +72,6 @@ export function buildPreviewDocument(blocks: CodeBlock[]): string {
     return doc;
   }
 
-  // Build document from fragments
   if (hasJsx) {
     return buildReactDocument(jsxBlocks, cssBlocks);
   }
@@ -110,22 +118,9 @@ ${cssBlocks.join('\n')}
 <script type="text/babel">
 ${jsxCode}
 
-// Auto-render: find the last exported/declared component
-const _components = {};
-try {
-  // Try common component names
-  const _names = ['App', 'Main', 'Page', 'Home', 'Landing', 'Blog', 'Component', 'Hero', 'Layout'];
-  for (const _n of _names) {
-    if (typeof eval(_n) === 'function') {
-      _components.found = eval(_n);
-      break;
-    }
-  }
-  if (_components.found) {
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(_components.found));
-  }
-} catch(e) {
-  document.getElementById('root').innerHTML = '<pre style="color:red;padding:1rem;">Error: ' + e.message + '</pre>';
+const _names = ['App','Main','Page','Home','Landing','Blog','Component','Hero','Layout'];
+for (const _n of _names) {
+  try { if (typeof eval(_n)==='function') { ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(eval(_n))); break; } } catch(e) {}
 }
 </script>
 </body>
