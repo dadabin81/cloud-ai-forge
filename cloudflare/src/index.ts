@@ -148,14 +148,40 @@ interface SessionInfo {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const dynamicCors = getCorsHeaders(request);
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: getCorsHeaders(request) });
+      return new Response(null, { headers: dynamicCors });
     }
 
     const url = new URL(request.url);
     const path = url.pathname;
 
+    try {
+      // Process the request and apply dynamic CORS to the response
+      const response = await handleRequest(request, env, path, url);
+      // Override CORS headers with dynamic ones based on request origin
+      const newHeaders = new Headers(response.headers);
+      for (const [key, value] of Object.entries(dynamicCors)) {
+        newHeaders.set(key, value);
+      }
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    } catch (error) {
+      console.error('Unhandled error:', error);
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500,
+        headers: { ...dynamicCors, 'Content-Type': 'application/json' },
+      });
+    }
+  },
+};
+
+async function handleRequest(request: Request, env: Env, path: string, url: URL): Promise<Response> {
     try {
       // ============ Durable Objects Endpoints ============
       
@@ -437,8 +463,7 @@ export default {
       console.error('Worker error:', error);
       return jsonError('Internal server error', 500);
     }
-  },
-};
+}
 
 // ============ Auth Handlers ============
 
