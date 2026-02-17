@@ -41,6 +41,39 @@ export type Database = {
         }
         Relationships: []
       }
+      playground_projects: {
+        Row: {
+          created_at: string
+          files: Json
+          id: string
+          name: string
+          status: string | null
+          template: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          files?: Json
+          id?: string
+          name?: string
+          status?: string | null
+          template?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          files?: Json
+          id?: string
+          name?: string
+          status?: string | null
+          template?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       waitlist: {
         Row: {
           created_at: string
