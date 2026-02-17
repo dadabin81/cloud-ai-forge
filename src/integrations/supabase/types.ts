@@ -88,46 +88,31 @@ export type Database = {
       playground_projects: {
         Row: {
           created_at: string
-          design_options: Json | null
           files: Json
           id: string
           name: string
-          preview_url: string | null
-          sandbox_id: string | null
-          sandbox_status: string | null
           status: string | null
           template: string | null
-          template_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
-          design_options?: Json | null
           files?: Json
           id?: string
           name?: string
-          preview_url?: string | null
-          sandbox_id?: string | null
-          sandbox_status?: string | null
           status?: string | null
           template?: string | null
-          template_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
-          design_options?: Json | null
           files?: Json
           id?: string
           name?: string
-          preview_url?: string | null
-          sandbox_id?: string | null
-          sandbox_status?: string | null
           status?: string | null
           template?: string | null
-          template_id?: string | null
           updated_at?: string
           user_id?: string
         }
