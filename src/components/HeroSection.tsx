@@ -72,9 +72,19 @@ export function HeroSection() {
           {/* Left side - Text content */}
           <div className="space-y-8">
             {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 animate-fade-in">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span className="text-sm text-emerald-400 font-medium">Free Llama 3 via Cloudflare</span>
+            <div className="flex flex-wrap items-center gap-3 animate-fade-in">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30">
+                <Zap className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm text-emerald-400 font-medium">Free Llama 3 via Cloudflare</span>
+              </div>
+              <a
+                href="https://www.npmjs.com/package/binario"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/10 border border-red-500/20 text-sm text-red-400 font-medium hover:text-red-300 transition-colors"
+              >
+                📦 Live on NPM
+              </a>
             </div>
 
             {/* Headline */}

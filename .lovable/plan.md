@@ -1,137 +1,60 @@
 
+# Guia Paso a Paso - Estado de Todas las Fases
 
-# Guia Paso a Paso - Todas las Fases para Produccion
+## ✅ Fase 1 - Website y Links (COMPLETADA)
+- ✅ CodeBlock syntax highlighting
+- ✅ Footer copyright 2026
+- ✅ Waitlist conectado a base de datos
+- ✅ Links de GitHub apuntan a `github.com/dadabin81/cloud-ai-forge`
+- ✅ Badge y link a NPM en hero y footer
+- ✅ Botones CTA funcionales (NPM + GitHub)
 
-## Estado Actual
+## ⚠️ Fase 2 - Seguridad Backend (EN TU TERMINAL)
+Estos cambios se hacen en `cloudflare/src/index.ts` en tu editor local:
 
-La Fase 1 ya esta parcialmente completada:
-- CodeBlock syntax highlighting: HECHO
-- Footer copyright 2026: HECHO
-- Waitlist conectado a base de datos: HECHO
-- Links de GitHub/Twitter: Pendiente (necesitas un repositorio real)
-
----
-
-## Fase 1 - Fixes Restantes (En Lovable)
-
-### Paso 1: Arreglar links de GitHub y Twitter
-- Necesito saber tus URLs reales:
-  - Tu repositorio de GitHub (ej: `https://github.com/dadabin81/cloud-ai-forge`)
-  - Tu perfil de Twitter/X (si tienes uno)
-- Con esa info, actualizare los links en Navigation.tsx y Footer.tsx
-
-### Paso 2: Actualizar textos de marketing falsos
-- Cambiar "Join thousands of developers" por algo honesto como "Start building with Binario"
-- Quitar metricas inventadas del StatsCard si las hay
-- Revisar las paginas About, Privacy, Terms y Contact para asegurar contenido real
-
----
-
-## Fase 2 - Seguridad (En tu codigo de Cloudflare)
-
-Estos cambios se hacen en tu backend de Cloudflare Workers, NO en Lovable.
-
-### Paso 3: Mejorar hash de contrasenas
-- Abrir `cloudflare/src/index.ts` en tu editor local
-- Reemplazar la funcion `hashKey` que usa SHA-256 por una implementacion con `bcrypt` o `scrypt`
-- Cloudflare Workers soporta `crypto.subtle.deriveBits` con PBKDF2 como alternativa segura
+### Paso 3: Mejorar hash de contraseñas
+- Reemplazar SHA-256 por PBKDF2 usando `crypto.subtle.deriveBits`
 
 ### Paso 4: Restringir CORS
-- En el mismo archivo, cambiar `Access-Control-Allow-Origin: '*'` por tu dominio real
-- Ejemplo: `'Access-Control-Allow-Origin': 'https://binarioai-sdk.lovable.app'`
+- Cambiar `Access-Control-Allow-Origin: '*'` por `'https://binarioai-sdk.lovable.app'`
 
 ### Paso 5: Validar inputs del API
-- Agregar validacion de longitud maxima en mensajes
-- Sanitizar parametros como `temperature`, `max_tokens`
-- Validar que `model` sea uno de los modelos permitidos
+- Validar longitud de mensajes, parámetros como temperature/max_tokens
 
----
-
-## Fase 3 - Deployment del Backend (En tu terminal local)
-
-### Paso 6: Generar package-lock.json para Cloudflare
-```
+## ⚠️ Fase 3 - Deployment Backend (EN TU TERMINAL)
+```bash
 cd cloudflare
 npm install
+git add . && git commit -m "cloudflare ready" && git push
 ```
+- Verificar en Cloudflare Pages que el build pase
+- Probar endpoint: `https://tu-worker.workers.dev/health`
 
-### Paso 7: Subir a GitHub
-```
-git add .
-git commit -m "Add cloudflare package-lock.json"
-git push origin main
-```
-
-### Paso 8: Verificar deployment
-- Ir al dashboard de Cloudflare Pages
-- Confirmar que el build pasa sin errores
-- Probar el endpoint: `https://tu-worker.workers.dev/health`
-- Debe devolver: `{"status":"ok","version":"1.0.0"}`
-
----
-
-## Fase 4 - Publicacion NPM (En tu terminal local)
-
-### Paso 9: Ejecutar tests del SDK
-```
-cd packages/binario
-npm install
-npx vitest run
-```
-- Todos los tests deben pasar antes de publicar
-
-### Paso 10: Build del paquete
-```
-npx tsup
-```
-- Verificar que se genera la carpeta `dist/` con los archivos compilados
-
-### Paso 11: Publicar en npm
-```
-npm login
-npm publish --access public
-```
-- Verificar que funciona: `npm info binario`
-
-### Paso 12: Verificar instalacion
-```
-mkdir /tmp/test-binario && cd /tmp/test-binario
+## ✅ Fase 4 - Publicación NPM (COMPLETADA)
+- ✅ Tests: 151 passed (8 archivos)
+- ✅ Build: tsup sin errores
+- ✅ Publicado: `binario@0.1.0` en https://www.npmjs.com/package/binario
+- ⬚ Paso 12 pendiente: Verificar instalación en proyecto nuevo:
+```bash
+mkdir test-binario && cd test-binario
 npm init -y
 npm install binario
 ```
 
----
-
-## Fase 5 - Contenido Legal y Marketing (En Lovable)
-
-### Paso 13: Revisar paginas legales
-- Privacy Policy: Necesita contenido legal real sobre datos que recoges
-- Terms of Service: Necesita terminos reales sobre uso del SDK
-- About: Informacion real sobre el equipo/proyecto
-
-### Paso 14: Pagina Contact funcional
-- Conectar el formulario de contacto a la base de datos (igual que hicimos con waitlist)
+## ⚠️ Fase 5 - Contenido Legal y Marketing (EN LOVABLE)
+- ⬚ Privacy Policy: necesita contenido legal real
+- ⬚ Terms of Service: necesita términos reales
+- ⬚ About: información real del equipo
+- ⬚ Contact: ya conectado a base de datos ✅
 
 ---
 
-## Resumen de Donde Hacer Cada Cosa
+## Resumen
 
-| Fase | Donde | Herramienta |
-|------|-------|-------------|
-| Fase 1 (links, textos) | Lovable | Pideme que lo haga |
-| Fase 2 (seguridad) | Editor local | VS Code + tu terminal |
-| Fase 3 (deployment) | Terminal + GitHub | Linea de comandos |
-| Fase 4 (npm publish) | Terminal | Linea de comandos |
-| Fase 5 (contenido) | Lovable | Pideme que lo haga |
-
----
-
-## Orden Recomendado
-
-1. Primero: Dime tus URLs de GitHub y Twitter para completar Fase 1
-2. Segundo: Yo hago los cambios de Fase 1 y Fase 5 en Lovable
-3. Tercero: Tu haces Fase 2 y 3 en tu terminal (seguridad + deployment)
-4. Cuarto: Tu haces Fase 4 en tu terminal (publicar en npm)
-
-Una vez completadas las 5 fases, el proyecto estaria listo para lanzar al mercado.
-
+| Fase | Estado | Acción |
+|------|--------|--------|
+| Fase 1 (website) | ✅ Completada | - |
+| Fase 2 (seguridad) | ⚠️ Pendiente | Editar cloudflare/src/index.ts |
+| Fase 3 (deployment) | ⚠️ Pendiente | git push + verificar Cloudflare |
+| Fase 4 (npm) | ✅ Completada | Solo falta test de instalación |
+| Fase 5 (legal) | ⚠️ Pendiente | Pídeme que actualice las páginas |

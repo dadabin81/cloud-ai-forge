@@ -48,6 +48,14 @@ export function Footer() {
               >
                 <Github className="w-5 h-5" />
               </a>
+              <a
+                href="https://www.npmjs.com/package/binario"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/20 text-xs font-medium text-red-400 hover:text-red-300 transition-colors"
+              >
+                npm v0.1.0
+              </a>
             </div>
           </div>
 

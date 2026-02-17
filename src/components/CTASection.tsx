@@ -27,11 +27,11 @@ export function CTASection() {
         </p>
 
         <div className="flex flex-wrap justify-center gap-4 mb-12">
-          <Button variant="hero" size="xl" className="gap-2">
-            Get Started Free
+          <Button variant="hero" size="xl" className="gap-2" onClick={() => window.open('https://www.npmjs.com/package/binario', '_blank')}>
+            Install from NPM
             <ArrowRight className="w-5 h-5" />
           </Button>
-          <Button variant="glass" size="xl" className="gap-2">
+          <Button variant="glass" size="xl" className="gap-2" onClick={() => window.open('https://github.com/dadabin81/cloud-ai-forge', '_blank')}>
             <Github className="w-5 h-5" />
             View on GitHub
           </Button>
