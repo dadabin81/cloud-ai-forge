@@ -27,6 +27,8 @@ import { CodePreview } from '@/components/CodePreview';
 import { BlueprintCard } from '@/components/BlueprintCard';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
+import { TemplateGallery } from '@/components/TemplateGallery';
+import { BlueprintDesigner, type DesignOptions } from '@/components/BlueprintDesigner';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { ResourceBadges } from '@/components/ResourceBadges';
@@ -35,6 +37,7 @@ import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
 import { parseActions, executeAllActions, enrichWithRAG, type ActionResult } from '@/lib/chatActions';
 import { detectBlueprintRequest, buildBlueprintPrompt, parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@/lib/blueprintSystem';
+import { getTemplateById, type ProjectTemplate } from '@/lib/templates';
 import { buildErrorCorrectionPrompt, shouldAutoCorrect, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
 
 interface Message {
@@ -52,45 +55,32 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a code generation assistant. When the user asks you to create an app, website, or component, you MUST respond with complete, working code.
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a full-stack VibeCoding assistant powered by Cloudflare. You create complete, working applications.
 
-CRITICAL RULE: Always organize your code using this exact format with "// filename:" markers:
+CRITICAL RULE: Always organize code with "// filename:" markers in code blocks.
 
-\`\`\`html
-// filename: index.html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My App</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div id="root"></div>
-  <script src="app.js"></script>
-</body>
-</html>
-\`\`\`
-
-\`\`\`css
-// filename: styles.css
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: system-ui, sans-serif; }
-\`\`\`
-
-\`\`\`javascript
-// filename: app.js
-document.getElementById('root').innerHTML = '<h1>Hello World</h1>';
-\`\`\`
+When creating a NEW project, generate at least: index.html, styles.css, and app.js/App.jsx.
+When modifying EXISTING projects, use [EDIT_FILE: path], [NEW_FILE: path], or [DELETE_FILE: path].
 
 Rules:
-1. ALWAYS include "// filename:" at the first line of every code block when creating a NEW project
-2. ALWAYS generate at least: index.html, styles.css, and app.js (or App.jsx) for new projects
-3. Write COMPLETE, working code - never use placeholders or "..."
-4. Use modern CSS with responsive design
-5. Make the UI beautiful and professional
-6. When modifying an EXISTING project, use [EDIT_FILE: path] to update files, [NEW_FILE: path] to add files, or [DELETE_FILE: path] to remove files. Only include changed files.`;
+1. Write COMPLETE working code - never use placeholders or "..."
+2. Use modern CSS with Tailwind CDN, responsive design
+3. Make the UI beautiful and professional
+4. Use React 18 with Babel CDN for JSX support
+
+Available actions (embed in your responses when needed):
+- [ACTION:rag_search:{"query":"..."}] - Search knowledge base
+- [ACTION:rag_learn:{"content":"..."}] - Ingest documentation
+- [ACTION:sandbox_create:{"name":"...","template":"react-vite"}] - Create cloud sandbox
+- [ACTION:sandbox_exec:{"projectId":"...","command":"..."}] - Run commands
+- [ACTION:sandbox_start:{"projectId":"..."}] - Start dev server
+- [ACTION:sandbox_deploy:{"projectId":"..."}] - Deploy to production
+- [ACTION:workflow_research:{"topic":"..."}] - Start research workflow
+- [ACTION:template_select:{"templateId":"..."}] - Select a template
+- [ACTION:project_rename:{"name":"..."}] - Rename current project
+- [ACTION:project_export:{"format":"zip|html|json"}] - Export project
+
+Cloudflare capabilities: Workers, D1 (SQL), KV Store, R2 Storage, Vectorize (RAG), AI Models, Durable Objects.`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -594,6 +584,42 @@ export default function Playground() {
     toast.info('Describe los cambios que quieres en el blueprint');
   }, []);
 
+  // Handle template selection
+  const handleSelectTemplate = useCallback((template: ProjectTemplate) => {
+    setProjectFiles(template.files);
+    const firstFile = Object.keys(template.files)[0];
+    if (firstFile) setActiveFile(firstFile);
+    if (isAuthenticated) {
+      createProject(template.name, template.files);
+    }
+    toast.success(`Template "${template.name}" loaded!`);
+  }, [isAuthenticated, createProject]);
+
+  // Handle customize template with AI
+  const handleCustomizeWithAI = useCallback((template: ProjectTemplate) => {
+    setProjectFiles(template.files);
+    const firstFile = Object.keys(template.files)[0];
+    if (firstFile) setActiveFile(firstFile);
+    if (isAuthenticated) {
+      createProject(template.name, template.files);
+    }
+    setInput(`I've loaded the "${template.name}" template. Please customize it: `);
+    toast.success(`Template loaded! Describe your customizations in the chat.`);
+  }, [isAuthenticated, createProject]);
+
+  // Handle blueprint designer generate
+  const handleBlueprintGenerate = useCallback((options: DesignOptions) => {
+    const selectedTemplate = options.templateId ? getTemplateById(options.templateId) : null;
+    if (selectedTemplate) {
+      setProjectFiles(selectedTemplate.files);
+      const firstFile = Object.keys(selectedTemplate.files)[0];
+      if (firstFile) setActiveFile(firstFile);
+    }
+    const prompt = `Create a ${options.style} ${options.layout} layout web app with ${options.colorScheme} color scheme, ${options.typography} typography. Include these sections: ${options.sections.join(', ')}. ${selectedTemplate ? `Base it on the ${selectedTemplate.name} template.` : 'Start from scratch.'} Make it professional and modern.`;
+    sendHttp(prompt);
+    toast.success('Blueprint sent to AI for generation!');
+  }, []);
+
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
   const currentModels = models[selectedProvider] || [];
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
@@ -647,6 +673,8 @@ export default function Playground() {
           <ResourceBadges apiKey={getEffectiveApiKey()} onBadgeClick={(tab) => { setCloudTab(tab); setCloudOpen(true); }} />
         </div>
         <div className="flex items-center gap-2">
+          <TemplateGallery onSelectTemplate={handleSelectTemplate} onCustomizeWithAI={handleCustomizeWithAI} />
+          <BlueprintDesigner onGenerate={handleBlueprintGenerate} />
           {/* Project Manager */}
           <ProjectManager
             projects={projects}
