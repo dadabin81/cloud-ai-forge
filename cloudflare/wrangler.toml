@@ -46,9 +46,9 @@ new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 # To enable RAG, first create the index:
 #   npx wrangler vectorize create binario-embeddings --dimensions=768 --metric=cosine
 # Then uncomment below:
-# [[vectorize]]
-# binding = "VECTORIZE_INDEX"
-# index_name = "binario-embeddings"
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "binario-embeddings"
 
 # To enable Workflows, uncomment below and redeploy:
 # [[workflows]]
