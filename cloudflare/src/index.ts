@@ -6,7 +6,25 @@
 // Export Durable Objects
 export { BinarioAgent } from './agent';
 export { SandboxProject } from './sandbox';
+import {
+  createProject,
+  listUserProjects,
+  getProjectById,
+  deleteProject,
+  getAvailableTemplates,
+} from './sandbox';
 // export { ResearchWorkflow, RAGWorkflow } from './workflows'; // Workflows later
+
+// Import RAG functions
+import {
+  type RagEnv,
+  ingestDocument,
+  searchDocuments,
+  ragQuery,
+  generateEmbedding,
+  deleteDocuments,
+  getEmbeddingInfo,
+} from './rag';
 
 export interface Env {
   AI: Ai;
@@ -138,8 +156,8 @@ export default {
         }
         const projectPath = path.replace('/v1/sandbox/', '').replace('/v1/projects/', '');
         const projectId = url.searchParams.get('id') || projectPath.split('/')[0] || 'default';
-        const id = env.SANDBOX_PROJECT.idFromName(projectId);
-        const stub = env.SANDBOX_PROJECT.get(id);
+        const id = env.SANDBOX_PROJECT!.idFromName(projectId);
+        const stub = env.SANDBOX_PROJECT!.get(id);
         const projectUrl = new URL(request.url);
         projectUrl.pathname = '/' + projectPath;
         return stub.fetch(new Request(projectUrl.toString(), request));
@@ -1117,8 +1135,8 @@ async function handleUsage(env: Env, keyInfo: ApiKeyInfo): Promise<Response> {
       requestsUsed: todayUsage?.total_requests || 0,
     },
     limits: {
-      tokensPerDay: limits.tokensPerDay,
-      requestsPerDay: limits.requestsPerDay,
+      tokensPerMonth: limits.tokensPerMonth,
+      requestsPerMonth: limits.requestsPerMonth,
     },
     dailyUsage: dailyUsage.results,
     resetAt: getNextResetDate(),
@@ -1572,8 +1590,8 @@ async function handleAgentWebSocket(request: Request, env: Env, url: URL): Promi
   }
 
   // Get or create Durable Object for this conversation
-  const id = env.BINARIO_AGENT.idFromName(conversationId);
-  const agent = env.BINARIO_AGENT.get(id);
+  const id = env.BINARIO_AGENT!.idFromName(conversationId);
+  const agent = env.BINARIO_AGENT!.get(id);
 
   // Forward the WebSocket upgrade request to the Durable Object
   const agentUrl = new URL(request.url);
@@ -1612,8 +1630,8 @@ async function handleAgentRest(request: Request, env: Env, url: URL): Promise<Re
   }
 
   // Get Durable Object for this conversation
-  const id = env.BINARIO_AGENT.idFromName(conversationId);
-  const agent = env.BINARIO_AGENT.get(id);
+  const id = env.BINARIO_AGENT!.idFromName(conversationId);
+  const agent = env.BINARIO_AGENT!.get(id);
 
   // Build the request URL for the Durable Object
   const agentUrl = new URL(request.url);
@@ -1713,7 +1731,7 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
   const ragEnv: RagEnv = {
     AI: env.AI,
     DB: env.DB,
-    VECTORIZE_INDEX: env.VECTORIZE_INDEX,
+    VECTORIZE_INDEX: env.VECTORIZE_INDEX!,
   };
 
   try {
@@ -1736,7 +1754,7 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
       });
 
       // Track usage
-      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', result.chunks * 100);
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', [], { response: `${result.chunks} chunks` });
 
       return jsonResponse(result, 201);
     }
@@ -1756,7 +1774,7 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
       });
 
       // Track usage
-      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', 100);
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', [{ role: 'user', content: body.query }], { response: '' });
 
       return jsonResponse({ results });
     }
@@ -1777,7 +1795,7 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
       });
 
       // Track usage (embedding + generation)
-      await trackUsage(env, keyInfo, body.model || '@cf/meta/llama-3.1-8b-instruct', 500);
+      await trackUsage(env, keyInfo, body.model || '@cf/meta/llama-3.1-8b-instruct', [{ role: 'user', content: body.query }], { response: result.answer });
 
       return jsonResponse(result);
     }
@@ -1799,7 +1817,7 @@ async function handleRagEndpoint(request: Request, env: Env, path: string): Prom
       }
 
       // Track usage
-      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', texts.length * 100);
+      await trackUsage(env, keyInfo, '@cf/baai/bge-base-en-v1.5', [], { response: `${texts.length} embeddings` });
 
       return jsonResponse({
         embeddings,
@@ -1886,7 +1904,7 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
 
       switch (body.type) {
         case 'research':
-          instance = await env.RESEARCH_WORKFLOW.create({
+          instance = await env.RESEARCH_WORKFLOW!.create({
             id: instanceId,
             params: {
               ...body.payload,
@@ -1896,7 +1914,7 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
           break;
 
         case 'rag':
-          instance = await env.RAG_WORKFLOW.create({
+          instance = await env.RAG_WORKFLOW!.create({
             id: instanceId,
             params: {
               ...body.payload,
@@ -1910,7 +1928,7 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
       }
 
       // Track usage
-      await trackUsage(env, keyInfo, 'workflow', 100);
+      await trackUsage(env, keyInfo, 'workflow', [], { response: 'workflow started' });
 
       return jsonResponse({
         instanceId: instance.id,
@@ -1930,11 +1948,11 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
       let workflowType = '';
 
       try {
-        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+        instance = await env.RESEARCH_WORKFLOW!.get(instanceId);
         workflowType = 'research';
       } catch {
         try {
-          instance = await env.RAG_WORKFLOW.get(instanceId);
+          instance = await env.RAG_WORKFLOW!.get(instanceId);
           workflowType = 'rag';
         } catch {
           return jsonError('Workflow instance not found', 404);
@@ -1963,10 +1981,10 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
 
       let instance: WorkflowInstance | null = null;
       try {
-        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+        instance = await env.RESEARCH_WORKFLOW!.get(instanceId);
       } catch {
         try {
-          instance = await env.RAG_WORKFLOW.get(instanceId);
+          instance = await env.RAG_WORKFLOW!.get(instanceId);
         } catch {
           return jsonError('Workflow instance not found', 404);
         }
@@ -1987,10 +2005,10 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
 
       let instance: WorkflowInstance | null = null;
       try {
-        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+        instance = await env.RESEARCH_WORKFLOW!.get(instanceId);
       } catch {
         try {
-          instance = await env.RAG_WORKFLOW.get(instanceId);
+          instance = await env.RAG_WORKFLOW!.get(instanceId);
         } catch {
           return jsonError('Workflow instance not found', 404);
         }
@@ -2011,10 +2029,10 @@ async function handleWorkflowEndpoint(request: Request, env: Env, path: string):
 
       let instance: WorkflowInstance | null = null;
       try {
-        instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+        instance = await env.RESEARCH_WORKFLOW!.get(instanceId);
       } catch {
         try {
-          instance = await env.RAG_WORKFLOW.get(instanceId);
+          instance = await env.RAG_WORKFLOW!.get(instanceId);
         } catch {
           return jsonError('Workflow instance not found', 404);
         }
@@ -2134,8 +2152,8 @@ async function handleSandboxEndpoint(request: Request, env: Env, url: URL): Prom
       }
 
       // Get Durable Object for this project
-      const id = env.SANDBOX_PROJECT.idFromName(projectId);
-      const sandbox = env.SANDBOX_PROJECT.get(id);
+      const id = env.SANDBOX_PROJECT!.idFromName(projectId);
+      const sandbox = env.SANDBOX_PROJECT!.get(id);
 
       // Route to appropriate action
       switch (action) {

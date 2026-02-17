@@ -259,7 +259,7 @@ export class BinarioAgent extends DurableObject<AgentEnv> {
       ];
 
       // Call Workers AI
-      const response = await this.env.AI.run(this.state.model as BaseAiTextGenerationModels, {
+      const response = await this.env.AI.run(this.state.model as any, {
         messages: aiMessages,
         stream: true,
       });
@@ -406,7 +406,7 @@ export class BinarioAgent extends DurableObject<AgentEnv> {
     ];
 
     try {
-      const response = await this.env.AI.run(this.state.model as BaseAiTextGenerationModels, {
+      const response = await this.env.AI.run(this.state.model as any, {
         messages: aiMessages,
       });
 
