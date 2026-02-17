@@ -1,145 +1,70 @@
 
-# Unleashing Binario's Full Cloudflare Arsenal in the Playground
+# Fix: Playground en Produccion - URLs, Polling y Generacion de Codigo
 
-## The Problem
+## Problemas Detectados
 
-Right now, the Playground only uses ONE endpoint (`/v1/chat/completions`). Meanwhile, the backend has **8 active Cloudflare bindings** that are completely hidden from users:
+### 1. Todas las llamadas a la API de Cloud van a localhost:8787 y fallan
+El archivo `src/config/api.ts` usa `import.meta.env.PROD` para decidir la URL. En el entorno de preview de Lovable, esto resulta en `http://localhost:8787`, que no existe. Por eso TODAS las funciones de Cloud (health checks, RAG, workflows, ResourceBadges) fallan constantemente.
 
-| Binding | Status in Playground |
-|---------|---------------------|
-| env.AI (Workers AI) | Used (chat only) |
-| env.BINARIO_AGENT (Durable Object) | WebSocket toggle exists, but not showcased |
-| env.SANDBOX_PROJECT (Durable Object) | Completely unused |
-| env.DB (D1 Database) | Hidden from users |
-| env.KV (KV Namespace) | Hidden from users |
-| env.VECTORIZE_INDEX (Vectorize) | Completely unused |
-| env.RESEARCH_WORKFLOW (Workflow) | Completely unused |
-| env.RAG_WORKFLOW (Workflow) | Completely unused |
+Mientras tanto, `src/contexts/AuthContext.tsx` tiene la URL de produccion hardcodeada correctamente: `https://binario-api.databin81.workers.dev`. Por eso el chat SI funciona pero el Cloud Panel NO.
 
-## The Solution
+### 2. La IA no genera codigo con el formato multi-archivo
+El usuario pidio "crea una app de restaurante" y la IA (Llama 3.1 8B) respondio con texto descriptivo generico en vez de codigo real con marcadores `// filename:`. Resultado: el File Explorer y el Preview quedan vacios. La IA basicamente ignoro las instrucciones del system prompt.
 
-Add a **"Binario Cloud" panel** to the Playground that exposes all backend capabilities as interactive features, demonstrating Binario's dominance as a full-stack AI SDK.
+### 3. Health checks cada 30 segundos saturan la red
+Los ResourceBadges y el CloudPanel hacen polling constante a `/health` que siempre falla, generando docenas de requests fallidos.
 
-## Changes
+## Plan de Correccion
 
-### 1. New Component: `src/components/CloudPanel.tsx` - Infrastructure Dashboard
+### Cambio 1: `src/config/api.ts` - Hardcodear la URL de produccion
+- Cambiar `baseUrl` para que SIEMPRE use `https://binario-api.databin81.workers.dev` (igual que AuthContext)
+- Eliminar la logica condicional `import.meta.env.PROD` que causa el problema
+- Esto arregla instantaneamente: CloudPanel, ResourceBadges, RAG enrichment, y chat actions
 
-A tabbed panel that replaces the empty state in the File Explorer area (or appears as a new sidebar section) showing all available Cloudflare resources:
+### Cambio 2: `src/pages/Playground.tsx` - Mejorar el system prompt
+- Simplificar el system prompt para que sea mas directo y efectivo con modelos pequenos como Llama 3.1 8B
+- Agregar ejemplos concretos de output esperado (few-shot) dentro del prompt
+- Eliminar las instrucciones de ACTION markers del prompt por defecto (el modelo las ignora y confunden)
+- Enfocarse en: "Siempre genera codigo completo con el formato `// filename: ruta`"
 
-**Tab: AI Models**
-- Show the 6 available models from `/v1/models` with tier badges
-- One-click model switching
-- Live token/neuron counter
+### Cambio 3: `src/components/ResourceBadges.tsx` - Fetch una sola vez
+- Eliminar el polling periodico de health check
+- Hacer un solo fetch cuando el componente se monta y cuando el usuario cambia la API key
+- Agregar un boton manual de "refresh" en vez de auto-polling
 
-**Tab: RAG (Vectorize)**
-- Text input to **ingest documents** via `/v1/rag/ingest`
-- Search box to **query documents** via `/v1/rag/query`
-- Show embedding info via `/v1/rag/info`
-- Display search results with relevance scores
-- This demonstrates the Vectorize binding in action
+### Cambio 4: `src/lib/chatActions.ts` - Usar la URL correcta
+- Este archivo ya usa `cloudflareApi.ts` que usa `API_CONFIG`, asi que se corrige automaticamente con el Cambio 1
+- Agregar manejo de errores mas silencioso para `enrichWithRAG` cuando el backend no tiene documentos indexados
 
-**Tab: Workflows**
-- Button to launch **Research Workflow** via `/v1/workflows/research`
-- Button to launch **RAG Ingest Workflow** via `/v1/workflows/rag-ingest`
-- Status checker via `/v1/workflows/status/:id` with polling
-- Shows step-by-step progress of multi-step AI workflows
-- This demonstrates the durable Workflows binding
+### Cambio 5: `src/components/CloudPanel.tsx` - Parar polling excesivo
+- Reducir los auto-fetches que se disparan en cada tab change
+- Cachear los resultados de health/models por al menos 60 segundos
 
-**Tab: Sandbox (Projects)**
-- Template selector (react-vite, node-express, vanilla-js, python-flask)
-- Create project button via `/v1/projects/` endpoints
-- File manager using the SandboxProject DO
-- This demonstrates the Durable Object binding for project management
+## Detalles Tecnicos
 
-**Tab: Status**
-- Live health dashboard from `/health` showing all binding statuses
-- Provider status from `/v1/providers/status`
-- Visual indicators: AI, D1, KV, Vectorize, Workflows, Durable Objects all green
-
-### 2. Modify: `src/pages/Playground.tsx` - Add Cloud Panel
-
-- Add a new "Cloud" tab/button in the top bar next to "Config"
-- When clicked, shows the CloudPanel as a Sheet or as a fourth resizable panel
-- The panel connects to all the backend endpoints using the user's API key
-- Auto-refresh health status on load
-
-### 3. New Component: `src/components/ResourceBadges.tsx` - Top Bar Indicators
-
-A row of small badges in the Playground top bar showing live status of each binding:
-- AI (green) | D1 (green) | KV (green) | Vectorize (green) | Workflows (green) | DO (green)
-- Clicking any badge opens the corresponding Cloud Panel tab
-- This immediately communicates to users the breadth of Binario's infrastructure
-
-### 4. Modify: System Prompt Enhancement
-
-Update the DEFAULT_SYSTEM_PROMPT to be aware of all Cloudflare capabilities:
-- When user asks for a project with data persistence, mention D1
-- When user asks for search/knowledge base, mention RAG with Vectorize
-- When user asks for complex multi-step tasks, mention Workflows
-- This makes the AI assistant itself a demo of the platform's knowledge
-
-### 5. New Utility: `src/lib/cloudflareApi.ts` - API Client for All Endpoints
-
-Centralized API client with typed methods for every backend endpoint:
-- `ragIngest(content, metadata)` - Ingest documents
-- `ragSearch(query, topK)` - Semantic search
-- `ragQuery(query)` - RAG query with AI answer
-- `workflowResearch(topic)` - Start research workflow
-- `workflowStatus(instanceId)` - Check workflow status
-- `projectCreate(name, template)` - Create sandbox project
-- `projectFiles(id)` - List project files
-- `healthCheck()` - Full health status
-
-## User Experience Flow
-
+### src/config/api.ts
 ```text
-1. User opens Playground
-   -> Top bar shows: AI | D1 | KV | Vectorize | Workflows | DO - all green
-   -> This immediately shows the platform's power
-
-2. User clicks "Cloud" button
-   -> Panel opens showing all resources in tabs
-
-3. RAG Demo:
-   -> User pastes a document into "Ingest" tab
-   -> Clicks "Ingest" -> document is chunked, embedded, stored
-   -> User types a question in "Query" -> gets AI answer with sources
-   -> User sees: "Powered by Vectorize + Workers AI"
-
-4. Workflow Demo:
-   -> User types a research topic
-   -> Clicks "Research" -> workflow starts
-   -> Live status: "Step 1/4: Analyzing query..." 
-   -> Shows final research report with sources
-
-5. Sandbox Demo:
-   -> User selects "React Vite" template
-   -> Clicks "Create Project"
-   -> File Explorer populates with template files
-   -> Shows project managed by Durable Object
-
-6. Regular Chat:
-   -> All existing chat + code preview + file explorer functionality preserved
+baseUrl: 'https://binario-api.databin81.workers.dev'
+wsUrl: 'wss://binario-api.databin81.workers.dev'
 ```
+Sin condicional - siempre apunta a produccion. Para desarrollo local, se puede usar una variable de entorno override.
 
-## Why This Dominates the VibeCoding SDK Market
+### System Prompt optimizado (en Playground.tsx)
+El prompt actual tiene demasiadas instrucciones ACTION que el modelo no entiende. Se simplificara a:
+- Instrucciones claras de generacion de codigo
+- Un ejemplo concreto de output con `// filename:`
+- Sin ACTION markers (se pueden re-habilitar con modelos mas potentes)
 
-No other SDK (Vercel AI, LangChain, etc.) offers ALL of these in one playground:
-- Real-time WebSocket chat via Durable Objects
-- Persistent project management via Durable Objects
-- Semantic search via Vectorize embeddings
-- Multi-step AI workflows via Cloudflare Workflows
-- Persistent storage via D1 + KV
-- 6 free AI models via Workers AI
-- All running on edge, globally distributed, zero cold start
+### ResourceBadges.tsx
+- Quitar el `setInterval` de health check
+- Un solo `useEffect` con fetch al mount
+- Boton de refresh manual
 
-## Files to Create/Modify
+## Archivos a modificar
 
-| File | Action |
-|------|--------|
-| `src/lib/cloudflareApi.ts` | CREATE - Typed API client for all endpoints |
-| `src/components/CloudPanel.tsx` | CREATE - Infrastructure dashboard with tabs |
-| `src/components/ResourceBadges.tsx` | CREATE - Status badges for top bar |
-| `src/pages/Playground.tsx` | MODIFY - Add Cloud button, resource badges, panel integration |
-
-No new dependencies required. Uses existing UI components (Tabs, Badge, Sheet, Button) and the existing API_BASE_URL.
+| Archivo | Cambio |
+|---------|--------|
+| `src/config/api.ts` | Hardcodear URL de produccion |
+| `src/pages/Playground.tsx` | Simplificar system prompt, eliminar ACTION markers |
+| `src/components/ResourceBadges.tsx` | Eliminar polling, fetch una vez |
+| `src/components/CloudPanel.tsx` | Reducir auto-fetches, cachear resultados |
