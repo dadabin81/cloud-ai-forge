@@ -25,6 +25,8 @@ import { FileExplorer } from '@/components/FileExplorer';
 import { CodeEditor } from '@/components/CodeEditor';
 import { CodePreview } from '@/components/CodePreview';
 import { BlueprintCard } from '@/components/BlueprintCard';
+import { ProjectManager } from '@/components/ProjectManager';
+import { DeployDialog } from '@/components/DeployDialog';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { ResourceBadges } from '@/components/ResourceBadges';
@@ -556,6 +558,16 @@ export default function Playground() {
     });
   }, [project, saveFiles]);
 
+  // Handle import project from JSON
+  const handleImportProject = useCallback((importedFiles: Record<string, ProjectFile>, name: string) => {
+    setProjectFiles(importedFiles);
+    const firstFile = Object.keys(importedFiles)[0];
+    if (firstFile) setActiveFile(firstFile);
+    if (isAuthenticated) {
+      createProject(name, importedFiles);
+    }
+  }, [isAuthenticated, createProject]);
+
   // Handle preview errors
   const handlePreviewErrors = useCallback((errors: PreviewError[]) => {
     setPreviewErrors(prev => [...prev, ...errors]);
@@ -635,6 +647,26 @@ export default function Playground() {
           <ResourceBadges apiKey={getEffectiveApiKey()} onBadgeClick={(tab) => { setCloudTab(tab); setCloudOpen(true); }} />
         </div>
         <div className="flex items-center gap-2">
+          {/* Project Manager */}
+          <ProjectManager
+            projects={projects}
+            currentProjectId={project?.id}
+            onLoadProject={loadProject}
+            onDeleteProject={deleteProject}
+            onNewProject={() => {
+              setProjectFiles({});
+              setActiveFile(null);
+              setProject(null);
+              setMessages([]);
+              setCurrentBlueprint(null);
+              setCurrentPhase('idle');
+            }}
+            onProjectLoaded={(proj) => {
+              setProjectFiles(proj.files || {});
+              const firstFile = Object.keys(proj.files || {})[0];
+              if (firstFile) setActiveFile(firstFile);
+            }}
+          />
           {/* Cloud Panel Sheet */}
           <Sheet open={cloudOpen} onOpenChange={setCloudOpen}>
             <SheetTrigger asChild>
@@ -994,6 +1026,15 @@ export default function Playground() {
               {/* Live Preview */}
               <ResizablePanel defaultSize={42} minSize={20}>
                 <div className="h-full flex flex-col">
+                  {/* Deploy bar */}
+                  <div className="flex items-center justify-end px-2 py-1 border-b border-border/50 bg-secondary/20">
+                    <DeployDialog
+                      files={projectFiles}
+                      projectId={project?.id}
+                      projectName={project?.name}
+                      hasFiles={Object.keys(projectFiles).length > 0}
+                    />
+                  </div>
                   {/* Error correction banner */}
                   {previewErrors.length > 0 && !autoCorrectEnabled && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-xs">
@@ -1017,7 +1058,12 @@ export default function Playground() {
                     </div>
                   )}
                   <div className="flex-1">
-                    <CodePreview files={projectFiles} onErrors={handlePreviewErrors} />
+                    <CodePreview
+                      files={projectFiles}
+                      onErrors={handlePreviewErrors}
+                      onImportProject={handleImportProject}
+                      projectName={project?.name}
+                    />
                   </div>
                 </div>
               </ResizablePanel>

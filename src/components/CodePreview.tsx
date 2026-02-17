@@ -4,15 +4,18 @@ import { cn } from '@/lib/utils';
 import { extractCodeBlocks, buildPreviewDocument, isRenderableCode } from '@/lib/codeExtractor';
 import { buildProjectPreview, type ProjectFile } from '@/lib/projectGenerator';
 import { PreviewToolbar, type Viewport } from '@/components/PreviewToolbar';
-import { downloadProjectAsHtml } from '@/lib/projectGenerator';
 import { PreviewConsole, type ConsoleLog } from '@/components/PreviewConsole';
 import { classifyError, type PreviewError } from '@/lib/errorCorrection';
+import { exportAsZip, exportAsHtml, exportAsJson, importFromJson } from '@/lib/projectExporter';
+import { toast } from 'sonner';
 
 interface CodePreviewProps {
   content?: string;
   files?: Record<string, ProjectFile>;
   className?: string;
   onErrors?: (errors: PreviewError[]) => void;
+  onImportProject?: (files: Record<string, ProjectFile>, name: string) => void;
+  projectName?: string;
 }
 
 const VIEWPORT_WIDTHS: Record<Viewport, string> = {
@@ -21,7 +24,7 @@ const VIEWPORT_WIDTHS: Record<Viewport, string> = {
   mobile: '375px',
 };
 
-export function CodePreview({ content, files, className, onErrors }: CodePreviewProps) {
+export function CodePreview({ content, files, className, onErrors, onImportProject, projectName }: CodePreviewProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [viewport, setViewport] = useState<Viewport>('desktop');
@@ -42,7 +45,6 @@ export function CodePreview({ content, files, className, onErrors }: CodePreview
 
   const hasFiles = !!files && Object.keys(files).length > 0;
 
-  // Listen for console messages from the iframe
   const handleMessage = useCallback((event: MessageEvent) => {
     if (event.data?.source === 'preview-console') {
       const log: ConsoleLog = {
@@ -52,7 +54,6 @@ export function CodePreview({ content, files, className, onErrors }: CodePreview
       };
       setConsoleLogs(prev => [...prev.slice(-200), log]);
 
-      // Report errors upstream
       if (log.type === 'error' && onErrors) {
         const err: PreviewError = {
           message: log.message,
@@ -69,10 +70,19 @@ export function CodePreview({ content, files, className, onErrors }: CodePreview
     return () => window.removeEventListener('message', handleMessage);
   }, [handleMessage]);
 
-  // Clear logs on refresh or content change
   useEffect(() => {
     setConsoleLogs([]);
   }, [refreshKey, previewDoc]);
+
+  const handleImportJson = async (file: File) => {
+    const result = await importFromJson(file);
+    if (result && onImportProject) {
+      onImportProject(result.files, result.name);
+      toast.success(`Imported: ${result.name}`);
+    } else {
+      toast.error('Invalid project file');
+    }
+  };
 
   if (!previewDoc) {
     return (
@@ -102,7 +112,10 @@ export function CodePreview({ content, files, className, onErrors }: CodePreview
         isFullscreen={isFullscreen}
         onFullscreenToggle={() => setIsFullscreen(f => !f)}
         onRefresh={() => setRefreshKey(k => k + 1)}
-        onDownload={() => files && downloadProjectAsHtml(files)}
+        onDownloadZip={() => files && exportAsZip(files, projectName)}
+        onDownloadHtml={() => files && exportAsHtml(files, projectName)}
+        onExportJson={() => files && exportAsJson(files, { name: projectName || 'project' })}
+        onImportJson={handleImportJson}
         hasFiles={hasFiles}
         errorCount={errorCount}
       />

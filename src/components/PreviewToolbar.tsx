@@ -1,7 +1,11 @@
-import { Monitor, Tablet, Smartphone, Maximize2, Minimize2, RefreshCw, Download } from 'lucide-react';
+import { useRef } from 'react';
+import { Monitor, Tablet, Smartphone, Maximize2, Minimize2, RefreshCw, Download, FileArchive, FileCode2, FileJson, Upload, Rocket, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export type Viewport = 'desktop' | 'tablet' | 'mobile';
 
@@ -11,7 +15,10 @@ interface PreviewToolbarProps {
   isFullscreen: boolean;
   onFullscreenToggle: () => void;
   onRefresh: () => void;
-  onDownload: () => void;
+  onDownloadZip: () => void;
+  onDownloadHtml: () => void;
+  onExportJson: () => void;
+  onImportJson: (file: File) => void;
   hasFiles: boolean;
   errorCount?: number;
 }
@@ -22,17 +29,24 @@ const viewports: { id: Viewport; icon: typeof Monitor; label: string; width: str
   { id: 'mobile', icon: Smartphone, label: 'Mobile', width: '375px' },
 ];
 
-export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFullscreenToggle, onRefresh, onDownload, hasFiles, errorCount = 0 }: PreviewToolbarProps) {
+export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFullscreenToggle, onRefresh, onDownloadZip, onDownloadHtml, onExportJson, onImportJson, hasFiles, errorCount = 0 }: PreviewToolbarProps) {
   const currentVp = viewports.find(v => v.id === viewport)!;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onImportJson(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   return (
     <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-secondary/30">
       <div className="flex items-center gap-1">
         {/* Browser dots */}
         <div className="flex gap-1 mr-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
-          <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-destructive/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-accent/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-primary/60" />
         </div>
         {/* Fake URL bar */}
         <div className="hidden sm:flex items-center bg-background/50 rounded px-2 py-0.5 text-xs text-muted-foreground border border-border/50">
@@ -63,9 +77,33 @@ export function PreviewToolbar({ viewport, onViewportChange, isFullscreen, onFul
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onFullscreenToggle} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
           {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
         </Button>
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onDownload} disabled={!hasFiles} title="Download project">
-          <Download className="w-3 h-3" />
-        </Button>
+
+        {/* Export dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5" disabled={!hasFiles}>
+              <Download className="w-3 h-3" />
+              <ChevronDown className="w-2.5 h-2.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={onDownloadZip} className="gap-2 text-xs">
+              <FileArchive className="w-3.5 h-3.5" /> Download as ZIP
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDownloadHtml} className="gap-2 text-xs">
+              <FileCode2 className="w-3.5 h-3.5" /> Download as HTML
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onExportJson} className="gap-2 text-xs">
+              <FileJson className="w-3.5 h-3.5" /> Export Project (JSON)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="gap-2 text-xs">
+              <Upload className="w-3.5 h-3.5" /> Import Project (JSON)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
 
         {errorCount > 0 && (
           <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 ml-1">{errorCount} error{errorCount > 1 ? 's' : ''}</Badge>

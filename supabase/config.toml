@@ -1,1 +1,4 @@
 project_id = "gadmxwlmnrfrpytssdtj"
+
+[functions.deploy-cloudflare]
+verify_jwt = false
