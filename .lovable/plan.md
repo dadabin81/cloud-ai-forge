@@ -1,168 +1,182 @@
 
 
-# Fase 7: Refactorizacion Profunda - Chat-First Architecture
+# Fase 8: Respuesta Profesional del Chat, Estructura de Archivos y Modelos Actualizados
 
-## El Problema Real
+## Problemas Detectados
 
-El Playground actual tiene problemas fundamentales de arquitectura:
+### 1. Respuesta del Chat sin formato profesional
+- Las respuestas del AI se renderizan con `<pre className="whitespace-pre-wrap">` (linea 934 de Playground.tsx), lo que muestra texto plano sin formatear markdown
+- No hay soporte para encabezados, listas, negritas, codigo inline, ni bloques de codigo con syntax highlighting
+- Los bloques de codigo generados (que contienen los archivos) se mezclan visualmente con el texto explicativo
+- No hay separacion clara entre "explicacion" y "codigo generado"
 
-1. **La IA no tiene memoria**: Cada vez que genera codigo, reemplaza TODOS los archivos en vez de editar los existentes. El sistema incremental (`[EDIT_FILE]`) existe en el codigo pero la IA no lo usa correctamente porque el system prompt no es suficiente y la deteccion falla.
+### 2. Estructura de archivos generados no profesional
+- Los templates solo tienen 2 archivos (index.html + app.jsx), mezclando todo en un solo JSX monolitico
+- No hay separacion de componentes, estilos, ni utilidades
+- La estructura `// filename:` no genera carpetas organizadas (ej: `src/components/`, `src/styles/`)
+- `buildProjectPreview()` en `projectGenerator.ts` carga React/Babel desde CDN sin estructura de proyecto real
 
-2. **Demasiados botones manuales**: `TemplateGallery`, `BlueprintDesigner`, `ProjectDashboard`, `DeployDialog`, `ProjectManager`, `CloudPanel`, `Config Sheet` -- todo esto deberia ser orquestado por la IA desde el chat, no expuesto como botones separados.
-
-3. **BlueprintDesigner esta mal concebido**: Es un wizard manual de 4 pasos donde el usuario elige secciones y colores manualmente. En una plataforma real, el usuario describe lo que quiere en el chat y la IA automaticamente genera el blueprint, muestra una preview, y pregunta si quiere cambios.
-
-4. **Nada funciona realmente**: El sandbox service apunta a endpoints que no existen, el RAG da error 500, los templates son archivos estaticos que no se renderizan bien.
+### 3. Modelos desactualizados
+- La lista de modelos en `cloudflare/src/index.ts` (linea 1600) tiene modelos obsoletos:
+  - `@cf/mistral/mistral-7b-instruct-v0.2` -- version vieja
+  - `@cf/qwen/qwen1.5-14b-chat-awq` -- version vieja de Qwen
+  - Falta Llama 4 Scout, DeepSeek V3, GLM-4.7, Granite 4.0, Llama 3.2 1B/3B
+- El frontend (`useProviders.ts`) depende 100% del endpoint `/v1/models`, sin fallback actualizado
+- No hay informacion de costes en neurons para que el usuario entienda el consumo
 
 ---
 
-## Solucion: Chat-First, Todo Orquestado en Background
+## Solucion
 
-### Principio fundamental
-> El usuario solo interactua con el chat. Todo lo demas sucede automaticamente en background.
+### Parte A: Renderizado Markdown Profesional en el Chat
+
+**Problema**: Linea 934 de `Playground.tsx` usa `<pre>` para todo el contenido.
+
+**Solucion**: Crear un componente `ChatMessage.tsx` que:
+1. Separa el contenido de respuesta en dos zonas: **texto explicativo** (renderizado como markdown) y **bloques de codigo** (ocultos del chat ya que se muestran en el IDE)
+2. Usa una funcion simple de renderizado markdown (sin dependencias externas) que convierte:
+   - `**texto**` a negritas
+   - `# titulo` a encabezados
+   - `- item` a listas
+   - `` `codigo` `` a codigo inline con fondo
+   - Bloques ``` a bloques de codigo con estilo
+3. Los bloques de codigo que corresponden a archivos del proyecto (`// filename:` o `[EDIT_FILE:]`) se muestran como badges compactos ("archivo actualizado") en vez del codigo completo
+4. La respuesta se estructura visualmente con secciones claras
+
+**Archivos**:
+- Crear: `src/components/ChatMessage.tsx` -- componente de renderizado de mensajes
+- Modificar: `src/pages/Playground.tsx` -- reemplazar `<pre>` con `<ChatMessage>`
+
+### Parte B: Estructura de Archivos Profesional
+
+**Problema**: Los templates y el system prompt no guian una estructura profesional de carpetas.
+
+**Solucion**:
+1. Actualizar los templates en `src/lib/templates.ts` para que tengan estructura de carpetas realista:
+   ```
+   src/
+     components/
+       Header.jsx
+       Hero.jsx
+       Features.jsx
+     styles/
+       globals.css
+     App.jsx
+   index.html
+   ```
+2. Actualizar el `DEFAULT_SYSTEM_PROMPT` para instruir al AI a generar siempre con estructura de carpetas organizada
+3. Actualizar `buildProjectPreview()` en `projectGenerator.ts` para resolver imports entre archivos correctamente (los `<script src="app.jsx">` actualmente no funcionan, todo se inyecta inline)
+
+**Archivos**:
+- Modificar: `src/lib/templates.ts` -- reestructurar con carpetas
+- Modificar: `src/pages/Playground.tsx` -- system prompt con instrucciones de estructura
+- Modificar: `src/lib/projectGenerator.ts` -- mejorar `buildProjectPreview()` para concatenar JSX de multiples archivos
+
+### Parte C: Modelos Actualizados con Costes
+
+**Problema**: Los modelos listados en el worker estan desactualizados y no incluyen informacion de costes.
+
+**Solucion**: Actualizar `getAvailableModels()` en `cloudflare/src/index.ts` con los modelos actuales de Workers AI:
+
+Modelos gratuitos (10,000 neurons/dia incluidos):
+- `@cf/meta/llama-3.2-1b-instruct` -- Ultra rapido, ideal para tareas simples (2,457 neurons/M input)
+- `@cf/meta/llama-3.2-3b-instruct` -- Buen balance velocidad/calidad (4,625 neurons/M input)
+- `@cf/meta/llama-3.1-8b-instruct` -- Modelo principal gratuito (4,119 neurons/M input)
+- `@cf/meta/llama-3.1-8b-instruct-fp8-fast` -- Version optimizada y rapida
+- `@cf/mistral/mistral-7b-instruct-v0.2` -- Alternativa Mistral
+- `@cf/deepseek-ai/deepseek-r1-distill-qwen-32b` -- Razonamiento avanzado
+
+Modelos pro (bajo coste):
+- `@cf/meta/llama-3.3-70b-instruct-fp8-fast` -- Modelo grande con alta calidad
+- `@cf/meta/llama-3.2-11b-vision-instruct` -- Vision multimodal
+- `@cf/meta/llama-4-scout-17b-16e-instruct` -- Ultimo modelo Meta con MoE
+- `@cf/qwen/qwen2.5-coder-32b-instruct` -- Especializado en codigo
+
+Cada modelo incluira metadata adicional: `neurons_per_m_input`, `neurons_per_m_output`, `capabilities` (code, vision, reasoning), `context_window`.
+
+**Archivos**:
+- Modificar: `cloudflare/src/index.ts` -- actualizar `getAvailableModels()` y `MODEL_ROUTING`
+- Modificar: `src/hooks/useProviders.ts` -- manejar nuevos campos (neurons, capabilities)
+- Modificar: `src/pages/Playground.tsx` -- mostrar info de modelo seleccionado (neurons, capacidades)
+
+### Parte D: Sincronizacion Frontend-Backend de Modelos
+
+**Problema**: El frontend tiene un fallback hardcodeado de 2 modelos (linea 96-108 de `useProviders.ts`) que no coincide con el backend.
+
+**Solucion**:
+1. Actualizar el fallback en `useProviders.ts` para que coincida exactamente con los modelos del backend
+2. Agregar indicadores visuales en el selector de modelo:
+   - Badge de "Free" / "Pro" (ya existe pero mejorar)
+   - Badge de capacidad: "Code" / "Vision" / "Reasoning"
+   - Tooltip con costo estimado en neurons
+3. Modelo por defecto inteligente: `llama-3.1-8b-instruct` para Free, `llama-3.3-70b` para Pro
 
 ---
 
-## Parte A: Corregir el Flujo de Generacion de Archivos
+## Detalles Tecnicos
 
-### Problema
-Cuando la IA responde con codigo, el `useEffect` en linea 284-330 de `Playground.tsx` decide entre incremental (`[EDIT_FILE]`) y full regeneration (`// filename:`). Pero la IA casi nunca usa marcadores incrementales porque:
-- El system prompt no es lo suficientemente claro
-- `buildFileContextPrompt()` lista archivos pero no envia su contenido
-- El modelo no tiene suficiente contexto para saber que editar
+### Archivos a crear
 
-### Solucion
-1. **Mejorar `buildFileContextPrompt()`** en `src/lib/incrementalParser.ts`: Enviar no solo la lista de archivos sino tambien el contenido completo (o un resumen) de cada archivo existente, para que la IA sepa exactamente que ya existe
-2. **Mejorar el system prompt** para ser MUY explicito: "NUNCA regeneres archivos que no necesitan cambios. SIEMPRE usa [EDIT_FILE: path] para modificar archivos existentes."
-3. **Mejorar `applyIncrementalActions()`**: Cuando la IA responde con `// filename:` markers Y ya existen archivos, hacer merge inteligente en vez de reemplazar todo -- solo actualizar los archivos que aparecen en la respuesta, mantener los demas
+| Archivo | Proposito |
+|---------|-----------|
+| `src/components/ChatMessage.tsx` | Renderizado markdown profesional de mensajes del chat |
 
 ### Archivos a modificar
-- `src/lib/incrementalParser.ts`: Mejorar `buildFileContextPrompt()` para incluir contenido de archivos
-- `src/pages/Playground.tsx` lineas 284-330: Mejorar logica de deteccion para hacer merge cuando ya hay archivos existentes
 
----
-
-## Parte B: Eliminar Componentes Manuales Innecesarios
-
-### Eliminar o simplificar
-- **`BlueprintDesigner.tsx`**: ELIMINAR completamente. El blueprint se genera automaticamente cuando la IA detecta que el usuario quiere un proyecto nuevo. La IA pregunta al usuario en el chat si quiere cambios.
-- **`TemplateGallery.tsx`**: SIMPLIFICAR. En vez de un dialog separado, la IA sugiere templates relevantes directamente en el chat cuando el usuario pide un proyecto nuevo.
-- **`WireframePreview.tsx`**: ELIMINAR. No aporta valor real, es solo boxes de colores.
-- **`ProjectDashboard.tsx`**: ELIMINAR. La informacion del proyecto se muestra en la barra superior de forma compacta.
-
-### Mantener pero mover al background
-- **`ProjectManager.tsx`**: Mantener como dialog pero mas simple, sin botones de sync/cloud que no funcionan
-- **`DeployDialog.tsx`**: Mantener, es funcional
-
----
-
-## Parte C: System Prompt Profesional para Chat-First
-
-### Reescribir `DEFAULT_SYSTEM_PROMPT`
-
-El system prompt actual es generico. Debe ser preciso y profesional:
-
-- Instrucciones claras sobre cuando crear archivos nuevos vs editar existentes
-- Cuando el usuario describe un proyecto nuevo, la IA debe responder primero con una propuesta (nombre, descripcion, archivos a crear, stack) en formato legible -- NO un JSON oculto sino un mensaje claro
-- La IA debe preguntar "Quieres que proceda?" antes de generar codigo
-- Cuando ya existen archivos, SIEMPRE usar `[EDIT_FILE]` para los que cambian
-- La IA debe sugerir mejoras proactivamente despues de generar
-- Eliminar las instrucciones de `[ACTION:...]` que confunden -- esas acciones deben ejecutarse automaticamente, no como marcadores en el texto
-
----
-
-## Parte D: Deteccion Inteligente de Intent desde el Chat
-
-### Modificar `src/pages/Playground.tsx` (sendHttp)
-
-Antes de enviar el mensaje a la IA, analizar el intent del usuario:
-
-1. **Proyecto nuevo**: Detectar si pide crear algo desde cero. Si hay archivos existentes, preguntar si quiere crear un proyecto nuevo o modificar el actual.
-2. **Modificacion**: Si hay archivos existentes y el usuario pide un cambio, incluir el contexto completo de los archivos.
-3. **Template**: Si el usuario menciona un tipo de proyecto conocido (dashboard, landing, blog), pre-seleccionar el template mas adecuado y enviarlo como contexto adicional a la IA.
-4. **Deploy**: Si el usuario dice "deploya" o "publica", abrir el DeployDialog automaticamente.
-5. **Export**: Si dice "exporta" o "descarga", ejecutar la exportacion directamente.
-
-Esto reemplaza el sistema de `[ACTION:...]` markers, que nunca funciono bien porque depende de que la IA genere el formato exacto.
-
----
-
-## Parte E: Limpieza de la Barra Superior
-
-### Estado actual (demasiados botones)
-Templates | Blueprint Designer | Projects | Cloud | Config
-
-### Estado propuesto (limpio y profesional)
-[Nombre del proyecto] | Projects | Deploy | Config
-
-- El nombre del proyecto es editable inline
-- "Projects" abre el ProjectManager simplificado
-- "Deploy" abre el DeployDialog
-- "Config" mantiene API key, provider/model, system prompt
-- Cloud/Templates/Blueprint se eliminan de la barra -- todo se maneja desde el chat
-
----
-
-## Parte F: Auto-Save y Gestion de Proyectos Mejorada
-
-### Modificar `src/hooks/usePlaygroundProject.ts`
-
-1. **Auto-crear proyecto**: Cuando la IA genera codigo por primera vez, crear automaticamente un proyecto con nombre derivado de la descripcion del usuario (no "Project 02/17/2026")
-2. **Auto-save inmediato**: Reducir el debounce de 2000ms a 500ms
-3. **Eliminar campos de sandbox** que no funcionan: `sandbox_id`, `sandbox_status` -- estos se pueden usar en el futuro pero ahora solo anade complejidad sin funcionalidad
-
----
-
-## Resumen de Cambios
-
-### Archivos a ELIMINAR
-| Archivo | Razon |
-|---------|-------|
-| `src/components/BlueprintDesigner.tsx` | Manual wizard innecesario, la IA lo hace desde el chat |
-| `src/components/WireframePreview.tsx` | No aporta valor real |
-| `src/components/ProjectDashboard.tsx` | Informacion se muestra en barra superior |
-
-### Archivos a MODIFICAR
 | Archivo | Cambio |
 |---------|--------|
-| `src/lib/incrementalParser.ts` | `buildFileContextPrompt()` incluye contenido de archivos, merge inteligente |
-| `src/pages/Playground.tsx` | Eliminar imports de BlueprintDesigner/WireframePreview/TemplateGallery/ProjectDashboard, limpiar barra superior, mejorar system prompt, mejorar logica de merge de archivos, deteccion de intent |
-| `src/lib/blueprintSystem.ts` | Simplificar: eliminar `buildBlueprintPrompt()` forzado, hacer que `detectBlueprintRequest()` sea mas inteligente y dispare una propuesta en lenguaje natural |
-| `src/lib/chatActions.ts` | Eliminar acciones que no funcionan (sandbox_*), simplificar a las que realmente funcionan |
-| `src/hooks/usePlaygroundProject.ts` | Auto-crear con nombre inteligente, reducir debounce |
-| `src/components/TemplateGallery.tsx` | Convertir de dialog a funcion helper que la IA usa internamente |
-| `src/lib/templates.ts` | Mantener pero agregar funcion `suggestTemplate(description)` que la IA puede usar |
+| `src/pages/Playground.tsx` | Usar ChatMessage, actualizar system prompt con instrucciones de estructura, mostrar info de modelo |
+| `src/lib/templates.ts` | Reestructurar templates con carpetas profesionales |
+| `src/lib/projectGenerator.ts` | Mejorar buildProjectPreview para multiples archivos JSX |
+| `cloudflare/src/index.ts` | Actualizar getAvailableModels con modelos actuales y metadata |
+| `src/hooks/useProviders.ts` | Actualizar fallback, manejar nuevos campos de modelo |
 
-### Ninguna dependencia nueva necesaria
+### Sin nuevas dependencias
+
+El renderizado markdown se hace con una funcion personalizada simple (regex para bold, headers, lists, code), sin necesidad de `react-markdown` ni librerias externas.
 
 ### Sin migraciones de base de datos
 
 ---
 
-## Flujo del Usuario (ANTES vs DESPUES)
+## Resultado esperado
 
-```text
-ANTES (confuso):
-1. Usuario ve 6 botones en la barra
-2. Abre Templates -> elige uno -> carga archivos
-3. O abre Blueprint Designer -> 4 pasos manuales -> genera
-4. Chat genera codigo -> REEMPLAZA todo lo anterior
-5. Usuario no sabe si guardar, deployar, exportar
-6. Botones de Cloud/Sandbox que no funcionan
-
-DESPUES (profesional):
-1. Usuario escribe en el chat: "Crea un dashboard de analytics"
-2. IA responde: "Voy a crear un Dashboard Analytics con:
-   - index.html (entrada principal)
-   - styles.css (Tailwind dark mode)
-   - App.jsx (componente principal con graficos)
-   Uso: React + Chart.js + Tailwind
-   Quieres que proceda?"
-3. Usuario: "Si, adelante"
-4. IA genera codigo -> archivos aparecen en el IDE -> preview en vivo
-5. Proyecto se guarda automaticamente como "Dashboard Analytics"
-6. Usuario: "Agrega una seccion de usuarios"
-7. IA usa [EDIT_FILE: App.jsx] -> solo modifica lo necesario
-8. Usuario: "Deployalo"
-9. Se abre DeployDialog automaticamente
+### Chat ANTES:
 ```
+assistant: **Crear un blog moderno con dark mode**\n\nEn este tutorial...
+```html\n<!DOCTYPE html>...
+```
+(Todo como texto plano, sin formato, codigo mezclado)
+
+### Chat DESPUES:
+El mensaje del asistente se ve con:
+- Titulo en negrita con tipografia clara
+- Lista estructurada de archivos a crear/modificar
+- Bloques de codigo con fondo oscuro y syntax highlighting basico
+- Badges compactos para archivos generados ("index.html actualizado", "App.jsx creado")
+- Separacion visual clara entre explicacion y codigo
+
+### Estructura de archivos ANTES:
+```
+index.html
+app.jsx
+```
+
+### Estructura de archivos DESPUES:
+```
+index.html
+src/
+  App.jsx
+  components/
+    Header.jsx
+    Hero.jsx
+  styles/
+    globals.css
+```
+
+### Modelos ANTES:
+6 modelos, algunos obsoletos, sin informacion de costes
+
+### Modelos DESPUES:
+10+ modelos actualizados, con badges de capacidad (Code/Vision/Reasoning), indicador de costes en neurons, y recomendacion automatica segun el tipo de tarea
+
