@@ -528,7 +528,8 @@ export default function Playground() {
     const content = input.trim();
     setInput('');
 
-    if (useWebSocket) {
+    // If WebSocket is enabled AND connected, use it; otherwise fall back to HTTP
+    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
       sendWebSocket(content);
     } else {
       sendHttp(content);
