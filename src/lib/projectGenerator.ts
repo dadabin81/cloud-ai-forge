@@ -133,6 +133,77 @@ export function generateFileTree(files: Record<string, ProjectFile>): FileTreeNo
 }
 
 /**
+ * Strip import/export statements and ReactDOM.createRoot calls from JSX code.
+ * Babel Standalone in the browser does NOT support ES module syntax.
+ */
+export function stripModuleSyntax(code: string): string {
+  return code
+    // Remove import ... from '...' (single or multi-line)
+    .replace(/^\s*import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
+    // Remove side-effect imports: import '...'
+    .replace(/^\s*import\s+['"][^'"]+['"];?\s*$/gm, '')
+    // export default function/class -> keep declaration
+    .replace(/^\s*export\s+default\s+(function|class)\s/gm, '$1 ')
+    // export default <expr> -> remove (the auto-render will find it)
+    .replace(/^\s*export\s+default\s+/gm, '')
+    // export { ... } -> remove
+    .replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '')
+    // export const/let/var/function/class -> keep declaration
+    .replace(/^\s*export\s+(const|let|var|function|class)\s/gm, '$1 ')
+    // Remove ReactDOM.createRoot(...).render(...) calls (the engine adds its own)
+    .replace(/^\s*ReactDOM\.createRoot\s*\([\s\S]*?\)\.render\s*\([\s\S]*?\);?\s*$/gm, '')
+    // Clean up multiple blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Lightweight hash router injected into preview for multi-page navigation.
+ */
+const HASH_ROUTER_CODE = `
+function useHashRouter() {
+  const [route, setRoute] = useState(window.location.hash.slice(1) || '/');
+  useEffect(() => {
+    const handler = () => setRoute(window.location.hash.slice(1) || '/');
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+  return route;
+}
+
+function Route({ path, component: Comp, children }) {
+  const route = useHashRouter();
+  const match = route === path || (path === '/' && route === '');
+  if (!match) return null;
+  return Comp ? React.createElement(Comp) : children;
+}
+
+function Link({ to, children, className, ...props }) {
+  return React.createElement('a', {
+    href: '#' + to,
+    className: className,
+    onClick: function(e) { e.preventDefault(); window.location.hash = to; },
+    ...props
+  }, children);
+}
+
+function Router({ children }) {
+  return children;
+}
+
+function Switch({ children }) {
+  const route = useHashRouter();
+  const arr = React.Children.toArray(children);
+  for (const child of arr) {
+    if (child && child.props && (child.props.path === route || (child.props.path === '/' && (route === '' || route === '/')))) {
+      return child;
+    }
+  }
+  return arr[0] || null;
+}
+`;
+
+/**
  * Build a preview HTML document from project files
  */
 export function buildProjectPreview(files: Record<string, ProjectFile>): string {
@@ -145,9 +216,10 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 
   const hasJsx = jsxFiles.length > 0;
 
-  // Detect Tailwind usage
+  // Detect Tailwind usage (class names or explicit mention)
   const allCode = entries.map(([, f]) => f.code).join('\n');
-  const usesTailwind = /\bclass(?:Name)?=["'][^"']*(?:flex|grid|bg-|text-|p-|m-|w-|h-|rounded|shadow|border|gap-|space-|items-|justify-)/i.test(allCode);
+  const usesTailwind = /\bclass(?:Name)?=["'][^"']*(?:flex|grid|bg-|text-|p-|m-|w-|h-|rounded|shadow|border|gap-|space-|items-|justify-)/i.test(allCode)
+    || /tailwindcss|tailwind\.config/i.test(allCode);
 
   // Console capture + error capture script
   const consoleCapture = `<script>
@@ -169,12 +241,15 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 
   const tailwindScript = usesTailwind ? '<script src="https://cdn.tailwindcss.com"></script>' : '';
 
-  // If there's a full HTML document, use it and inject CSS/JS
+  // If there's a full HTML document, strip dead local references and use it
   const fullHtml = htmlFiles.find(h => h.toLowerCase().includes('<!doctype') || h.toLowerCase().includes('<html'));
   if (fullHtml && !hasJsx) {
     let doc = fullHtml;
+    // Strip dead local file references (link/script pointing to project files)
+    doc = doc.replace(/<link\s[^>]*href=["'](?!https?:\/\/)[^"']*["'][^>]*\/?>/gi, '');
+    doc = doc.replace(/<script\s[^>]*src=["'](?!https?:\/\/)[^"']*["'][^>]*><\/script>/gi, '');
     doc = doc.replace('<head>', `<head>\n${consoleCapture}`);
-    if (usesTailwind) {
+    if (usesTailwind && !doc.includes('tailwindcss.com')) {
       doc = doc.replace('</head>', `${tailwindScript}\n</head>`);
     }
     if (cssFiles.length > 0) {
@@ -187,7 +262,6 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
     }
     return doc;
   }
-
 
   // JSX/React mode - concatenate all JSX in dependency order (components first, App last)
   if (hasJsx) {
@@ -202,7 +276,8 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
       if (!isAppA && isAppB) return -1;
       return pathA.localeCompare(pathB);
     });
-    const jsxCode = sortedJsx.map(([, f]) => f.code).join('\n\n');
+    // Strip module syntax from each JSX file before concatenation
+    const jsxCode = sortedJsx.map(([, f]) => stripModuleSyntax(f.code)).join('\n\n');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -210,7 +285,7 @@ export function buildProjectPreview(files: Record<string, ProjectFile>): string 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 ${consoleCapture}
 ${tailwindScript}
-<script src="https://unpkg.com/react@18/umd/react.development.min.js" crossorigin></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
@@ -223,6 +298,7 @@ ${cssFiles.join('\n')}
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer, useContext, createContext } = React;
+${HASH_ROUTER_CODE}
 ${jsxCode}
 
 const _names = ['App','Main','Page','Home','Landing','Blog','Component','Hero','Layout'];

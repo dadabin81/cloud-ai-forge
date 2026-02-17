@@ -96,8 +96,24 @@ ${jsBlocks.length > 0 ? `<script>\n${jsBlocks.join('\n')}\n</script>` : ''}
 </html>`;
 }
 
+/**
+ * Strip import/export and ReactDOM.createRoot from JSX for inline preview
+ */
+function stripModuleSyntax(code: string): string {
+  return code
+    .replace(/^\s*import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?\s*$/gm, '')
+    .replace(/^\s*import\s+['"][^'"]+['"];?\s*$/gm, '')
+    .replace(/^\s*export\s+default\s+(function|class)\s/gm, '$1 ')
+    .replace(/^\s*export\s+default\s+/gm, '')
+    .replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '')
+    .replace(/^\s*export\s+(const|let|var|function|class)\s/gm, '$1 ')
+    .replace(/^\s*ReactDOM\.createRoot\s*\([\s\S]*?\)\.render\s*\([\s\S]*?\);?\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function buildReactDocument(jsxBlocks: string[], cssBlocks: string[]): string {
-  const jsxCode = jsxBlocks.join('\n\n');
+  const jsxCode = jsxBlocks.map(b => stripModuleSyntax(b)).join('\n\n');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -116,6 +132,7 @@ ${cssBlocks.join('\n')}
 <body>
 <div id="root"></div>
 <script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback, useReducer, useContext, createContext } = React;
 ${jsxCode}
 
 const _names = ['App','Main','Page','Home','Landing','Blog','Component','Hero','Layout'];
