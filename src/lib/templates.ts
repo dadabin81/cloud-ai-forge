@@ -26,23 +26,15 @@ export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; icon: s
 
 const pf = (code: string, language: string): ProjectFile => ({ code, language });
 
-const htmlEntry = (title: string, cssPath = 'src/styles/globals.css', extras = '') =>
+const htmlEntry = (title: string, _cssPath = '', extras = '') =>
   `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title}</title>
-  <script src="https://cdn.tailwindcss.com"></script>${extras}
-  <link rel="stylesheet" href="${cssPath}" />
+  <title>${title}</title>${extras}
 </head>
 <body class="bg-gray-950 text-white">
   <div id="root"></div>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="text/babel" data-type="module">
-    // Components are concatenated by the preview engine
-  </script>
 </body>
 </html>`;
 
@@ -146,8 +138,7 @@ export const TEMPLATES: ProjectTemplate[] = [
       <footer className="text-center py-8 text-gray-500 text-sm border-t border-gray-800">© 2026 SaaSify. All rights reserved.</footer>
     </div>
   );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
+}`, 'jsx'),
     },
   },
   {
@@ -155,7 +146,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
     description: 'Panel de analytics con gráficos, stats y sidebar.',
     stack: ['React', 'Chart.js', 'Tailwind CSS'],
     files: {
-      'index.html': pf(htmlEntry('Analytics Dashboard', 'src/styles/globals.css', '\n  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'), 'html'),
+      'index.html': pf(htmlEntry('Analytics Dashboard', '', '\n  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'), 'html'),
       'src/styles/globals.css': pf(globalsCss, 'css'),
       'src/components/Sidebar.jsx': pf(`function Sidebar() {
   return (
@@ -220,8 +211,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
       </main>
     </div>
   );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
+}`, 'jsx'),
     },
   },
   {
@@ -273,8 +263,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
       </section>
     </div>
   );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
+}`, 'jsx'),
     },
   },
   {
@@ -348,8 +337,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
       <ChatWindow />
     </div>
   );
-}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);`, 'jsx'),
+}`, 'jsx'),
     },
   },
 ];
