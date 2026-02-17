@@ -28,6 +28,7 @@ import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/co
 import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
 import { ResourceBadges } from '@/components/ResourceBadges';
 import { CloudPanel } from '@/components/CloudPanel';
+import { parseActions, executeAllActions, enrichWithRAG, type ActionResult } from '@/lib/chatActions';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -46,19 +47,30 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack web development assistant powered by Cloudflare's edge infrastructure.
 
-Your capabilities include:
-- **Workers AI**: Free Llama 3, Mistral, DeepSeek models (10,000 neurons/day)
-- **D1 Database**: SQLite on the edge for data persistence
-- **KV Storage**: Key-value store for sessions, cache, config
-- **Vectorize**: Vector embeddings for RAG and semantic search
-- **Workflows**: Durable multi-step AI workflows (research, ingestion)
-- **Durable Objects**: Real-time WebSocket agents and project sandboxes
+You have DIRECT ACCESS to these cloud resources and MUST use them automatically when relevant:
 
-When the user asks you to create an app, website, blog, or any web project:
+## Your Cloud Actions (use these automatically, don't ask the user to do it manually)
 
-1. Generate complete, production-ready code
-2. Organize code into multiple files with clear paths
-3. Use this format for each file:
+When you need to use a cloud resource, include the action marker in your response. The system will execute it automatically.
+
+- **Search knowledge base**: [ACTION:rag_search:{"query":"your search"}]
+- **Ask knowledge base**: [ACTION:rag_query:{"query":"your question"}]
+- **Ingest a document**: [ACTION:rag_ingest:{"content":"text to store"}]
+- **Deep research**: [ACTION:workflow_research:{"topic":"research topic"}]
+- **Ingest URL into knowledge base**: [ACTION:workflow_rag_ingest:{"url":"https://..."}]
+- **Check workflow status**: [ACTION:workflow_status:{"instanceId":"id"}]
+- **Create sandbox project**: [ACTION:project_create:{"name":"project-name","template":"react-vite"}]
+
+## When to auto-use actions:
+- User asks to "search", "find", "look up" → use rag_search or rag_query
+- User asks to "remember", "save", "store knowledge" → use rag_ingest
+- User asks to "research", "investigate", "analyze deeply" → use workflow_research  
+- User shares a URL to learn from → use workflow_rag_ingest
+- User wants to create a project/app → use project_create AND generate code
+
+## Code Generation
+
+When creating apps/websites, organize code into multiple files:
 
 // filename: src/App.jsx
 [code here]
@@ -69,16 +81,9 @@ When the user asks you to create an app, website, blog, or any web project:
 // filename: index.html
 [code here]
 
-4. Always include: index.html, at least one CSS file, and JS/JSX files as needed
-5. Use modern CSS (flexbox, grid, custom properties)
-6. Make designs responsive and visually appealing
-7. Include comments explaining key sections
+Always include: index.html, CSS, and JS/JSX files. Use modern CSS and responsive design.
 
-When the user needs:
-- Data persistence → suggest using D1 Database
-- Search/knowledge base → suggest RAG with Vectorize
-- Complex multi-step tasks → suggest Workflows
-- Real-time features → suggest Durable Objects with WebSockets`;
+IMPORTANT: Use actions naturally in your responses. The user should never need to manually trigger cloud features - you do it for them.`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -340,8 +345,14 @@ export default function Playground() {
     const effectiveApiKey = getEffectiveApiKey();
     if (!effectiveApiKey.trim()) { toast.error('Please enter your API key'); return; }
     const userMessage: Message = { role: 'user', content };
+
+    // Auto-enrich with RAG context (silent, non-blocking)
+    let ragContext: string | null = null;
+    try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
+
     const allMessages = [
       ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+      ...(ragContext ? [{ role: 'system' as const, content: ragContext }] : []),
       ...messages,
       userMessage,
     ];
@@ -407,14 +418,26 @@ export default function Playground() {
         setIsThinking(false);
         const data = await response.json();
         const assistantContent = data.choices?.[0]?.message?.content || '';
-        setMessages(prev => [...prev, { role: 'assistant', content: assistantContent }]);
+        // Process actions from non-streaming response
+        const { cleanText, actions } = parseActions(assistantContent);
+        setMessages(prev => [...prev, { role: 'assistant', content: cleanText }]);
+        if (actions.length > 0) {
+          processActions(actions, effectiveApiKey);
+        }
         setStreamingContent('');
         streamingContentRef.current = '';
         setIsLoading(false);
         return;
       }
-      setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current }]);
+
+      // Process actions from streaming response
+      const finalContent = streamingContentRef.current;
+      const { cleanText, actions } = parseActions(finalContent);
+      setMessages(prev => [...prev, { role: 'assistant', content: cleanText }]);
       setStreamingContent('');
+      if (actions.length > 0) {
+        processActions(actions, effectiveApiKey);
+      }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') { console.error('Chat error:', error); toast.error('Failed to get response'); }
     } finally {
@@ -424,6 +447,18 @@ export default function Playground() {
       setStreamingContent('');
       setTokensPerSecond(null);
       abortControllerRef.current = null;
+    }
+  };
+
+  // Auto-execute actions from AI responses
+  const processActions = async (actions: ReturnType<typeof parseActions>['actions'], apiKey: string) => {
+    const results = await executeAllActions(actions, apiKey);
+    for (const result of results) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: result.summary,
+        timestamp: Date.now(),
+      }]);
     }
   };
 
