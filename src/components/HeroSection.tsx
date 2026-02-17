@@ -5,40 +5,33 @@ import { CodeBlock } from '@/components/CodeBlock';
 import { ArrowRight, Terminal, Zap, Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
-const heroCode = `import { createBinario, useBinarioStream } from 'binario';
-import { z } from 'zod';
+const heroCode = `import { Binario } from 'binario';
+import { useChat, BinarioProvider } from 'binario/react';
 
-// FREE Llama 3 via Cloudflare Workers AI
-const ai = createBinario({
-  providers: {
-    cloudflare: { 
-      accountId: process.env.CF_ACCOUNT_ID,
-      apiKey: process.env.CF_API_TOKEN,
-    },
-    openai: { apiKey: process.env.OPENAI_KEY },
-    anthropic: { apiKey: process.env.ANTHROPIC_KEY },
-  },
-  defaultProvider: 'cloudflare', // Free tier!
-  cache: { enabled: true, ttl: 3600000 },
-});
+// 1 line to start — no config, no infra
+const ai = new Binario('bsk_live_xxx');
 
-// Pydantic-style type-safe schemas
-const ResponseSchema = z.object({
-  answer: z.string(),
-  confidence: z.number(),
-  sources: z.array(z.string()),
-});
+// SaaS React hooks (NEW in v0.2.0)
+function App() {
+  return (
+    <BinarioProvider client={ai}>
+      <ChatApp />
+    </BinarioProvider>
+  );
+}
 
-// Streaming with React hooks
 function ChatApp() {
-  const { messages, send, isStreaming } = 
-    useBinarioStream(ai, {
-      model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-    });
+  const { messages, send, isLoading } = useChat(ai);
 
-  return <Chat messages={messages} onSend={send} />;
+  return (
+    <div>
+      {messages.map(m => <p key={m.role}>{m.content}</p>)}
+      <button onClick={() => send('Explain quantum computing')}>
+        {isLoading ? 'Thinking...' : 'Ask AI'}
+      </button>
+    </div>
+  );
 }`;
-
 export function HeroSection() {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -73,15 +66,15 @@ export function HeroSection() {
           <div className="space-y-8">
             {/* Badge */}
             <div className="flex flex-wrap items-center gap-3 animate-fade-in">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30">
-                <Zap className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm text-emerald-400 font-medium">Free Llama 3 via Cloudflare</span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/30">
+                <Zap className="w-4 h-4 text-primary" />
+                <span className="text-sm text-primary font-medium">v0.2.0 — Free Llama 3 via Cloudflare</span>
               </div>
               <a
                 href="https://www.npmjs.com/package/binario"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/10 border border-red-500/20 text-sm text-red-400 font-medium hover:text-red-300 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/10 border border-destructive/20 text-sm text-destructive font-medium hover:text-destructive/80 transition-colors"
               >
                 📦 Live on NPM
               </a>
@@ -104,16 +97,16 @@ export function HeroSection() {
             {/* Stats row */}
             <div className="flex flex-wrap gap-6 text-sm animate-slide-up" style={{ animationDelay: '150ms' }}>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">10K</span>
-                <span className="text-muted-foreground">free neurons/day</span>
+                <span className="text-2xl font-bold text-primary">7</span>
+                <span className="text-muted-foreground">AI providers</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">4</span>
-                <span className="text-muted-foreground">providers</span>
+                <span className="text-2xl font-bold text-primary">10</span>
+                <span className="text-muted-foreground">React hooks</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">100%</span>
-                <span className="text-muted-foreground">TypeScript</span>
+                <span className="text-2xl font-bold text-primary">151</span>
+                <span className="text-muted-foreground">tests passing</span>
               </div>
             </div>
 
@@ -150,7 +143,7 @@ export function HeroSection() {
                   aria-label="Copy install command"
                 >
                   {copied ? (
-                    <Check className="w-4 h-4 text-emerald-400" />
+                    <Check className="w-4 h-4 text-primary" />
                   ) : (
                     <Copy className="w-4 h-4" />
                   )}

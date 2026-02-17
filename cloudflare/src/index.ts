@@ -179,20 +179,95 @@ export default {
         return stub.fetch(new Request(projectUrl.toString(), request));
       }
 
-      // RAG endpoints (still disabled - requires Vectorize)
+      // RAG endpoints
       if (path.startsWith('/v1/rag/')) {
-        return jsonResponse({ 
-          error: 'RAG endpoints temporarily disabled',
-          message: 'Vectorize index not configured.',
-        }, 503);
+        if (!env.VECTORIZE_INDEX) {
+          return jsonResponse({ 
+            error: 'RAG not configured',
+            message: 'Vectorize index not bound. Run: npx wrangler vectorize create binario-embeddings --dimensions=768 --metric=cosine',
+          }, 503);
+        }
+        const apiKeyInfo = await validateApiKey(request, env);
+        if (!apiKeyInfo) return jsonError('Invalid API key', 401);
+
+        const ragEnv: RagEnv = { AI: env.AI, VECTORIZE_INDEX: env.VECTORIZE_INDEX, DB: env.DB, KV: env.KV };
+        const ragAction = path.replace('/v1/rag/', '');
+
+        if (ragAction === 'ingest' && request.method === 'POST') {
+          const body = await request.json() as { content: string; metadata?: Record<string, string>; namespace?: string };
+          const result = await ingestDocument(ragEnv, body.content, body.metadata, body.namespace);
+          return jsonResponse(result, 201);
+        }
+        if (ragAction === 'search' && request.method === 'POST') {
+          const body = await request.json() as { query: string; topK?: number; namespace?: string };
+          const results = await searchDocuments(ragEnv, body.query, body.topK, body.namespace);
+          return jsonResponse({ results });
+        }
+        if (ragAction === 'query' && request.method === 'POST') {
+          const body = await request.json() as { query: string; topK?: number; namespace?: string; model?: string };
+          const answer = await ragQuery(ragEnv, body.query, body.topK, body.namespace, body.model);
+          return jsonResponse(answer);
+        }
+        if (ragAction === 'embed' && request.method === 'POST') {
+          const body = await request.json() as { text: string };
+          const embedding = await generateEmbedding(ragEnv, body.text);
+          return jsonResponse({ embedding });
+        }
+        if (ragAction === 'delete' && request.method === 'DELETE') {
+          const body = await request.json() as { ids: string[] };
+          await deleteDocuments(ragEnv, body.ids);
+          return jsonResponse({ deleted: body.ids.length });
+        }
+        if (ragAction === 'info' && request.method === 'GET') {
+          const info = getEmbeddingInfo();
+          return jsonResponse(info);
+        }
+        return jsonError('Unknown RAG endpoint', 404);
       }
 
-      // Workflows (still disabled)
+      // Workflows endpoints
       if (path.startsWith('/v1/workflows/')) {
-        return jsonResponse({ 
-          error: 'Workflow endpoints temporarily disabled',
-          message: 'Workflows not configured.',
-        }, 503);
+        const apiKeyInfo = await validateApiKey(request, env);
+        if (!apiKeyInfo) return jsonError('Invalid API key', 401);
+
+        const workflowAction = path.replace('/v1/workflows/', '');
+
+        if (workflowAction === 'research' && request.method === 'POST') {
+          if (!env.RESEARCH_WORKFLOW) {
+            return jsonResponse({ error: 'Research workflow not configured. Add workflow binding to wrangler.toml' }, 503);
+          }
+          const body = await request.json() as { topic: string; depth?: string };
+          const instance = await env.RESEARCH_WORKFLOW.create({ params: body });
+          return jsonResponse({ instanceId: instance.id, status: 'started' }, 202);
+        }
+        if (workflowAction === 'rag-ingest' && request.method === 'POST') {
+          if (!env.RAG_WORKFLOW) {
+            return jsonResponse({ error: 'RAG workflow not configured. Add workflow binding to wrangler.toml' }, 503);
+          }
+          const body = await request.json() as { urls: string[]; namespace?: string };
+          const instance = await env.RAG_WORKFLOW.create({ params: body });
+          return jsonResponse({ instanceId: instance.id, status: 'started' }, 202);
+        }
+        if (workflowAction.startsWith('status/') && request.method === 'GET') {
+          const instanceId = workflowAction.replace('status/', '');
+          // Try to get status from either workflow
+          try {
+            if (env.RESEARCH_WORKFLOW) {
+              const instance = await env.RESEARCH_WORKFLOW.get(instanceId);
+              const status = await instance.status();
+              return jsonResponse({ instanceId, status });
+            }
+          } catch { /* not found in research */ }
+          try {
+            if (env.RAG_WORKFLOW) {
+              const instance = await env.RAG_WORKFLOW.get(instanceId);
+              const status = await instance.status();
+              return jsonResponse({ instanceId, status });
+            }
+          } catch { /* not found in RAG */ }
+          return jsonError('Workflow instance not found', 404);
+        }
+        return jsonError('Unknown workflow endpoint', 404);
       }
 
       // ============ Public Endpoints ============
@@ -202,8 +277,8 @@ export default {
           timestamp: new Date().toISOString(), 
           agents: !!env.BINARIO_AGENT,
           sandbox: !!env.SANDBOX_PROJECT,
-          rag: false,
-          workflows: false,
+          rag: !!env.VECTORIZE_INDEX,
+          workflows: !!(env.RESEARCH_WORKFLOW || env.RAG_WORKFLOW),
           chat: true,
         });
       }
