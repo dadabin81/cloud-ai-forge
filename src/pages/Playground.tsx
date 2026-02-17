@@ -70,7 +70,7 @@ export default function Playground() {
     localStorage.getItem(STORAGE_KEYS.model) || '@cf/meta/llama-3.1-8b-instruct'
   );
   const [useWebSocket, setUseWebSocket] = useState(() => 
-    localStorage.getItem(STORAGE_KEYS.useWebSocket) !== 'false'
+    localStorage.getItem(STORAGE_KEYS.useWebSocket) === 'true'
   );
   const [systemPrompt, setSystemPrompt] = useState(() => 
     localStorage.getItem(STORAGE_KEYS.systemPrompt) || 'You are a helpful AI assistant.'
