@@ -13,6 +13,10 @@ export interface Model {
   name: string;
   tier: string;
   provider: string;
+  neurons_per_m_input?: number;
+  neurons_per_m_output?: number;
+  capabilities?: string[];
+  context_window?: number;
 }
 
 export interface ProvidersStatus {
@@ -96,16 +100,18 @@ export function useProviders(): UseProvidersReturn {
       setProviders([
         { id: 'cloudflare', name: 'Cloudflare Workers AI', configured: true, free: true },
       ]);
-      setModels({
-        cloudflare: [
-          { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare' },
-          { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare' },
-        ],
-      });
-      setAllModels([
-        { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare' },
-        { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare' },
-      ]);
+      const fallbackModels: Model[] = [
+        { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 2457, neurons_per_m_output: 18252, capabilities: ['chat'], context_window: 131072 },
+        { id: '@cf/meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4625, neurons_per_m_output: 34375, capabilities: ['chat', 'code'], context_window: 131072 },
+        { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
+        { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
+        { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 26668, neurons_per_m_output: 204805, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072 },
+        { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 10000, neurons_per_m_output: 75000, capabilities: ['chat', 'code', 'vision'], context_window: 131072 },
+        { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['chat', 'reasoning'], context_window: 65536 },
+        { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['code'], context_window: 131072 },
+      ];
+      setModels({ cloudflare: fallbackModels });
+      setAllModels(fallbackModels);
     } finally {
       setIsLoading(false);
     }

@@ -25,6 +25,7 @@ import { FileExplorer } from '@/components/FileExplorer';
 import { CodeEditor } from '@/components/CodeEditor';
 import { CodePreview } from '@/components/CodePreview';
 import { BlueprintCard } from '@/components/BlueprintCard';
+import { ChatMessage } from '@/components/ChatMessage';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
 import { extractCodeBlocks, isRenderableCode, hasProjectMarkers } from '@/lib/codeExtractor';
@@ -52,32 +53,46 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant. You create and modify complete, working web applications.
+const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant. You create and modify complete, working web applications with organized, production-quality file structures.
 
-## CRITICAL RULES FOR FILE MANAGEMENT
+## PROJECT STRUCTURE RULES
+Always organize files in a professional folder structure:
+\`\`\`
+index.html              ← Entry point with React/Babel CDN
+src/
+  App.jsx               ← Main application component
+  components/
+    Header.jsx          ← Navigation/header
+    Hero.jsx            ← Hero section (if landing page)
+    [Feature].jsx       ← Feature-specific components
+  styles/
+    globals.css         ← Global styles, animations, theme
+\`\`\`
 
-### When there are NO existing files (new project):
-1. First, propose the project structure in natural language: list the files you'll create, the tech stack, and ask "¿Quieres que proceda?" (or equivalent).
-2. Only after user confirms, generate ALL files using "// filename: path" markers in code blocks.
-3. Write COMPLETE working code — never use placeholders or "...".
+## FILE MANAGEMENT RULES
 
-### When there ARE existing files (editing):
+### New project (no existing files):
+1. Propose the structure first: list files, tech stack. Ask "¿Quieres que proceda?"
+2. After confirmation, generate ALL files using \`// filename: path\` markers.
+3. Write COMPLETE working code — never use placeholders.
+4. Each component in its own file under src/components/.
+5. CSS in src/styles/globals.css, not inline.
+
+### Editing existing files:
 1. NEVER regenerate files that don't need changes.
-2. ALWAYS use [EDIT_FILE: path] markers for files that need modification.
-3. Use [NEW_FILE: path] for new files.
-4. Use [DELETE_FILE: path] to remove files.
-5. Only include files that ACTUALLY need changes.
+2. Use [EDIT_FILE: path] for modifications, [NEW_FILE: path] for new files, [DELETE_FILE: path] to remove.
+3. Only include files that ACTUALLY change.
 
-## Code Quality Standards:
-- Modern CSS with Tailwind CDN, responsive design, dark mode
-- React 18 with Babel CDN for JSX support
-- Professional UI with animations and good UX
-- Complete, production-ready code
+## Code Quality:
+- Tailwind CSS via CDN, responsive, dark mode by default
+- React 18 with Babel CDN, functional components with hooks
+- Professional UI: animations, transitions, gradients
+- Mobile-first responsive design
 
 ## Proactive Behavior:
-- After generating code, suggest 2-3 improvements the user could make
-- If the user's description is vague, ask clarifying questions before generating
-- When modifying, explain what you changed and why`;
+- After generating, suggest 2-3 concrete improvements
+- If description is vague, ask clarifying questions first
+- When editing, explain what changed and why`;
 
 export default function Playground() {
   const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
@@ -931,7 +946,7 @@ export default function Playground() {
                             ? 'bg-primary text-primary-foreground rounded-br-sm'
                             : 'bg-secondary/70 border border-border/30 rounded-bl-sm',
                         )}>
-                          <pre className="whitespace-pre-wrap font-sans text-[13px]">{message.content}</pre>
+                          <ChatMessage content={message.content} role={message.role} />
                         </div>
                         {message.role === 'user' && (
                           <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-0.5">
@@ -964,10 +979,9 @@ export default function Playground() {
                           <Bot className="w-3.5 h-3.5 text-primary" />
                         </div>
                         <div className="max-w-[90%] rounded-xl px-4 py-3 bg-secondary/70 border border-border/30 rounded-bl-sm">
-                          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">
-                            {streamingContent}
-                            <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 rounded-sm" />
-                          </pre>
+                          <ChatMessage content={streamingContent} role="assistant" />
+                          <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5 rounded-sm" />
+                          
                           {tokensPerSecond && (
                             <div className="mt-2 text-[11px] text-muted-foreground/60 flex items-center gap-1">
                               <Zap className="w-3 h-3" /> {tokensPerSecond} tok/s
