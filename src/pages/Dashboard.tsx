@@ -28,7 +28,8 @@ import {
   Calendar,
   RefreshCw,
   Activity,
-  Shield
+  Shield,
+  Folder
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
@@ -295,6 +296,16 @@ console.log(response);`;
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                asChild
+              >
+                <Link to="/projects">
+                  <Folder className="w-4 h-4 mr-2" />
+                  My Projects
+                </Link>
+              </Button>
               <Button 
                 variant="outline" 
                 size="sm" 
