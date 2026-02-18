@@ -15,16 +15,44 @@ export interface DeployResult {
 }
 
 /**
- * Deploy project files to Cloudflare Pages via backend function
+ * Deploy project files to Cloudflare Pages via backend function.
+ * Uses the Cloudflare auth token for authentication (not Supabase auth).
  */
 export async function deployToCloudflare(
   files: Record<string, ProjectFile>,
   config: DeployConfig,
   projectId?: string
 ): Promise<DeployResult> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false, error: 'Not authenticated' };
+  // Try Cloudflare token first (primary auth), fall back to Supabase session
+  const cloudflareToken = localStorage.getItem('binario_token');
 
+  if (cloudflareToken) {
+    // Use edge function with Cloudflare token
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/deploy-cloudflare`;
+    const res = await fetch(functionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudflareToken}`,
+      },
+      body: JSON.stringify({
+        files,
+        projectName: config.projectName,
+        accountId: config.accountId,
+        apiToken: config.apiToken,
+        playgroundProjectId: projectId,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return { success: false, error: errData.error || `HTTP ${res.status}` };
+    }
+
+    return await res.json() as DeployResult;
+  }
+
+  // Fallback: Supabase auth
   const { data, error } = await supabase.functions.invoke('deploy-cloudflare', {
     body: {
       files,
@@ -47,12 +75,12 @@ export async function saveDeployConfig(accountId: string, apiToken: string) {
   if (!user) return false;
 
   const { error } = await supabase
-    .from('user_deploy_configs' as any)
+    .from('user_deploy_configs')
     .upsert({
       user_id: user.id,
       account_id: accountId,
-      encrypted_token: apiToken, // In production, encrypt client-side before storing
-    } as any, { onConflict: 'user_id' });
+      encrypted_token: apiToken,
+    }, { onConflict: 'user_id' });
 
   return !error;
 }
@@ -62,13 +90,12 @@ export async function saveDeployConfig(accountId: string, apiToken: string) {
  */
 export async function loadDeployConfig(): Promise<{ accountId: string; apiToken: string } | null> {
   const { data, error } = await supabase
-    .from('user_deploy_configs' as any)
+    .from('user_deploy_configs')
     .select('account_id, encrypted_token')
     .single();
 
   if (error || !data) return null;
-  const row = data as any;
-  return { accountId: row.account_id || '', apiToken: row.encrypted_token || '' };
+  return { accountId: data.account_id || '', apiToken: data.encrypted_token || '' };
 }
 
 /**
@@ -76,12 +103,12 @@ export async function loadDeployConfig(): Promise<{ accountId: string; apiToken:
  */
 export async function loadDeployments(projectId: string) {
   const { data, error } = await supabase
-    .from('deployments' as any)
+    .from('deployments')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
     .limit(10);
 
   if (error) return [];
-  return data as any[];
+  return data;
 }
