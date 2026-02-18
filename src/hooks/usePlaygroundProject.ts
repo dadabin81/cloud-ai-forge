@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import type { ProjectFile } from '@/lib/projectGenerator';
 import { sandboxService } from '@/lib/sandboxService';
 import { toast } from 'sonner';
@@ -17,15 +16,12 @@ export interface PlaygroundProject {
 
 /**
  * Extract a smart project name from the user's first message.
- * Falls back to a timestamp-based name.
  */
 function deriveProjectName(userMessage: string): string {
-  // Take the first meaningful phrase (up to 40 chars)
   const cleaned = userMessage
     .replace(/^(crea|create|build|make|genera|haz|hazme|diseña|design|construye)\s+(me\s+)?(una?\s+)?/i, '')
     .replace(/[^\w\sáéíóúñ]/gi, '')
     .trim();
-  
   if (cleaned.length > 3 && cleaned.length <= 40) {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
@@ -35,102 +31,135 @@ function deriveProjectName(userMessage: string): string {
   return `Project ${new Date().toLocaleDateString()}`;
 }
 
-export function usePlaygroundProject() {
+const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-playground-project`;
+
+async function callFn(
+  method: string,
+  token: string,
+  action: string,
+  params: Record<string, string> = {},
+  body?: unknown
+) {
+  const url = new URL(FUNCTION_URL);
+  url.searchParams.set('action', action);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+
+  const res = await fetch(url.toString(), {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export function usePlaygroundProject(userId?: string, token?: string) {
   const [project, setProject] = useState<PlaygroundProject | null>(null);
   const [projects, setProjects] = useState<PlaygroundProject[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const hasAuth = !!(userId && token);
+
   // Load user's projects list
   const loadProjects = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!hasAuth) return;
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('playground_projects')
-      .select('*')
-      .order('updated_at', { ascending: false });
-    setIsLoading(false);
-    if (error) { console.error('Failed to load projects:', error); return; }
-    setProjects((data || []) as unknown as PlaygroundProject[]);
-  }, []);
+    try {
+      const data = await callFn('GET', token!, 'list');
+      setProjects((data || []) as PlaygroundProject[]);
+    } catch (e) {
+      console.error('Failed to load projects:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hasAuth, token]);
 
   // Load a specific project
   const loadProject = useCallback(async (projectId: string) => {
+    if (!hasAuth) return null;
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('playground_projects')
-      .select('*')
-      .eq('id', projectId)
-      .single();
-    setIsLoading(false);
-    if (error) { console.error('Failed to load project:', error); return null; }
-    const proj = data as unknown as PlaygroundProject;
-    setProject(proj);
-    return proj;
-  }, []);
+    try {
+      const data = await callFn('GET', token!, 'get', { id: projectId });
+      const proj = data as PlaygroundProject;
+      setProject(proj);
+      return proj;
+    } catch (e) {
+      console.error('Failed to load project:', e);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [hasAuth, token]);
 
-  // Create a new project - uses smart naming from user message
+  // Create a new project
   const createProject = useCallback(async (nameOrMessage: string, files: Record<string, ProjectFile> = {}) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error('Login required to save projects'); return null; }
-    
+    if (!hasAuth) { toast.error('Login required to save projects'); return null; }
     const name = deriveProjectName(nameOrMessage);
-    
-    const { data, error } = await supabase
-      .from('playground_projects')
-      .insert([{ user_id: user.id, name, files: JSON.parse(JSON.stringify(files)) }])
-      .select()
-      .single();
-    if (error) { console.error('Failed to create project:', error); toast.error('Failed to create project'); return null; }
-    const proj = data as unknown as PlaygroundProject;
-    setProject(proj);
-    // Background sync to Cloudflare
-    sandboxService.syncProject(proj.id, user.id, name, files).catch(() => {});
-    return proj;
-  }, []);
+    try {
+      const data = await callFn('POST', token!, 'create', {}, { name, files });
+      const proj = data as PlaygroundProject;
+      setProject(proj);
+      sandboxService.syncProject(proj.id, userId!, name, files).catch(() => {});
+      return proj;
+    } catch (e) {
+      console.error('Failed to create project:', e);
+      toast.error('Failed to create project');
+      return null;
+    }
+  }, [hasAuth, token, userId]);
 
-  // Save files to current project (debounced - fast 500ms) + sync to Cloudflare
+  // Save files (debounced 500ms)
   const saveFiles = useCallback((files: Record<string, ProjectFile>) => {
-    if (!project) return;
+    if (!project || !hasAuth) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       setIsSaving(true);
-      const { error } = await supabase
-        .from('playground_projects')
-        .update({ files: JSON.parse(JSON.stringify(files)) })
-        .eq('id', project.id);
-      setIsSaving(false);
-      if (error) { console.error('Auto-save failed:', error); return; }
-      // Background sync to Cloudflare (non-blocking)
-      sandboxService.syncProject(project.id, project.user_id, project.name, files).catch(() => {});
+      try {
+        await callFn('PUT', token!, 'update-files', {}, { id: project.id, files });
+        sandboxService.syncProject(project.id, project.user_id, project.name, files).catch(() => {});
+      } catch (e) {
+        console.error('Auto-save failed:', e);
+      } finally {
+        setIsSaving(false);
+      }
     }, 500);
-  }, [project]);
+  }, [project, hasAuth, token]);
 
   // Rename project
   const renameProject = useCallback(async (name: string) => {
-    if (!project) return;
-    const { error } = await supabase
-      .from('playground_projects')
-      .update({ name })
-      .eq('id', project.id);
-    if (!error) setProject(prev => prev ? { ...prev, name } : null);
-  }, [project]);
+    if (!project || !hasAuth) return;
+    try {
+      await callFn('PUT', token!, 'rename', {}, { id: project.id, name });
+      setProject(prev => prev ? { ...prev, name } : null);
+    } catch (e) {
+      console.error('Rename failed:', e);
+    }
+  }, [project, hasAuth, token]);
 
   // Delete project
   const deleteProject = useCallback(async (projectId: string) => {
-    const { error } = await supabase
-      .from('playground_projects')
-      .delete()
-      .eq('id', projectId);
-    if (error) { toast.error('Failed to delete project'); return false; }
-    if (project?.id === projectId) setProject(null);
-    setProjects(prev => prev.filter(p => p.id !== projectId));
-    return true;
-  }, [project]);
+    if (!hasAuth) return false;
+    try {
+      await callFn('DELETE', token!, 'delete', { id: projectId });
+      if (project?.id === projectId) setProject(null);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      return true;
+    } catch (e) {
+      toast.error('Failed to delete project');
+      return false;
+    }
+  }, [hasAuth, token, project]);
 
-  // Auto-load projects on mount
+  // Auto-load on mount
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
   // Cleanup
@@ -139,16 +168,8 @@ export function usePlaygroundProject() {
   }, []);
 
   return {
-    project,
-    projects,
-    isLoading,
-    isSaving,
-    loadProjects,
-    loadProject,
-    createProject,
-    saveFiles,
-    renameProject,
-    deleteProject,
-    setProject,
+    project, projects, isLoading, isSaving,
+    loadProjects, loadProject, createProject, saveFiles,
+    renameProject, deleteProject, setProject,
   };
 }
