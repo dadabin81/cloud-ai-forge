@@ -101,9 +101,9 @@ src/
 - Explain what you built and why`;
 
 export default function Playground() {
-  const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey } = useAuth();
+  const { apiKey: storedApiKey, isAuthenticated, regenerateApiKey, user, token } = useAuth();
   const { providers, models, isLoading: isLoadingProviders, refetch: refetchProviders } = useProviders();
-  const { project, projects, isSaving, createProject, saveFiles, loadProject, loadProjects, deleteProject, setProject } = usePlaygroundProject();
+  const { project, projects, isSaving, createProject, saveFiles, loadProject, loadProjects, deleteProject, setProject } = usePlaygroundProject(user?.id, token ?? undefined);
   
   const [selectedProvider, setSelectedProvider] = useState(() => 
     localStorage.getItem(STORAGE_KEYS.provider) || 'cloudflare'
