@@ -54,6 +54,9 @@ const STORAGE_KEYS = {
   systemPrompt: 'binario_system_prompt',
 };
 
+const PROMPT_VERSION = 4;
+const PROMPT_VERSION_KEY = 'binario_prompt_version';
+
 const DEFAULT_SYSTEM_PROMPT = `You are Binario AI, a professional full-stack VibeCoding assistant that ONLY creates web applications using HTML, CSS, JavaScript, and React/JSX. You NEVER generate Python, Java, PHP, Ruby, or any backend-only code. Everything you produce runs in the browser.
 
 ## CRITICAL: FILE FORMAT
@@ -106,14 +109,12 @@ export default function Playground() {
     localStorage.getItem(STORAGE_KEYS.provider) || 'cloudflare'
   );
   const [selectedModel, setSelectedModel] = useState(() => 
-    localStorage.getItem(STORAGE_KEYS.model) || '@cf/meta/llama-3.1-8b-instruct'
+    localStorage.getItem(STORAGE_KEYS.model) || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
   );
   const [useWebSocket, setUseWebSocket] = useState(() => 
     localStorage.getItem(STORAGE_KEYS.useWebSocket) === 'true'
   );
-  const [systemPrompt, setSystemPrompt] = useState(() => 
-    localStorage.getItem(STORAGE_KEYS.systemPrompt) || DEFAULT_SYSTEM_PROMPT
-  );
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -168,7 +169,16 @@ export default function Playground() {
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.provider, selectedProvider); }, [selectedProvider]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.useWebSocket, String(useWebSocket)); }, [useWebSocket]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.systemPrompt, systemPrompt); }, [systemPrompt]);
+
+  // Force-update stale system prompts via versioning
+  useEffect(() => {
+    const storedVersion = localStorage.getItem(PROMPT_VERSION_KEY);
+    if (storedVersion !== String(PROMPT_VERSION)) {
+      setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
+      localStorage.setItem(PROMPT_VERSION_KEY, String(PROMPT_VERSION));
+      localStorage.setItem(STORAGE_KEYS.systemPrompt, DEFAULT_SYSTEM_PROMPT);
+    }
+  }, []);
 
   const getEffectiveApiKey = useCallback(() => apiKeyInput || storedApiKey || '', [apiKeyInput, storedApiKey]);
 
@@ -327,7 +337,10 @@ export default function Playground() {
         if (project) {
           saveFiles(mergedFiles);
         } else if (isAuthenticated && firstUserMessageRef.current) {
-          createProject(firstUserMessageRef.current, mergedFiles);
+          // Pass files directly to createProject to avoid race condition
+          createProject(firstUserMessageRef.current, mergedFiles).then(newProj => {
+            if (newProj) saveFiles(mergedFiles);
+          });
         }
         setCurrentPhase('idle');
         return;
@@ -673,15 +686,11 @@ export default function Playground() {
   ];
 
   const handleSuggestionClick = (suggestion: string) => {
-    setInput('');
-    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(suggestion);
-    else {
-      setInput(suggestion);
-      setTimeout(() => {
-        setInput('');
-        if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(suggestion);
-        else sendHttp(suggestion);
-      }, 100);
+    if (isStreamingOrLoading) return;
+    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
+      sendWebSocket(suggestion);
+    } else {
+      sendHttp(suggestion);
     }
   };
 
@@ -1105,7 +1114,6 @@ export default function Playground() {
                       onErrors={handlePreviewErrors}
                       onImportProject={handleImportProject}
                       projectName={project?.name}
-                      hostedPreviewUrl={project ? sandboxService.getPreviewUrl(project.id) : undefined}
                     />
                   </div>
                 </div>
