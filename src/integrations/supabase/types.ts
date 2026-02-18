@@ -171,7 +171,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_insert_rate_limit: {
+        Args: { check_email: string; table_name: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
