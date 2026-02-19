@@ -125,7 +125,7 @@ export function CodePreview({ content, files, className, onErrors, onImportProje
         <iframe
           key={refreshKey}
           {...(hostedPreviewUrl ? { src: hostedPreviewUrl } : { srcDoc: previewDoc })}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts allow-same-origin allow-forms"
           className="bg-white transition-all duration-300"
           style={{
             width: VIEWPORT_WIDTHS[viewport],
