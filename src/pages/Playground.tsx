@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronDown, MessageSquare, Layers, Save, Wrench, Rocket,
+  ChevronDown, MessageSquare, Layers, Save, Wrench, Rocket, Shield,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -28,24 +28,18 @@ import { BlueprintCard } from '@/components/BlueprintCard';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
-import { extractCodeBlocks, isRenderableCode, hasProjectMarkers, hasOnlyNonWebCode } from '@/lib/codeExtractor';
-import { parseProjectFiles, generateFileTree, type ProjectFile } from '@/lib/projectGenerator';
-import { hasIncrementalMarkers, parseIncrementalActions, applyIncrementalActions, smartMergeFiles, buildFileContextPrompt } from '@/lib/incrementalParser';
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
-import { parseActions, executeAllActions, enrichWithRAG, detectUserIntent } from '@/lib/chatActions';
-import { parseBlueprintResponse, buildGenerationPrompt, type Blueprint } from '@/lib/blueprintSystem';
-import { suggestTemplate } from '@/lib/templates';
+import { useWebSocketChat } from '@/hooks/useWebSocketChat';
+import { useHttpChat } from '@/hooks/useHttpChat';
+import { useProjectSync } from '@/hooks/useProjectSync';
+import { buildGenerationPrompt } from '@/lib/blueprintSystem';
 import { buildErrorCorrectionPrompt, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
-import { exportAsZip } from '@/lib/projectExporter';
-import { sandboxService } from '@/lib/sandboxService';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: number;
 }
-
-type WsConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 const STORAGE_KEYS = {
   provider: 'binario_provider',
@@ -124,51 +118,86 @@ export default function Playground() {
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // WebSocket
-  const [wsStatus, setWsStatus] = useState<WsConnectionStatus>('disconnected');
-  const [conversationId] = useState(() => crypto.randomUUID());
-  const wsRef = useRef<WebSocket | null>(null);
-  const streamingContentRef = useRef('');
-  const tokenCountRef = useRef(0);
-  const streamStartTimeRef = useRef<number | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 3;
-  
   // API Key
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isApiKeyValid, setIsApiKeyValid] = useState<boolean | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   
-  // HTTP
-  const [isLoading, setIsLoading] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  
-  // IDE state
-  const [projectFiles, setProjectFiles] = useState<Record<string, ProjectFile>>({});
-  const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  
-  // Blueprint state
-  const [currentBlueprint, setCurrentBlueprint] = useState<Blueprint | null>(null);
-  const [currentPhase, setCurrentPhase] = useState<'idle' | 'planning' | 'generating'>('idle');
   
   // Error correction state
   const [previewErrors, setPreviewErrors] = useState<PreviewError[]>([]);
   const [errorCorrectionAttempts, setErrorCorrectionAttempts] = useState(0);
-  const [autoCorrectEnabled] = useState(false);
+  const [autoCorrectEnabled, setAutoCorrectEnabled] = useState(() => {
+    return localStorage.getItem('binario_autocorrect') === 'true';
+  });
 
-  // Track first user message for auto-naming
   const firstUserMessageRef = useRef<string | null>(null);
 
-  const fileTree = useMemo(() => generateFileTree(projectFiles), [projectFiles]);
-  const totalFiles = Object.keys(projectFiles).length;
-  const activeFileData = activeFile ? projectFiles[activeFile] : null;
+  const getEffectiveApiKey = useCallback(() => apiKeyInput || storedApiKey || '', [apiKeyInput, storedApiKey]);
+
+  // Refs for latest state access in hooks
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  // Project sync hook
+  const {
+    projectFiles, setProjectFiles,
+    activeFile, setActiveFile, activeFileData,
+    fileTree, totalFiles,
+    currentBlueprint, setCurrentBlueprint,
+    currentPhase, setCurrentPhase,
+    handleCodeChange, handleImportProject,
+    resetProject, loadFiles,
+  } = useProjectSync({
+    messages,
+    isAuthenticated,
+    project,
+    saveFiles,
+    createProject,
+    firstUserMessageRef,
+  });
+
+  const projectFilesRef = useRef(projectFiles);
+  projectFilesRef.current = projectFiles;
+
+  // WebSocket hook
+  const {
+    wsStatus, wsRef, connectWebSocket, disconnectWebSocket,
+    sendWebSocket, manualReconnect, clearWs, stopWs,
+  } = useWebSocketChat({
+    getApiKey: getEffectiveApiKey,
+    selectedModel,
+    systemPrompt,
+    onMessages: setMessages,
+    onStreamingContent: setStreamingContent,
+    onThinking: setIsThinking,
+    onTokensPerSecond: setTokensPerSecond,
+  });
+
+  // HTTP hook
+  const { isLoading, sendHttp, stopHttp } = useHttpChat({
+    getApiKey: getEffectiveApiKey,
+    selectedModel,
+    selectedProvider,
+    systemPrompt,
+    onMessages: setMessages,
+    onStreamingContent: setStreamingContent,
+    onThinking: setIsThinking,
+    onTokensPerSecond: setTokensPerSecond,
+    getMessages: () => messagesRef.current,
+    getProjectFiles: () => projectFilesRef.current,
+    projectName: project?.name,
+    firstUserMessageRef,
+    setIsApiKeyValid,
+  });
 
   // Persist preferences
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.provider, selectedProvider); }, [selectedProvider]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.useWebSocket, String(useWebSocket)); }, [useWebSocket]);
+  useEffect(() => { localStorage.setItem('binario_autocorrect', String(autoCorrectEnabled)); }, [autoCorrectEnabled]);
 
   // Force-update stale system prompts via versioning
   useEffect(() => {
@@ -179,8 +208,6 @@ export default function Playground() {
       localStorage.setItem(STORAGE_KEYS.systemPrompt, DEFAULT_SYSTEM_PROMPT);
     }
   }, []);
-
-  const getEffectiveApiKey = useCallback(() => apiKeyInput || storedApiKey || '', [apiKeyInput, storedApiKey]);
 
   useEffect(() => {
     if (isAuthenticated && storedApiKey && !apiKeyInput) {
@@ -208,86 +235,10 @@ export default function Playground() {
     return () => clearTimeout(debounce);
   }, [apiKeyInput, storedApiKey]);
 
-  // WebSocket connection
-  const connectWebSocket = useCallback(() => {
-    const effectiveApiKey = getEffectiveApiKey();
-    if (!effectiveApiKey || wsRef.current?.readyState === WebSocket.OPEN) return;
-    setWsStatus('connecting');
-    const wsUrl = `${API_BASE_URL.replace(/^http/, 'ws')}/v1/agent/ws/${conversationId}?apiKey=${effectiveApiKey}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setWsStatus('connected');
-      reconnectAttemptsRef.current = 0;
-      toast.success('WebSocket connected!');
-      ws.send(JSON.stringify({ type: 'set_system_prompt', systemPrompt }));
-      ws.send(JSON.stringify({ type: 'set_model', model: selectedModel }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        switch (data.type) {
-          case 'history': if (data.messages) setMessages(data.messages); break;
-          case 'token':
-            if (data.content) {
-              setIsThinking(false);
-              if (!streamStartTimeRef.current) streamStartTimeRef.current = Date.now();
-              streamingContentRef.current += data.content;
-              tokenCountRef.current += 1;
-              setStreamingContent(streamingContentRef.current);
-              const elapsed = (Date.now() - streamStartTimeRef.current) / 1000;
-              if (elapsed > 0.5) setTokensPerSecond(Math.round(tokenCountRef.current / elapsed));
-            }
-            break;
-          case 'complete':
-            setIsThinking(false);
-            if (streamingContentRef.current) {
-              setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current, timestamp: Date.now() }]);
-              streamingContentRef.current = '';
-              setStreamingContent('');
-            }
-            setTokensPerSecond(null);
-            streamStartTimeRef.current = null;
-            tokenCountRef.current = 0;
-            break;
-          case 'error': toast.error(data.error || 'Agent error'); setIsThinking(false); break;
-          case 'pong': break;
-        }
-      } catch (error) { console.error('Failed to parse WebSocket message:', error); }
-    };
-
-    ws.onerror = () => {
-      setWsStatus('error');
-      if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-        toast.warning('WebSocket unavailable, switching to HTTP mode');
-        setUseWebSocket(false);
-      }
-    };
-
-    ws.onclose = () => {
-      setWsStatus('disconnected');
-      wsRef.current = null;
-      if (useWebSocket && isApiKeyValid && reconnectAttemptsRef.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
-        reconnectAttemptsRef.current += 1;
-        setTimeout(() => connectWebSocket(), delay);
-      }
-    };
-  }, [conversationId, getEffectiveApiKey, selectedModel, systemPrompt, useWebSocket, isApiKeyValid]);
-
-  const disconnectWebSocket = useCallback(() => {
-    reconnectAttemptsRef.current = maxReconnectAttempts;
-    wsRef.current?.close();
-    wsRef.current = null;
-    setWsStatus('disconnected');
-  }, []);
-
+  // WebSocket connection lifecycle
   useEffect(() => {
     if (useWebSocket && isApiKeyValid) {
       if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-        reconnectAttemptsRef.current = 0;
         connectWebSocket();
       }
     } else if (!useWebSocket) { disconnectWebSocket(); }
@@ -305,73 +256,6 @@ export default function Playground() {
   }, [selectedProvider, models, selectedModel]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamingContent]);
-
-  // Auto-detect project files from latest assistant message — with SMART MERGE
-  useEffect(() => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-    if (!lastAssistant) return;
-
-    // Check for incremental editing markers first (preferred)
-    if (hasIncrementalMarkers(lastAssistant.content)) {
-      const actions = parseIncrementalActions(lastAssistant.content);
-      if (actions.length > 0) {
-        const updatedFiles = applyIncrementalActions(projectFiles, actions);
-        setProjectFiles(updatedFiles);
-        const firstChanged = actions.find(a => a.type !== 'delete');
-        if (firstChanged) setActiveFile(firstChanged.path);
-        if (project) saveFiles(updatedFiles);
-        return;
-      }
-    }
-
-    // Legacy: full file generation with // filename: markers — NOW WITH SMART MERGE
-    if (hasProjectMarkers(lastAssistant.content)) {
-      const newFiles = parseProjectFiles(lastAssistant.content);
-      if (Object.keys(newFiles).length > 0) {
-        // Smart merge: keep existing files, only update/add what's in the response
-        const mergedFiles = smartMergeFiles(projectFiles, newFiles);
-        setProjectFiles(mergedFiles);
-        const firstFile = Object.keys(newFiles)[0];
-        setActiveFile(firstFile);
-        // Auto-save
-        if (project) {
-          saveFiles(mergedFiles);
-        } else if (isAuthenticated && firstUserMessageRef.current) {
-          // Pass files directly to createProject to avoid race condition
-          createProject(firstUserMessageRef.current, mergedFiles).then(newProj => {
-            if (newProj) saveFiles(mergedFiles);
-          });
-        }
-        setCurrentPhase('idle');
-        return;
-      }
-    }
-
-    // Check if response contains a blueprint proposal
-    const blueprint = parseBlueprintResponse(lastAssistant.content);
-    if (blueprint) {
-      setCurrentBlueprint(blueprint);
-      setCurrentPhase('planning');
-      return;
-    }
-
-    // Fallback: single renderable blocks
-    const blocks = extractCodeBlocks(lastAssistant.content);
-    if (isRenderableCode(blocks)) {
-      const virtualFiles: Record<string, ProjectFile> = {};
-      blocks.forEach((block, i) => {
-        const ext = block.language === 'css' ? 'css' : block.language === 'html' || block.language === 'htm' ? 'html' : block.language === 'jsx' || block.language === 'tsx' ? 'jsx' : 'js';
-        const name = blocks.length === 1 ? `index.${ext}` : `file${i + 1}.${ext}`;
-        virtualFiles[name] = { code: block.code, language: block.language };
-      });
-      const merged = smartMergeFiles(projectFiles, virtualFiles);
-      setProjectFiles(merged);
-      setActiveFile(Object.keys(virtualFiles)[0]);
-    } else if (hasOnlyNonWebCode(lastAssistant.content)) {
-      // AI generated non-web code — show warning, don't auto-retry (avoids 429)
-      toast.warning('El AI generó código no-web (Python/Java). Envía un mensaje pidiendo que lo genere como app web con HTML/CSS/React.');
-    }
-  }, [messages]);
 
   const handleRegenerateApiKey = async () => {
     setIsRegenerating(true);
@@ -395,194 +279,6 @@ export default function Playground() {
     } catch (error) { toast.error(`Network error: ${(error as Error).message}`); }
   };
 
-  const manualReconnect = () => {
-    reconnectAttemptsRef.current = 0;
-    disconnectWebSocket();
-    setTimeout(() => connectWebSocket(), 500);
-  };
-
-  const sendWebSocket = useCallback((content: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) { toast.error('WebSocket not connected'); return; }
-    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
-    setIsThinking(true);
-    streamingContentRef.current = '';
-    setStreamingContent('');
-    tokenCountRef.current = 0;
-    streamStartTimeRef.current = null;
-    wsRef.current.send(JSON.stringify({ type: 'chat', content }));
-  }, []);
-
-  const sendHttp = async (content: string) => {
-    const effectiveApiKey = getEffectiveApiKey();
-    if (!effectiveApiKey.trim()) { toast.error('Please enter your API key'); return; }
-    
-    // Track first user message for auto-naming
-    if (!firstUserMessageRef.current) {
-      firstUserMessageRef.current = content;
-    }
-
-    const userMessage: Message = { role: 'user', content };
-
-    // Detect intent for automatic orchestration
-    const hasFiles = Object.keys(projectFiles).length > 0;
-    const intent = detectUserIntent(content, hasFiles);
-
-    // Handle deploy/export intents automatically
-    if (intent === 'deploy') {
-      // The DeployDialog is in the toolbar - just notify user
-      setMessages(prev => [...prev, userMessage]);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: '🚀 Para deployar tu proyecto, usa el botón **Deploy** en la barra superior del preview. Ahí puedes configurar Cloudflare Pages u otro proveedor.',
-        timestamp: Date.now() 
-      }]);
-      return;
-    }
-
-    if (intent === 'export') {
-      setMessages(prev => [...prev, userMessage]);
-      if (hasFiles) {
-        try {
-          exportAsZip(projectFiles, project?.name || 'project');
-          setMessages(prev => [...prev, { role: 'assistant', content: '📦 ¡Proyecto exportado como ZIP!', timestamp: Date.now() }]);
-        } catch {
-          setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Error al exportar. Intenta de nuevo.', timestamp: Date.now() }]);
-        }
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ No hay archivos para exportar. Crea un proyecto primero.', timestamp: Date.now() }]);
-      }
-      return;
-    }
-
-    // Auto-enrich with RAG context (disabled - Vectorize returns 500)
-    const ragContext: string | null = null;
-    // try { ragContext = await enrichWithRAG(content, effectiveApiKey); } catch { /* silent */ }
-
-    // Build system prompt with file context for incremental editing
-    const fileContext = buildFileContextPrompt(projectFiles);
-    
-    // If new project, check if a template matches and add as context
-    let templateContext = '';
-    if (intent === 'new_project') {
-      const suggested = suggestTemplate(content);
-      if (suggested) {
-        templateContext = `\n\n[TEMPLATE SUGGESTION: The "${suggested.name}" template (${suggested.description}) is available. You can use it as a starting point or create from scratch based on the user's description.]`;
-      }
-    }
-
-    const fullSystemPrompt = systemPrompt + fileContext + templateContext;
-
-    const allMessages = [
-      ...(fullSystemPrompt ? [{ role: 'system' as const, content: fullSystemPrompt }] : []),
-      ...(ragContext ? [{ role: 'system' as const, content: ragContext }] : []),
-      ...messages,
-      userMessage,
-    ];
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-    setIsThinking(true);
-    streamingContentRef.current = '';
-    setStreamingContent('');
-    tokenCountRef.current = 0;
-    streamStartTimeRef.current = null;
-    abortControllerRef.current = new AbortController();
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApiKey}` },
-        body: JSON.stringify({ messages: allMessages, model: selectedModel, provider: selectedProvider, stream: true }),
-        signal: abortControllerRef.current.signal,
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('API key inválida. Regenera tu API key desde el Dashboard.');
-          setIsApiKeyValid(false);
-          setMessages(prev => prev.slice(0, -1));
-          return;
-        }
-        if (response.status === 429) { toast.error('Límite de peticiones excedido.'); return; }
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `API error: ${response.status}`);
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream')) {
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            for (const line of chunk.split('\n')) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') continue;
-                try {
-                  const parsed = JSON.parse(data);
-                  const token = parsed.choices?.[0]?.delta?.content;
-                  if (token) {
-                    if (!streamStartTimeRef.current) { setIsThinking(false); streamStartTimeRef.current = Date.now(); }
-                    streamingContentRef.current += token;
-                    tokenCountRef.current += 1;
-                    setStreamingContent(streamingContentRef.current);
-                    const elapsed = (Date.now() - streamStartTimeRef.current) / 1000;
-                    if (elapsed > 0.5) setTokensPerSecond(Math.round(tokenCountRef.current / elapsed));
-                  }
-                } catch { /* ignore */ }
-              }
-            }
-          }
-        }
-      } else {
-        setIsThinking(false);
-        const data = await response.json();
-        const assistantContent = data.choices?.[0]?.message?.content || '';
-        const { cleanText, actions } = parseActions(assistantContent);
-        setMessages(prev => [...prev, { role: 'assistant', content: cleanText }]);
-        if (actions.length > 0) {
-          processActions(actions, effectiveApiKey);
-        }
-        setStreamingContent('');
-        streamingContentRef.current = '';
-        setIsLoading(false);
-        return;
-      }
-
-      // Process actions from streaming response
-      const finalContent = streamingContentRef.current;
-      const { cleanText, actions } = parseActions(finalContent);
-      setMessages(prev => [...prev, { role: 'assistant', content: cleanText }]);
-      setStreamingContent('');
-      if (actions.length > 0) {
-        processActions(actions, effectiveApiKey);
-      }
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') { console.error('Chat error:', error); toast.error('Failed to get response'); }
-    } finally {
-      setIsLoading(false);
-      setIsThinking(false);
-      streamingContentRef.current = '';
-      setStreamingContent('');
-      setTokensPerSecond(null);
-      abortControllerRef.current = null;
-    }
-  };
-
-  // Auto-execute actions from AI responses
-  const processActions = async (actions: ReturnType<typeof parseActions>['actions'], apiKey: string) => {
-    const results = await executeAllActions(actions, apiKey);
-    for (const result of results) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: result.summary,
-        timestamp: Date.now(),
-      }]);
-    }
-  };
-
   const handleSend = () => {
     if (!input.trim()) return;
     const content = input.trim();
@@ -592,14 +288,8 @@ export default function Playground() {
   };
 
   const handleStop = () => {
-    if (useWebSocket) {
-      setIsThinking(false);
-      if (streamingContentRef.current) {
-        setMessages(prev => [...prev, { role: 'assistant', content: streamingContentRef.current }]);
-        streamingContentRef.current = '';
-        setStreamingContent('');
-      }
-    } else { abortControllerRef.current?.abort(); }
+    if (useWebSocket) stopWs();
+    else stopHttp();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -617,37 +307,12 @@ export default function Playground() {
   const clearChat = () => {
     setMessages([]);
     setStreamingContent('');
-    streamingContentRef.current = '';
-    setProjectFiles({});
-    setActiveFile(null);
-    setCurrentBlueprint(null);
-    setCurrentPhase('idle');
+    resetProject();
     setPreviewErrors([]);
     setErrorCorrectionAttempts(0);
     firstUserMessageRef.current = null;
-    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'clear' }));
-    }
+    if (useWebSocket) clearWs();
   };
-
-  // Handle manual code edits from CodeEditor
-  const handleCodeChange = useCallback((filename: string, newCode: string) => {
-    setProjectFiles(prev => {
-      const updated = { ...prev, [filename]: { ...prev[filename], code: newCode } };
-      if (project) saveFiles(updated);
-      return updated;
-    });
-  }, [project, saveFiles]);
-
-  // Handle import project from JSON
-  const handleImportProject = useCallback((importedFiles: Record<string, ProjectFile>, name: string) => {
-    setProjectFiles(importedFiles);
-    const firstFile = Object.keys(importedFiles)[0];
-    if (firstFile) setActiveFile(firstFile);
-    if (isAuthenticated) {
-      createProject(name, importedFiles);
-    }
-  }, [isAuthenticated, createProject]);
 
   // Handle preview errors
   const handlePreviewErrors = useCallback((errors: PreviewError[]) => {
@@ -657,7 +322,7 @@ export default function Playground() {
       setErrorCorrectionAttempts(a => a + 1);
       sendHttp(prompt);
     }
-  }, [autoCorrectEnabled, errorCorrectionAttempts, projectFiles]);
+  }, [autoCorrectEnabled, errorCorrectionAttempts, projectFiles, sendHttp]);
 
   // Handle blueprint approval
   const handleBlueprintApprove = useCallback(() => {
@@ -665,9 +330,8 @@ export default function Playground() {
     setCurrentPhase('generating');
     const prompt = buildGenerationPrompt(currentBlueprint);
     sendHttp(prompt);
-  }, [currentBlueprint]);
+  }, [currentBlueprint, sendHttp]);
 
-  // Handle blueprint modification
   const handleBlueprintModify = useCallback(() => {
     setCurrentBlueprint(null);
     setCurrentPhase('idle');
@@ -698,7 +362,7 @@ export default function Playground() {
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Navigation />
       
-      {/* Clean Top Bar: Project Name | Projects | Deploy | Config */}
+      {/* Clean Top Bar */}
       <div className="pt-16 px-3 py-2 border-b border-border flex items-center justify-between bg-secondary/20">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
@@ -721,28 +385,21 @@ export default function Playground() {
           <ConnectionStatus wsStatus={wsStatus} useWebSocket={useWebSocket} isApiKeyValid={isApiKeyValid} />
         </div>
         <div className="flex items-center gap-2">
-          {/* Projects */}
           <ProjectManager
             projects={projects}
             currentProjectId={project?.id}
             onLoadProject={loadProject}
             onDeleteProject={deleteProject}
             onNewProject={() => {
-              setProjectFiles({});
-              setActiveFile(null);
+              resetProject();
               setProject(null);
               setMessages([]);
-              setCurrentBlueprint(null);
-              setCurrentPhase('idle');
               firstUserMessageRef.current = null;
             }}
             onProjectLoaded={(proj) => {
-              setProjectFiles(proj.files || {});
-              const firstFile = Object.keys(proj.files || {})[0];
-              if (firstFile) setActiveFile(firstFile);
+              loadFiles(proj.files || {});
             }}
           />
-          {/* Deploy */}
           <DeployDialog
             files={projectFiles}
             projectId={project?.id}
@@ -817,6 +474,20 @@ export default function Playground() {
                   )}
                 </div>
 
+                {/* Auto-Correct Toggle */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <Shield className="w-4 h-4" /> Error Correction
+                  </h4>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Auto-fix errors</p>
+                      <p className="text-xs text-muted-foreground">AI automatically fixes preview errors (max 3 attempts)</p>
+                    </div>
+                    <Switch checked={autoCorrectEnabled} onCheckedChange={setAutoCorrectEnabled} />
+                  </div>
+                </div>
+
                 {/* Provider/Model */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -864,7 +535,7 @@ export default function Playground() {
         </div>
       </div>
 
-      {/* Main IDE Area - Horizontal Layout: Chat Left | IDE Right */}
+      {/* Main IDE Area */}
       <div className="flex-1 flex overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
           {/* Left: Chat Panel */}
