@@ -301,6 +301,16 @@ console.log(response);`;
                 size="sm" 
                 asChild
               >
+                <Link to="/dashboard/analytics">
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Analytics
+                </Link>
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                asChild
+              >
                 <Link to="/projects">
                   <Folder className="w-4 h-4 mr-2" />
                   My Projects
