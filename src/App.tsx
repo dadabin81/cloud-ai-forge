@@ -20,6 +20,7 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Projects from "./pages/Projects";
 import ProjectEditor from "./pages/ProjectEditor";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -50,6 +51,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard/analytics" 
+              element={
+                <ProtectedRoute>
+                  <Analytics />
                 </ProtectedRoute>
               } 
             />
