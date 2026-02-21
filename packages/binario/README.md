@@ -2,12 +2,17 @@
 
 > Universal AI SDK for Cloudflare Workers — Unified API, smart fallbacks, and cost optimization.
 
+[![npm version](https://img.shields.io/npm/v/binario.svg)](https://www.npmjs.com/package/binario)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-blue.svg)](https://www.typescriptlang.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/binario-ai/binario/publish-npm.yml?label=CI)](https://github.com/binario-ai/binario/actions)
+[![Bundle Size](https://img.shields.io/bundlephobia/minzip/binario)](https://bundlephobia.com/package/binario)
 
-## ⚠️ Status: Beta
+## 📦 Install
 
-This SDK is currently in **beta**. The hosted API at binario.dev is fully functional. For npm installation, build from source.
+```bash
+npm install binario
+```
 
 ## ✨ Features
 

@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { CodeBlock } from '@/components/CodeBlock';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { 
   BookOpen, 
   Zap, 
@@ -13,7 +16,10 @@ import {
   Check,
   ChevronRight,
   AlertTriangle,
-  Info
+  Info,
+  Play,
+  Search,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -466,10 +472,69 @@ export default function Docs() {
             </div>
           </section>
 
+          {/* Try it Live */}
+          <section className="mb-16">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Play className="w-5 h-5 text-primary" />
+              Try it Live
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              Jump into the Playground with pre-loaded examples — no setup required.
+            </p>
+            <div className="grid md:grid-cols-3 gap-4">
+              {[
+                { title: 'Simple Chat', desc: 'Basic chat completion with streaming', template: 'chat' },
+                { title: 'Agent + Tools', desc: 'Multi-step agent with function calling', template: 'agent' },
+                { title: 'Structured Output', desc: 'Type-safe JSON extraction with Zod', template: 'structured' },
+              ].map((ex) => (
+                <Link
+                  key={ex.template}
+                  to={`/playground?template=${ex.template}`}
+                  className="group p-5 rounded-xl border border-border hover:border-primary/50 bg-card transition-all hover:shadow-lg"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Badge variant="outline" className="text-[10px]">Example</Badge>
+                    <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
+                  <h3 className="font-semibold mb-1">{ex.title}</h3>
+                  <p className="text-sm text-muted-foreground">{ex.desc}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* API Reference */}
+          <section className="mb-16">
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Search className="w-5 h-5 text-primary" />
+              API Reference
+            </h2>
+            <div className="space-y-4">
+              {[
+                { module: 'binario', exports: ['Binario', 'createBinarioClient', 'BinarioAI', 'createBinario', 'Agent', 'createAgent', 'defineTool', 'createSchema', 'zodToJsonSchema', 'z'], desc: 'Core SDK — client, agents, schemas' },
+                { module: 'binario/react', exports: ['useChat', 'useStream', 'useAgent', 'useUsage', 'BinarioProvider', 'useBinarioChat', 'useBinarioStream', 'useBinarioAgent', 'useBinarioMemory'], desc: 'React hooks for SaaS and self-hosted modes' },
+                { module: 'binario/cloudflare', exports: ['runWithTools', 'runWithBinding', 'calculateNeurons', 'estimateFreeTokens', 'createCloudflareProvider', 'CLOUDFLARE_MODELS'], desc: 'Cloudflare Workers AI utilities' },
+                { module: 'binario/memory', exports: ['BufferMemory', 'SummaryMemory', 'SummaryBufferMemory', 'VectorMemory', 'InMemoryStore', 'LocalStorageStore'], desc: 'Conversation memory with multiple storage backends' },
+              ].map((mod) => (
+                <div key={mod.module} className="p-5 rounded-xl border border-border bg-card">
+                  <div className="flex items-center gap-2 mb-2">
+                    <code className="text-sm font-mono text-primary">{mod.module}</code>
+                    <span className="text-xs text-muted-foreground">— {mod.desc}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mod.exports.map((e) => (
+                      <code key={e} className="text-xs bg-secondary px-2 py-0.5 rounded text-foreground">{e}</code>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
           {/* Next Steps */}
           <section>
             <h2 className="text-2xl font-bold mb-6">Next Steps</h2>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               <a 
                 href="https://github.com/binario-ai/binario"
                 target="_blank"
@@ -479,19 +544,33 @@ export default function Docs() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="font-semibold mb-1">GitHub Repository</h3>
-                    <p className="text-sm text-muted-foreground">View source code and examples</p>
+                    <p className="text-sm text-muted-foreground">Source code & examples</p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </div>
               </a>
-              <a 
-                href="/playground"
+              <Link 
+                to="/playground"
                 className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
               >
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="font-semibold mb-1">Interactive Playground</h3>
                     <p className="text-sm text-muted-foreground">Try Binario in your browser</p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
+              </Link>
+              <a
+                href="https://www.npmjs.com/package/binario"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group p-6 rounded-xl border border-border hover:border-primary/50 transition-all hover:bg-secondary/30"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold mb-1">npm Package</h3>
+                    <p className="text-sm text-muted-foreground">View on npm registry</p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </div>
