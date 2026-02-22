@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      community_templates: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          files: Json
+          icon: string
+          id: string
+          is_featured: boolean
+          likes_count: number
+          name: string
+          stack: string[]
+          updated_at: string
+          user_id: string
+          uses_count: number
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          description?: string
+          files?: Json
+          icon?: string
+          id?: string
+          is_featured?: boolean
+          likes_count?: number
+          name: string
+          stack?: string[]
+          updated_at?: string
+          user_id: string
+          uses_count?: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          files?: Json
+          icon?: string
+          id?: string
+          is_featured?: boolean
+          likes_count?: number
+          name?: string
+          stack?: string[]
+          updated_at?: string
+          user_id?: string
+          uses_count?: number
+        }
+        Relationships: []
+      }
       contact_messages: {
         Row: {
           created_at: string
@@ -117,6 +165,35 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      template_likes: {
+        Row: {
+          created_at: string
+          id: string
+          template_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          template_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          template_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_likes_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "community_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_deploy_configs: {
         Row: {

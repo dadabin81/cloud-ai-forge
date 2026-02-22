@@ -76,6 +76,18 @@ export function Navigation() {
               RAG Demo
             </Link>
             <Link 
+              to="/templates" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              Templates
+            </Link>
+            <Link 
+              to="/benchmark" 
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
+            >
+              Benchmark
+            </Link>
+            <Link 
               to="/use-cases" 
               className="text-muted-foreground hover:text-foreground transition-colors text-sm font-medium"
             >
@@ -206,18 +218,25 @@ export function Navigation() {
             Use Cases
           </Link>
           <Link 
+            to="/templates" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Templates
+          </Link>
+          <Link 
+            to="/benchmark" 
+            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Benchmark
+          </Link>
+          <Link 
             to="/pricing" 
             className="block text-muted-foreground hover:text-foreground transition-colors py-2"
             onClick={() => setIsMenuOpen(false)}
           >
             Pricing
-          </Link>
-          <Link 
-            to="/about" 
-            className="block text-muted-foreground hover:text-foreground transition-colors py-2"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            About
           </Link>
           
           <div className="pt-4 flex flex-col gap-3">

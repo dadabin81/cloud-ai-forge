@@ -21,6 +21,8 @@ import Terms from "./pages/Terms";
 import Projects from "./pages/Projects";
 import ProjectEditor from "./pages/ProjectEditor";
 import Analytics from "./pages/Analytics";
+import TemplateMarketplace from "./pages/TemplateMarketplace";
+import ModelBenchmark from "./pages/ModelBenchmark";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -62,6 +64,8 @@ const App = () => (
                 </ProtectedRoute>
               } 
             />
+            <Route path="/templates" element={<TemplateMarketplace />} />
+            <Route path="/benchmark" element={<ModelBenchmark />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/about" element={<About />} />
