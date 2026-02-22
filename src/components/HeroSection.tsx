@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/CodeBlock';
-import { ArrowRight, Terminal, Zap, Check, Copy } from 'lucide-react';
+import { ArrowRight, Terminal, Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { motion } from 'framer-motion';
 
 const heroCode = `import { Binario } from 'binario';
 import { useChat, BinarioProvider } from 'binario/react';
@@ -32,6 +33,22 @@ function ChatApp() {
     </div>
   );
 }`;
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.1, duration: 0.5, ease: [0.25, 0.4, 0.25, 1] as [number, number, number, number] },
+  }),
+};
+
+const stats = [
+  { value: '7', label: 'AI providers' },
+  { value: '10', label: 'React hooks' },
+  { value: '151', label: 'tests passing' },
+];
+
 export function HeroSection() {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -56,112 +73,112 @@ export function HeroSection() {
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse-glow" />
       <div className="absolute top-1/3 right-1/4 w-80 h-80 bg-accent/10 rounded-full blur-3xl animate-pulse-glow" style={{ animationDelay: '1s' }} />
-      
-      {/* Grid pattern */}
-      <div className="absolute inset-0 bg-grid-pattern bg-[size:60px_60px] opacity-[0.02]" />
 
       <div className="relative max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left side - Text content */}
+          {/* Left side */}
           <div className="space-y-8">
-            {/* Badge */}
-            <div className="flex flex-wrap items-center gap-3 animate-fade-in">
+            {/* Badges */}
+            <motion.div
+              className="flex flex-wrap items-center gap-3"
+              variants={fadeUp} initial="hidden" animate="visible" custom={0}
+            >
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/30">
-                <Zap className="w-4 h-4 text-primary" />
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                </span>
                 <span className="text-sm text-primary font-medium">v0.2.0 — Free Llama 3 via Cloudflare</span>
               </div>
               <a
                 href="https://www.npmjs.com/package/binario"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/10 border border-destructive/20 text-sm text-destructive font-medium hover:text-destructive/80 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/10 border border-destructive/20 text-sm text-destructive font-medium hover:bg-destructive/15 transition-colors"
               >
                 📦 Live on NPM
               </a>
-            </div>
+            </motion.div>
 
             {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight animate-slide-up">
+            <motion.h1
+              className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight"
+              variants={fadeUp} initial="hidden" animate="visible" custom={1}
+            >
               The AI SDK that
               <br />
               <span className="gradient-text">doesn't hold back</span>
-            </h1>
+            </motion.h1>
 
             {/* Subheadline */}
-            <p className="text-lg text-muted-foreground max-w-xl animate-slide-up" style={{ animationDelay: '100ms' }}>
+            <motion.p
+              className="text-lg text-muted-foreground max-w-xl"
+              variants={fadeUp} initial="hidden" animate="visible" custom={2}
+            >
               <strong className="text-foreground">Free Llama 3</strong> via Cloudflare Workers AI.
               Pydantic-style schemas. Agent framework with tools.
               Multi-provider streaming. Built for developers who demand more.
-            </p>
+            </motion.p>
 
             {/* Stats row */}
-            <div className="flex flex-wrap gap-6 text-sm animate-slide-up" style={{ animationDelay: '150ms' }}>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">7</span>
-                <span className="text-muted-foreground">AI providers</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">10</span>
-                <span className="text-muted-foreground">React hooks</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-primary">151</span>
-                <span className="text-muted-foreground">tests passing</span>
-              </div>
-            </div>
+            <motion.div
+              className="flex flex-wrap gap-8"
+              variants={fadeUp} initial="hidden" animate="visible" custom={3}
+            >
+              {stats.map((stat) => (
+                <div key={stat.label} className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold text-primary">{stat.value}</span>
+                  <span className="text-sm text-muted-foreground">{stat.label}</span>
+                </div>
+              ))}
+            </motion.div>
 
             {/* CTAs */}
-            <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '200ms' }}>
-              <Button 
-                variant="hero" 
-                size="xl" 
-                className="gap-2"
-                onClick={() => navigate('/docs')}
-              >
+            <motion.div
+              className="flex flex-wrap gap-4"
+              variants={fadeUp} initial="hidden" animate="visible" custom={4}
+            >
+              <Button variant="hero" size="xl" className="gap-2" onClick={() => navigate('/docs')}>
                 Get Started Free
                 <ArrowRight className="w-5 h-5" />
               </Button>
-              <Button 
-                variant="glass" 
-                size="xl" 
-                className="gap-2"
-                onClick={scrollToExamples}
-              >
+              <Button variant="glass" size="xl" className="gap-2" onClick={scrollToExamples}>
                 <Terminal className="w-5 h-5" />
                 View Examples
               </Button>
-            </div>
+            </motion.div>
 
             {/* Install command */}
-            <div className="animate-slide-up" style={{ animationDelay: '300ms' }}>
+            <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={5}>
               <div className="inline-flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/30 border border-border/50 font-mono text-sm">
                 <span className="text-muted-foreground">$</span>
                 <span className="text-foreground">npm install binario zod</span>
-                <button 
+                <button
                   onClick={copyCommand}
                   className="text-muted-foreground hover:text-foreground transition-colors p-1"
                   aria-label="Copy install command"
                 >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-primary" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
+                  {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
+            </motion.div>
           </div>
 
           {/* Right side - Code example */}
-          <div className="relative animate-fade-in" style={{ animationDelay: '400ms' }}>
+          <motion.div
+            className="relative"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+          >
             <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 via-accent/20 to-primary/20 rounded-3xl blur-2xl opacity-50" />
-            <CodeBlock 
+            <CodeBlock
               code={heroCode}
               language="typescript"
               filename="app.tsx"
               className="relative"
             />
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>
