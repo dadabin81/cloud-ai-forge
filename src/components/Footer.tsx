@@ -3,22 +3,22 @@ import binarioLogo from '@/assets/binario-logo.png';
 
 const links = {
   product: [
-    { name: 'Features', href: '/#features' },
-    { name: 'Providers', href: '/#providers' },
-    { name: 'Pricing', href: '/pricing' },
-    { name: 'Use Cases', href: '/use-cases' },
-  ],
+  { name: 'Features', href: '/#features' },
+  { name: 'Providers', href: '/#providers' },
+  { name: 'Pricing', href: '/pricing' },
+  { name: 'Use Cases', href: '/use-cases' }],
+
   resources: [
-    { name: 'Documentation', href: '/docs' },
-    { name: 'Playground', href: '/playground' },
-    { name: 'Examples', href: '/#examples' },
-  ],
+  { name: 'Documentation', href: '/docs' },
+  { name: 'Playground', href: '/playground' },
+  { name: 'Examples', href: '/#examples' }],
+
   company: [
-    { name: 'About', href: '/about' },
-    { name: 'Contact', href: '/contact' },
-    { name: 'Privacy', href: '/privacy' },
-    { name: 'Terms', href: '/terms' },
-  ],
+  { name: 'About', href: '/about' },
+  { name: 'Contact', href: '/contact' },
+  { name: 'Privacy', href: '/privacy' },
+  { name: 'Terms', href: '/terms' }]
+
 };
 
 export function Footer() {
@@ -44,16 +44,16 @@ export function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="GitHub"
-              >
+                aria-label="GitHub">
+
                 <Github className="w-5 h-5" />
               </a>
               <a
                 href="https://www.npmjs.com/package/binario"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/20 text-xs font-medium text-red-400 hover:text-red-300 transition-colors"
-              >
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-500/10 border border-red-500/20 text-xs font-medium text-red-400 hover:text-red-300 transition-colors">
+
                 npm v0.2.0
               </a>
             </div>
@@ -63,48 +63,48 @@ export function Footer() {
           <div>
             <h4 className="font-semibold text-foreground mb-4">Product</h4>
             <ul className="space-y-3">
-              {links.product.map((link) => (
-                <li key={link.name}>
+              {links.product.map((link) =>
+              <li key={link.name}>
                   <a
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  href={link.href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+
                     {link.name}
                   </a>
                 </li>
-              ))}
+              )}
             </ul>
           </div>
 
           <div>
             <h4 className="font-semibold text-foreground mb-4">Resources</h4>
             <ul className="space-y-3">
-              {links.resources.map((link) => (
-                <li key={link.name}>
+              {links.resources.map((link) =>
+              <li key={link.name}>
                   <a
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  href={link.href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+
                     {link.name}
                   </a>
                 </li>
-              ))}
+              )}
             </ul>
           </div>
 
           <div>
             <h4 className="font-semibold text-foreground mb-4">Company</h4>
             <ul className="space-y-3">
-              {links.company.map((link) => (
-                <li key={link.name}>
+              {links.company.map((link) =>
+              <li key={link.name}>
                   <a
-                    href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
+                  href={link.href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+
                     {link.name}
                   </a>
                 </li>
-              ))}
+              )}
             </ul>
           </div>
         </div>
@@ -113,11 +113,11 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">
             © 2026 Binario. All rights reserved.
           </p>
-          <p className="text-sm text-muted-foreground">
-            Made with ❤️ for developers everywhere
+          <p className="text-sm text-muted-foreground">Made with ❤️ for developers everywhere 
+     coded by @hichamanvers
           </p>
         </div>
       </div>
-    </footer>
-  );
+    </footer>);
+
 }
