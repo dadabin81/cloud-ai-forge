@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -168,6 +169,7 @@ const sampleDocuments = [
 ];
 
 export default function RAGExample() {
+  const { apiKey: authApiKey, isAuthenticated } = useAuth();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -178,7 +180,7 @@ export default function RAGExample() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [retrievedContext, setRetrievedContext] = useState<SearchResult[]>([]);
   const [copied, setCopied] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const apiKey = authApiKey || '';
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -575,21 +577,18 @@ async function queryWithRAG(question: string) {
               Add documents, index them with embeddings, and ask questions with semantic retrieval.
             </p>
             
-            {/* API Key Input */}
-            <div className="flex items-center gap-3 max-w-md">
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your Binario API key (bsk_live_...)"
-                className="flex-1"
-              />
-              {apiKey && (
-                <Badge variant={apiKey.startsWith('bsk_live_') ? 'default' : 'destructive'}>
-                  {apiKey.startsWith('bsk_live_') ? 'Valid format' : 'Invalid format'}
-                </Badge>
-              )}
-            </div>
+            {/* Auth Status */}
+            {isAuthenticated && apiKey ? (
+              <Badge variant="default" className="gap-1.5">
+                <CheckCircle className="w-3 h-3" />
+                API Key activa
+              </Badge>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Badge variant="destructive">No autenticado</Badge>
+                <a href="/auth" className="text-sm text-primary hover:underline">Iniciar sesión →</a>
+              </div>
+            )}
           </div>
 
           {/* Stats */}

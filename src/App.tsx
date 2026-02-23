@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Docs from "./pages/Docs";
 import Playground from "./pages/Playground";
 import RAGExample from "./pages/RAGExample";
+import AITools from "./pages/AITools";
 import Dashboard from "./pages/Dashboard";
 import Pricing from "./pages/Pricing";
 import Auth from "./pages/Auth";
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/docs" element={<Docs />} />
             <Route path="/playground" element={<Playground />} />
             <Route path="/rag-example" element={<RAGExample />} />
+            <Route path="/ai-tools" element={<AITools />} />
             <Route path="/use-cases" element={<UseCases />} />
             <Route 
               path="/welcome" 
