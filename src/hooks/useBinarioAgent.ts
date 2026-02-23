@@ -353,7 +353,29 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
             if (data === '[DONE]') continue;
             try {
               const parsed = JSON.parse(data);
-              const token = parsed.choices?.[0]?.delta?.content || '';
+              let token = parsed.choices?.[0]?.delta?.content || '';
+
+              // Unwrap double-wrapped SSE from Cloudflare Workers AI
+              if (typeof token === 'string' && token.startsWith('data: ')) {
+                const innerLines = token.split('\n');
+                const extractedTokens: string[] = [];
+                for (const innerLine of innerLines) {
+                  if (innerLine.startsWith('data: ')) {
+                    const innerData = innerLine.slice(6).trim();
+                    if (innerData && innerData !== '[DONE]') {
+                      try {
+                        const innerParsed = JSON.parse(innerData);
+                        if (innerParsed.response !== undefined) {
+                          extractedTokens.push(innerParsed.response);
+                        }
+                      } catch { /* skip malformed inner JSON */ }
+                    }
+                  }
+                }
+                if (extractedTokens.length > 0) {
+                  token = extractedTokens.join('');
+                }
+              }
               if (token) {
                 setIsStreaming(true);
                 setIsLoading(false);
