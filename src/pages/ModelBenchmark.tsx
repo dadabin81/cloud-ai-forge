@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
@@ -25,8 +25,15 @@ interface BenchmarkResult {
   neuronsPerMOutput: number;
 }
 
-// All Cloudflare Workers AI models with official neuron costs
-const MODELS = [
+interface BenchmarkModel {
+  id: string;
+  name: string;
+  provider: string;
+  neuronsOut: number;
+}
+
+// Fallback models if backend is unreachable
+const FALLBACK_MODELS: BenchmarkModel[] = [
   { id: '@cf/ibm-granite/granite-4.0-h-micro', name: 'Granite Micro', provider: 'Cloudflare', neuronsOut: 10158 },
   { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', provider: 'Cloudflare', neuronsOut: 18252 },
   { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', provider: 'Cloudflare', neuronsOut: 34868 },
@@ -45,23 +52,54 @@ const PROMPTS = [
 
 export default function ModelBenchmark() {
   const { token } = useAuth();
+  const [models, setModels] = useState<BenchmarkModel[]>(FALLBACK_MODELS);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [results, setResults] = useState<BenchmarkResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState(PROMPTS[0]);
   const [customPrompt, setCustomPrompt] = useState('');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
 
+  // Fetch models dynamically from backend
+  useEffect(() => {
+    const fetchModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/v1/models`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.models?.length) {
+            const mapped: BenchmarkModel[] = data.models.map((m: any) => ({
+              id: m.id,
+              name: m.name || m.id.split('/').pop(),
+              provider: 'Cloudflare',
+              neuronsOut: m.neurons_per_m_output || m.NeuronsOut || 10000,
+            }));
+            setModels(mapped);
+          }
+        }
+      } catch {
+        // Keep fallback models
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+    fetchModels();
+  }, [token]);
+
   const runBenchmark = async () => {
     setIsRunning(true);
     setResults([]);
     const prompt = customPrompt || selectedPrompt.prompt;
-    setProgress({ current: 0, total: MODELS.length });
+    setProgress({ current: 0, total: models.length });
 
     const newResults: BenchmarkResult[] = [];
 
-    for (let i = 0; i < MODELS.length; i++) {
-      const model = MODELS[i];
-      setProgress({ current: i + 1, total: MODELS.length });
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      setProgress({ current: i + 1, total: models.length });
 
       try {
         const start = performance.now();
@@ -156,12 +194,12 @@ export default function ModelBenchmark() {
               </div>
               <Input placeholder="Or enter a custom prompt..." value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} />
               <div className="flex items-center gap-4">
-                <Button onClick={runBenchmark} disabled={isRunning} className="gap-2">
+                <Button onClick={runBenchmark} disabled={isRunning || isLoadingModels} className="gap-2">
                   {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                   {isRunning ? `Testing ${progress.current}/${progress.total}...` : 'Run Benchmark'}
                 </Button>
                 <div className="flex gap-1 flex-wrap">
-                  {MODELS.map((m) => (
+                  {models.map((m) => (
                     <Badge key={m.id} variant="secondary" className="text-[10px]">{m.name}</Badge>
                   ))}
                 </div>

@@ -322,27 +322,39 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
       content,
       createdAt: new Date(),
     };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => {
+      // Capture current messages for the request body using the updater
+      const allMessages = [...prev, userMessage];
+      // Schedule the fetch after state update
+      queueMicrotask(() => {
+        performHttpRequest(allMessages, controller);
+      });
+      return allMessages;
+    });
     setIsLoading(true);
     streamingContentRef.current = '';
     setStreamingContent('');
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+  }, [apiKey, baseUrl, agentState.model, agentState.systemPrompt, onToken, onComplete, onError]);
 
+  // Extracted HTTP request logic to avoid stale closure
+  const performHttpRequest = useCallback(async (allMessages: AgentMessage[], controller: AbortController) => {
     try {
       const response = await fetch(`${baseUrl}/v1/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': apiKey,
+          'X-API-Key': apiKey!,
         },
         body: JSON.stringify({
-          messages: [...messages, userMessage].map(m => ({
+          messages: allMessages.map(m => ({
             role: m.role,
             content: m.content,
           })),
           model: agentState.model,
+          system_prompt: agentState.systemPrompt,
           stream: true,
         }),
         signal: controller.signal,
@@ -415,7 +427,7 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
       tokenCountRef.current = 0;
       abortControllerRef.current = null;
     }
-  }, [apiKey, baseUrl, messages, agentState.model, onToken, onComplete, onError]);
+  }, [apiKey, baseUrl, agentState.model, agentState.systemPrompt, onToken, onComplete, onError]);
 
   // Stop generation
   const stop = useCallback(() => {
