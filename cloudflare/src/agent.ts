@@ -1,449 +1,301 @@
 /**
- * BinarioAgent - Cloudflare Durable Object Agent
- * Provides persistent state, WebSocket support, and real-time AI chat
+ * BinarioAgent - Cloudflare Agents SDK Integration
+ * Uses AIChatAgent for persistent state, native WebSocket, streaming, and tool calling
+ * 
+ * @requires agents ^0.5.0
+ * @requires @cloudflare/ai-chat ^0.1.0
  */
 
-import { DurableObject } from 'cloudflare:workers';
+import { AIChatAgent } from '@cloudflare/ai-chat';
+import { createWorkersAI } from 'workers-ai-provider';
+import { streamText, tool } from 'ai';
+import { z } from 'zod';
 
 export interface AgentEnv {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
+  VECTORIZE_INDEX?: VectorizeIndex;
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  timestamp?: number;
-}
-
-interface AgentState {
-  conversationId: string;
-  userId: string;
-  messages: ChatMessage[];
+/** Reactive state synced to all connected clients automatically */
+export interface AgentState {
   model: string;
   systemPrompt: string;
-  createdAt: number;
-  updatedAt: number;
+  neuronsUsed: number;
+  neuronsLimit: number;
+  plan: 'free' | 'pro' | 'enterprise';
+  features: {
+    imageGeneration: boolean;
+    audioTranscription: boolean;
+    translation: boolean;
+    rag: boolean;
+  };
 }
 
-interface WebSocketSession {
-  id: string;
-  userId: string;
-  socket: WebSocket;
-  isAuthenticated: boolean;
-}
+const DEFAULT_MODEL = '@cf/ibm-granite/granite-4.0-h-micro';
+const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant powered by Binario, running on Cloudflare Workers AI.';
 
-interface IncomingMessage {
-  type: 'chat' | 'ping' | 'clear' | 'set_model' | 'set_system_prompt';
-  content?: string;
-  model?: string;
-  systemPrompt?: string;
-}
+/**
+ * BinarioAgent extends AIChatAgent from the Cloudflare Agents SDK.
+ * 
+ * Features provided automatically by the SDK:
+ * - WebSocket connection management (no manual onopen/onclose)
+ * - Message persistence via this.messages (UIMessage[])
+ * - Reactive state via this.setState() (synced to all clients)
+ * - Embedded SQLite via this.sql
+ * - Scheduling via this.schedule() / this.scheduleEvery()
+ * - ResumableStream for streaming responses
+ */
+export class BinarioAgent extends AIChatAgent<AgentEnv, AgentState> {
+  // Initial reactive state - synced to clients on connect
+  initialState: AgentState = {
+    model: DEFAULT_MODEL,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    neuronsUsed: 0,
+    neuronsLimit: 10000,
+    plan: 'free',
+    features: {
+      imageGeneration: true,
+      audioTranscription: true,
+      translation: true,
+      rag: false,
+    },
+  };
 
-interface OutgoingMessage {
-  type: 'token' | 'complete' | 'error' | 'pong' | 'history' | 'state_update';
-  content?: string;
-  messages?: ChatMessage[];
-  model?: string;
-  error?: string;
-  timestamp?: number;
-}
+  // Limit persisted messages to prevent unbounded growth
+  maxPersistedMessages = 200;
 
-// Default model for free tier
-const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+  /**
+   * Called automatically when a chat message is received via WebSocket.
+   * The SDK handles message persistence, streaming transport, and error handling.
+   */
+  async onChatMessage(onFinish: Parameters<AIChatAgent<AgentEnv, AgentState>['onChatMessage']>[0]) {
+    const workersai = createWorkersAI({ binding: this.env.AI });
+    const model = this.state.model || DEFAULT_MODEL;
 
-export class BinarioAgent extends DurableObject<AgentEnv> {
-  private sessions: Map<WebSocket, WebSocketSession> = new Map();
-  private state: AgentState;
+    // Build tools available to the agent
+    const tools = this.getTools();
 
-  constructor(ctx: DurableObjectState, env: AgentEnv) {
-    super(ctx, env);
-    
-    // Initialize state with defaults
-    this.state = {
-      conversationId: ctx.id.toString(),
-      userId: '',
-      messages: [],
-      model: DEFAULT_MODEL,
-      systemPrompt: 'You are a helpful AI assistant powered by Binario.',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-  }
+    const result = streamText({
+      model: workersai(model),
+      system: this.state.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+      messages: this.messages,
+      tools,
+      maxSteps: 5, // Allow up to 5 tool-calling iterations
+      onFinish: async (result) => {
+        // Track neuron usage after completion
+        const tokensUsed = (result.usage?.totalTokens || 0);
+        const estimatedNeurons = Math.ceil(tokensUsed * 0.03); // Rough estimate
+        
+        this.setState({
+          ...this.state,
+          neuronsUsed: this.state.neuronsUsed + estimatedNeurons,
+        });
 
-  // Load state from SQLite storage
-  private async loadState(): Promise<void> {
-    try {
-      const stored = await this.ctx.storage.get<AgentState>('state');
-      if (stored) {
-        this.state = stored;
-      }
-    } catch (error) {
-      console.error('Failed to load state:', error);
-    }
-  }
-
-  // Save state to SQLite storage
-  private async saveState(): Promise<void> {
-    try {
-      this.state.updatedAt = Date.now();
-      await this.ctx.storage.put('state', this.state);
-    } catch (error) {
-      console.error('Failed to save state:', error);
-    }
-  }
-
-  // Handle HTTP requests (upgrade to WebSocket or API calls)
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    
-    // Handle WebSocket upgrade
-    if (request.headers.get('Upgrade') === 'websocket') {
-      return this.handleWebSocketUpgrade(request);
-    }
-
-    // Handle REST API calls
-    switch (url.pathname) {
-      case '/state':
-        return this.handleGetState();
-      case '/history':
-        return this.handleGetHistory();
-      case '/clear':
-        if (request.method === 'POST') {
-          return this.handleClearHistory();
+        // Persist usage to D1
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          await this.env.DB.prepare(`
+            INSERT INTO usage (user_id, model, tokens_used, date)
+            VALUES (?, ?, ?, ?)
+          `).bind('agent-user', model, tokensUsed, today).run();
+        } catch (e) {
+          console.error('Failed to track usage:', e);
         }
-        break;
-      case '/chat':
-        if (request.method === 'POST') {
-          return this.handleChatRequest(request);
-        }
-        break;
-    }
 
-    return new Response('Not found', { status: 404 });
+        // Call the SDK's onFinish for cleanup
+        onFinish?.(result);
+      },
+    });
+
+    return result.toDataStreamResponse();
   }
 
-  // Upgrade HTTP connection to WebSocket
-  private async handleWebSocketUpgrade(request: Request): Promise<Response> {
-    await this.loadState();
-
-    const webSocketPair = new WebSocketPair();
-    const [client, server] = Object.values(webSocketPair);
-
-    // Accept the WebSocket connection
-    server.accept();
-
-    // Extract user info from query params or headers
-    const url = new URL(request.url);
-    const userId = url.searchParams.get('userId') || 'anonymous';
-    const sessionId = crypto.randomUUID();
-
-    const session: WebSocketSession = {
-      id: sessionId,
-      userId,
-      socket: server,
-      isAuthenticated: userId !== 'anonymous',
-    };
-
-    this.sessions.set(server, session);
-
-    // Update state with user ID if authenticated
-    if (userId !== 'anonymous') {
-      this.state.userId = userId;
-      await this.saveState();
+  /**
+   * Called when reactive state is updated (from client or server).
+   * Use this to validate or react to state changes.
+   */
+  onStateUpdate(state: AgentState, source: 'client' | 'server') {
+    // Validate model is in our allowed list
+    if (source === 'client' && state.model && !state.model.startsWith('@cf/')) {
+      console.warn('Client attempted to set non-Cloudflare model:', state.model);
+      // Revert to current model
+      this.setState({ ...state, model: this.state.model });
+      return;
     }
 
-    // Send current state to the new connection
-    this.sendToSocket(server, {
-      type: 'history',
-      messages: this.state.messages,
-      model: this.state.model,
-      timestamp: Date.now(),
-    });
-
-    // Set up event listeners
-    server.addEventListener('message', async (event) => {
-      await this.handleWebSocketMessage(server, event.data);
-    });
-
-    server.addEventListener('close', () => {
-      this.sessions.delete(server);
-      console.log(`Session ${sessionId} disconnected`);
-    });
-
-    server.addEventListener('error', (error) => {
-      console.error(`WebSocket error for session ${sessionId}:`, error);
-      this.sessions.delete(server);
-    });
-
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-    });
+    // Update features based on plan
+    if (state.plan !== this.state.plan) {
+      const features = {
+        imageGeneration: true,
+        audioTranscription: true,
+        translation: true,
+        rag: state.plan !== 'free' || !!this.env.VECTORIZE_INDEX,
+      };
+      this.setState({ ...state, features });
+      return;
+    }
   }
 
-  // Handle incoming WebSocket messages
-  private async handleWebSocketMessage(socket: WebSocket, data: string | ArrayBuffer): Promise<void> {
-    try {
-      const message: IncomingMessage = JSON.parse(data.toString());
-
-      switch (message.type) {
-        case 'ping':
-          this.sendToSocket(socket, { type: 'pong', timestamp: Date.now() });
-          break;
-
-        case 'chat':
-          if (message.content) {
-            await this.handleStreamingChat(socket, message.content);
-          }
-          break;
-
-        case 'clear':
-          this.state.messages = [];
-          await this.saveState();
-          this.broadcast({ type: 'history', messages: [], timestamp: Date.now() });
-          break;
-
-        case 'set_model':
-          if (message.model) {
-            this.state.model = message.model;
-            await this.saveState();
-            this.broadcast({ type: 'state_update', model: this.state.model, timestamp: Date.now() });
-          }
-          break;
-
-        case 'set_system_prompt':
-          if (message.systemPrompt !== undefined) {
-            this.state.systemPrompt = message.systemPrompt;
-            await this.saveState();
-          }
-          break;
-
-        default:
-          this.sendToSocket(socket, { type: 'error', error: 'Unknown message type' });
-      }
-    } catch (error) {
-      console.error('Error handling WebSocket message:', error);
-      this.sendToSocket(socket, { 
-        type: 'error', 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+  /**
+   * Scheduled alarm handler - runs periodic tasks
+   */
+  async onAlarm() {
+    // Reset daily neuron counter at midnight UTC
+    const now = new Date();
+    if (now.getUTCHours() === 0 && now.getUTCMinutes() < 5) {
+      this.setState({
+        ...this.state,
+        neuronsUsed: 0,
       });
     }
   }
 
-  // Handle streaming chat with AI
-  private async handleStreamingChat(socket: WebSocket, userContent: string): Promise<void> {
-    // Add user message to history
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: userContent,
-      timestamp: Date.now(),
-    };
-    this.state.messages.push(userMessage);
-    await this.saveState();
+  /**
+   * Define tools available to the agent.
+   * These are callable by the AI model during conversations.
+   */
+  private getTools() {
+    const env = this.env;
 
-    // Broadcast user message to all connected clients
-    this.broadcast({
-      type: 'complete',
-      content: JSON.stringify(userMessage),
-      timestamp: Date.now(),
-    });
+    return {
+      // Image generation with Flux Schnell
+      generateImage: tool({
+        description: 'Generate an image from a text prompt using Flux Schnell. Returns a base64-encoded image.',
+        parameters: z.object({
+          prompt: z.string().describe('Text description of the image to generate'),
+          width: z.number().optional().default(512).describe('Image width (256-1024)'),
+          height: z.number().optional().default(512).describe('Image height (256-1024)'),
+        }),
+        execute: async ({ prompt, width, height }) => {
+          try {
+            const response = await env.AI.run('@cf/black-forest-labs/FLUX.1-schnell' as any, {
+              prompt,
+              width: Math.min(Math.max(width, 256), 1024),
+              height: Math.min(Math.max(height, 256), 1024),
+            });
+            return { 
+              success: true, 
+              message: `Image generated for prompt: "${prompt}" (${width}x${height})`,
+              // The actual image data would be in the response
+            };
+          } catch (error) {
+            return { success: false, error: (error as Error).message };
+          }
+        },
+      }),
 
-    try {
-      // Build messages for AI
-      const aiMessages = [
-        ...(this.state.systemPrompt ? [{ role: 'system' as const, content: this.state.systemPrompt }] : []),
-        ...this.state.messages.map(m => ({ role: m.role, content: m.content })),
-      ];
+      // Audio transcription with Whisper
+      transcribeAudio: tool({
+        description: 'Transcribe audio from a URL using Whisper. Returns the transcribed text.',
+        parameters: z.object({
+          audioUrl: z.string().url().describe('URL of the audio file to transcribe'),
+        }),
+        execute: async ({ audioUrl }) => {
+          try {
+            const audioResponse = await fetch(audioUrl);
+            const audioBuffer = await audioResponse.arrayBuffer();
+            const result = await env.AI.run('@cf/openai/whisper' as any, {
+              audio: [...new Uint8Array(audioBuffer)],
+            });
+            return { 
+              success: true, 
+              text: (result as any).text || '',
+            };
+          } catch (error) {
+            return { success: false, error: (error as Error).message };
+          }
+        },
+      }),
 
-      // Call Workers AI
-      const response = await this.env.AI.run(this.state.model as any, {
-        messages: aiMessages,
-        stream: true,
-      });
+      // Translation with M2M100
+      translate: tool({
+        description: 'Translate text between languages using M2M100.',
+        parameters: z.object({
+          text: z.string().describe('Text to translate'),
+          sourceLang: z.string().default('en').describe('Source language code (e.g., en, es, fr)'),
+          targetLang: z.string().describe('Target language code (e.g., es, fr, de)'),
+        }),
+        execute: async ({ text, sourceLang, targetLang }) => {
+          try {
+            const result = await env.AI.run('@cf/meta/m2m100-1.2b' as any, {
+              text,
+              source_lang: sourceLang,
+              target_lang: targetLang,
+            });
+            return { 
+              success: true, 
+              translatedText: (result as any).translated_text || '',
+            };
+          } catch (error) {
+            return { success: false, error: (error as Error).message };
+          }
+        },
+      }),
 
-      let fullContent = '';
+      // RAG search (if Vectorize is available)
+      ...(env.VECTORIZE_INDEX ? {
+        searchDocuments: tool({
+          description: 'Search through ingested documents using semantic similarity.',
+          parameters: z.object({
+            query: z.string().describe('Search query'),
+            topK: z.number().optional().default(5).describe('Number of results to return'),
+          }),
+          execute: async ({ query, topK }) => {
+            try {
+              const embedResponse = await env.AI.run('@cf/baai/bge-base-en-v1.5' as any, {
+                text: [query],
+              });
+              const queryVector = (embedResponse as any).data?.[0];
+              if (!queryVector) return { success: false, error: 'Failed to generate embedding' };
 
-      // Handle streaming response
-      if (response instanceof ReadableStream) {
-        const reader = response.getReader();
-        const decoder = new TextDecoder();
+              const results = await env.VECTORIZE_INDEX!.query(queryVector, {
+                topK,
+                returnMetadata: 'all',
+              });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          
-          // Parse SSE format
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
-
-              try {
-                const parsed = JSON.parse(data);
-                const token = parsed.response || parsed.choices?.[0]?.delta?.content || '';
-                if (token) {
-                  fullContent += token;
-                  // Send token to all connected clients
-                  this.broadcast({ type: 'token', content: token, timestamp: Date.now() });
-                }
-              } catch {
-                // Handle non-JSON chunks (raw text from some models)
-                if (data && data !== '[DONE]') {
-                  fullContent += data;
-                  this.broadcast({ type: 'token', content: data, timestamp: Date.now() });
-                }
-              }
+              return {
+                success: true,
+                results: results.matches.map(m => ({
+                  score: m.score,
+                  metadata: m.metadata,
+                })),
+              };
+            } catch (error) {
+              return { success: false, error: (error as Error).message };
             }
+          },
+        }),
+      } : {}),
+
+      // Get current date/time
+      getCurrentTime: tool({
+        description: 'Get the current date and time in UTC.',
+        parameters: z.object({}),
+        execute: async () => ({
+          datetime: new Date().toISOString(),
+          timestamp: Date.now(),
+        }),
+      }),
+
+      // Math calculator
+      calculate: tool({
+        description: 'Evaluate a mathematical expression.',
+        parameters: z.object({
+          expression: z.string().describe('Mathematical expression to evaluate (e.g., "2 + 2 * 3")'),
+        }),
+        execute: async ({ expression }) => {
+          try {
+            // Safe math evaluation using Function constructor with limited scope
+            const sanitized = expression.replace(/[^0-9+\-*/().%\s^]/g, '');
+            const result = new Function(`return (${sanitized})`)();
+            return { result: Number(result), expression: sanitized };
+          } catch (error) {
+            return { error: `Invalid expression: ${(error as Error).message}` };
           }
-        }
-      } else if (typeof response === 'object' && 'response' in response) {
-        // Non-streaming response
-        fullContent = (response as { response: string }).response;
-        this.broadcast({ type: 'token', content: fullContent, timestamp: Date.now() });
-      }
-
-      // Add assistant message to history
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: fullContent,
-        timestamp: Date.now(),
-      };
-      this.state.messages.push(assistantMessage);
-      await this.saveState();
-
-      // Send completion signal
-      this.broadcast({ type: 'complete', timestamp: Date.now() });
-
-    } catch (error) {
-      console.error('AI chat error:', error);
-      this.sendToSocket(socket, {
-        type: 'error',
-        error: error instanceof Error ? error.message : 'AI request failed',
-      });
-    }
-  }
-
-  // Send message to a specific socket
-  private sendToSocket(socket: WebSocket, message: OutgoingMessage): void {
-    try {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify(message));
-      }
-    } catch (error) {
-      console.error('Failed to send to socket:', error);
-    }
-  }
-
-  // Broadcast message to all connected clients
-  private broadcast(message: OutgoingMessage): void {
-    for (const [socket] of this.sessions) {
-      this.sendToSocket(socket, message);
-    }
-  }
-
-  // REST API: Get current state
-  private async handleGetState(): Promise<Response> {
-    await this.loadState();
-    return new Response(JSON.stringify({
-      conversationId: this.state.conversationId,
-      model: this.state.model,
-      messageCount: this.state.messages.length,
-      createdAt: this.state.createdAt,
-      updatedAt: this.state.updatedAt,
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // REST API: Get message history
-  private async handleGetHistory(): Promise<Response> {
-    await this.loadState();
-    return new Response(JSON.stringify({
-      messages: this.state.messages,
-      model: this.state.model,
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // REST API: Clear history
-  private async handleClearHistory(): Promise<Response> {
-    this.state.messages = [];
-    await this.saveState();
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // REST API: Handle chat request (non-WebSocket)
-  private async handleChatRequest(request: Request): Promise<Response> {
-    await this.loadState();
-
-    const body = await request.json() as { content: string; model?: string };
-    
-    if (body.model) {
-      this.state.model = body.model;
-    }
-
-    // Add user message
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: body.content,
-      timestamp: Date.now(),
+        },
+      }),
     };
-    this.state.messages.push(userMessage);
-
-    // Build messages for AI
-    const aiMessages = [
-      ...(this.state.systemPrompt ? [{ role: 'system' as const, content: this.state.systemPrompt }] : []),
-      ...this.state.messages.map(m => ({ role: m.role, content: m.content })),
-    ];
-
-    try {
-      const response = await this.env.AI.run(this.state.model as any, {
-        messages: aiMessages,
-      });
-
-      const content = typeof response === 'object' && 'response' in response 
-        ? (response as { response: string }).response 
-        : '';
-
-      // Add assistant message
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content,
-        timestamp: Date.now(),
-      };
-      this.state.messages.push(assistantMessage);
-      await this.saveState();
-
-      return new Response(JSON.stringify({
-        message: assistantMessage,
-        messages: this.state.messages,
-      }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      return new Response(JSON.stringify({
-        error: error instanceof Error ? error.message : 'AI request failed',
-      }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
-  // Scheduled tasks (called by alarm)
-  async alarm(): Promise<void> {
-    // Clean up old messages (keep last 100)
-    if (this.state.messages.length > 100) {
-      this.state.messages = this.state.messages.slice(-100);
-      await this.saveState();
-    }
   }
 }

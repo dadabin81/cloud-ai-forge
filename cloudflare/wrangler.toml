@@ -1,6 +1,6 @@
 # Binario API - Cloudflare Worker Configuration
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
-# SIMPLIFIED VERSION - Durable Objects, Vectorize, and Workflows disabled
+# Uses Agents SDK (agents, @cloudflare/ai-chat) + MCP
 
 name = "binario-api"
 main = "src/index.ts"
@@ -28,7 +28,7 @@ id = "71d0d869b4dc4aacb524e8524f6ddd0d"
 
 # ============ DURABLE OBJECTS ============
 
-# Agent Durable Object for WebSocket chat
+# Agent Durable Object (AIChatAgent from Agents SDK)
 [[durable_objects.bindings]]
 name = "BINARIO_AGENT"
 class_name = "BinarioAgent"
@@ -38,14 +38,21 @@ class_name = "BinarioAgent"
 name = "SANDBOX_PROJECT"
 class_name = "SandboxProject"
 
+# MCP Server Durable Object
+[[durable_objects.bindings]]
+name = "BINARIO_MCP"
+class_name = "BinarioMCP"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["BinarioAgent", "SandboxProject"]
 
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["BinarioMCP"]
+
 # ============ OPTIONAL FEATURES ============
-# To enable RAG, first create the index:
-#   npx wrangler vectorize create binario-embeddings --dimensions=768 --metric=cosine
-# Then uncomment below:
+# Vectorize for RAG
 [[vectorize]]
 binding = "VECTORIZE_INDEX"
 index_name = "binario-embeddings"

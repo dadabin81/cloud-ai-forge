@@ -3,8 +3,9 @@
  * Production-ready API gateway for AI chat and agents
  */
 
-// Export Durable Objects
+// Export Durable Objects (Agents SDK)
 export { BinarioAgent } from './agent';
+export { BinarioMCP } from './mcp';
 export { SandboxProject } from './sandbox';
 import {
   createProject,
@@ -30,9 +31,11 @@ export interface Env {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
-  // Optional advanced bindings
+  // Durable Objects (Agents SDK)
   BINARIO_AGENT?: DurableObjectNamespace;
   SANDBOX_PROJECT?: DurableObjectNamespace;
+  BINARIO_MCP?: DurableObjectNamespace;
+  // Optional advanced bindings
   VECTORIZE_INDEX?: VectorizeIndex;
   RESEARCH_WORKFLOW?: Workflow;
   RAG_WORKFLOW?: Workflow;
@@ -189,9 +192,114 @@ export default {
 
 async function handleRequest(request: Request, env: Env, path: string, url: URL): Promise<Response> {
     try {
+      // ============ MCP Server Endpoint ============
+      if (path.startsWith('/mcp')) {
+        if (!env.BINARIO_MCP) {
+          return jsonResponse({ error: 'MCP server not configured' }, 503);
+        }
+        // Route to MCP Durable Object - handles SSE transport automatically
+        const id = env.BINARIO_MCP.idFromName('mcp-server');
+        const stub = env.BINARIO_MCP.get(id);
+        return stub.fetch(request);
+      }
+
+      // ============ Media Endpoints (Free Cloudflare AI Services) ============
+      
+      // Image Generation with Flux Schnell
+      if (path === '/v1/images/generate' && request.method === 'POST') {
+        const apiKeyInfo = await validateApiKey(request, env);
+        if (!apiKeyInfo) return jsonError('Invalid API key', 401);
+        
+        const body = await request.json() as { prompt: string; width?: number; height?: number; steps?: number };
+        if (!body.prompt) return jsonError('Prompt is required', 400);
+        
+        try {
+          const response = await env.AI.run('@cf/black-forest-labs/FLUX.1-schnell' as any, {
+            prompt: body.prompt,
+            width: Math.min(Math.max(body.width || 512, 256), 1024),
+            height: Math.min(Math.max(body.height || 512, 256), 1024),
+            num_steps: body.steps || 4,
+          });
+          
+          // Flux returns raw image bytes
+          const imageBytes = response as unknown as Uint8Array;
+          return new Response(imageBytes, {
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'image/png',
+              'X-Model': '@cf/black-forest-labs/FLUX.1-schnell',
+            },
+          });
+        } catch (error) {
+          return jsonError(`Image generation failed: ${(error as Error).message}`, 500);
+        }
+      }
+
+      // Audio Transcription with Whisper
+      if (path === '/v1/audio/transcribe' && request.method === 'POST') {
+        const apiKeyInfo = await validateApiKey(request, env);
+        if (!apiKeyInfo) return jsonError('Invalid API key', 401);
+        
+        const contentType = request.headers.get('Content-Type') || '';
+        let audioData: number[];
+        
+        if (contentType.includes('application/json')) {
+          const body = await request.json() as { audioUrl: string };
+          if (!body.audioUrl) return jsonError('audioUrl is required', 400);
+          const audioResponse = await fetch(body.audioUrl);
+          if (!audioResponse.ok) return jsonError('Failed to fetch audio', 400);
+          const buffer = await audioResponse.arrayBuffer();
+          audioData = [...new Uint8Array(buffer)];
+        } else {
+          // Direct binary upload
+          const buffer = await request.arrayBuffer();
+          audioData = [...new Uint8Array(buffer)];
+        }
+        
+        try {
+          const result = await env.AI.run('@cf/openai/whisper' as any, {
+            audio: audioData,
+          });
+          
+          return jsonResponse({
+            text: (result as any).text || '',
+            word_count: (result as any).word_count || 0,
+            model: '@cf/openai/whisper',
+          });
+        } catch (error) {
+          return jsonError(`Transcription failed: ${(error as Error).message}`, 500);
+        }
+      }
+
+      // Translation with M2M100
+      if (path === '/v1/translate' && request.method === 'POST') {
+        const apiKeyInfo = await validateApiKey(request, env);
+        if (!apiKeyInfo) return jsonError('Invalid API key', 401);
+        
+        const body = await request.json() as { text: string; source_lang: string; target_lang: string };
+        if (!body.text || !body.target_lang) return jsonError('text and target_lang are required', 400);
+        
+        try {
+          const result = await env.AI.run('@cf/meta/m2m100-1.2b' as any, {
+            text: body.text,
+            source_lang: body.source_lang || 'en',
+            target_lang: body.target_lang,
+          });
+          
+          return jsonResponse({
+            translated_text: (result as any).translated_text || '',
+            source_lang: body.source_lang || 'en',
+            target_lang: body.target_lang,
+            model: '@cf/meta/m2m100-1.2b',
+          });
+        } catch (error) {
+          return jsonError(`Translation failed: ${(error as Error).message}`, 500);
+        }
+      }
+
       // ============ Durable Objects Endpoints ============
       
-      // Agent endpoints (WebSocket + REST)
+      // Agent endpoints (WebSocket + REST) - now using Agents SDK
       if (path.startsWith('/v1/agent/')) {
         if (!env.BINARIO_AGENT) {
           return jsonResponse({ error: 'Agent not configured' }, 503);
@@ -330,10 +438,18 @@ async function handleRequest(request: Request, env: Env, path: string, url: URL)
           status: 'ok', 
           timestamp: new Date().toISOString(), 
           agents: !!env.BINARIO_AGENT,
+          agentsSdk: true,
+          mcp: !!env.BINARIO_MCP,
           sandbox: !!env.SANDBOX_PROJECT,
           rag: !!env.VECTORIZE_INDEX,
           workflows: !!(env.RESEARCH_WORKFLOW || env.RAG_WORKFLOW),
           chat: true,
+          services: {
+            imageGeneration: true,
+            audioTranscription: true,
+            translation: true,
+            embeddings: true,
+          },
         });
       }
 
