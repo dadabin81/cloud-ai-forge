@@ -52,7 +52,7 @@ const faqItems = [
   },
   {
     question: 'Is Binario really free?',
-    answer: 'Yes! Our free tier includes unlimited access to Cloudflare Workers AI models. Premium providers like OpenAI require a paid plan.',
+    answer: 'Yes! Our free tier includes 10,000 neurons/day from Cloudflare Workers AI, plus free image generation, audio transcription, and embeddings. Pro plans start at $5/month for millions of tokens.',
   },
   {
     question: 'Do you offer enterprise plans?',

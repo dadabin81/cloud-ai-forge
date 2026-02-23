@@ -161,10 +161,10 @@ const models = [
   // Cloudflare - Vision & Reasoning
   { provider: 'Cloudflare', model: '@cf/meta/llama-3.2-11b-vision-instruct', free: true, notes: 'Vision support (limited free)' },
   { provider: 'Cloudflare', model: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', free: true, notes: 'Reasoning (limited free)' },
-  // Other providers
-  { provider: 'Lovable', model: 'google/gemini-2.5-flash', free: false, notes: 'Pre-configured in Supabase' },
-  { provider: 'OpenAI', model: 'gpt-4o', free: false, notes: 'Most capable' },
-  { provider: 'Anthropic', model: 'claude-3-5-sonnet-20241022', free: false, notes: 'Best for code' },
+  // New efficient models
+  { provider: 'Cloudflare', model: '@cf/ibm-granite/granite-4.0-h-micro', free: true, notes: 'Most efficient (~985 tokens/day)' },
+  { provider: 'Cloudflare', model: '@cf/openai/gpt-oss-20b', free: true, notes: 'Good reasoning (~367 tokens/day)' },
+  { provider: 'Cloudflare', model: '@cf/qwen/qwen3-30b-a3b-fp8', free: true, notes: 'Best quality/cost (~328 tokens/day)' },
 ];
 
 // Neuron cost examples

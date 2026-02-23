@@ -825,167 +825,17 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
     return jsonResponse(responseData);
   } catch (error) {
     console.error('Chat error:', error);
-    // Fallback to OpenRouter if available
-    if (env.OPENROUTER_API_KEY) {
-      return await handleChatWithOpenRouter(env, body, model);
-    }
     throw error;
   }
 }
 
-// Handle external provider chat (OpenAI, Anthropic, Google)
-async function handleExternalProviderChat(
-  env: Env, 
-  body: ChatRequest, 
-  provider: string, 
-  model: string,
-  keyInfo: ApiKeyInfo
-): Promise<Response> {
-  let apiUrl: string;
-  let apiKey: string;
-  let requestBody: any;
-
-  switch (provider) {
-    case 'openai':
-      apiUrl = 'https://api.openai.com/v1/chat/completions';
-      apiKey = env.OPENAI_API_KEY!;
-      requestBody = {
-        model,
-        messages: body.messages,
-        temperature: body.temperature ?? 0.7,
-        max_tokens: body.max_tokens ?? 1024,
-        stream: false,
-      };
-      break;
-
-    case 'anthropic':
-      apiUrl = 'https://api.anthropic.com/v1/messages';
-      apiKey = env.ANTHROPIC_API_KEY!;
-      // Convert messages format for Anthropic
-      const systemMessage = body.messages.find(m => m.role === 'system');
-      const nonSystemMessages = body.messages.filter(m => m.role !== 'system');
-      requestBody = {
-        model,
-        system: systemMessage?.content,
-        messages: nonSystemMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-        })),
-        max_tokens: body.max_tokens ?? 1024,
-      };
-      break;
-
-    case 'google':
-      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_API_KEY}`;
-      apiKey = ''; // Key is in URL for Google
-      // Convert messages format for Google
-      const contents = body.messages
-        .filter(m => m.role !== 'system')
-        .map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        }));
-      const googleSystemMessage = body.messages.find(m => m.role === 'system');
-      requestBody = {
-        contents,
-        systemInstruction: googleSystemMessage ? { parts: [{ text: googleSystemMessage.content }] } : undefined,
-        generationConfig: {
-          temperature: body.temperature ?? 0.7,
-          maxOutputTokens: body.max_tokens ?? 1024,
-        },
-      };
-      break;
-
-    default:
-      return jsonError(`Unsupported provider: ${provider}`, 400);
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  if (provider === 'openai') {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  } else if (provider === 'anthropic') {
-    headers['x-api-key'] = apiKey;
-    headers['anthropic-version'] = '2023-06-01';
-  }
-  // Google uses key in URL
-
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`${provider} API error:`, errorText);
-      return jsonError(`${provider} API error: ${response.status}`, response.status);
-    }
-
-    const data = await response.json() as any;
-    let content: string;
-
-    // Parse response based on provider format
-    switch (provider) {
-      case 'openai':
-        content = data.choices?.[0]?.message?.content || '';
-        break;
-      case 'anthropic':
-        content = data.content?.[0]?.text || '';
-        break;
-      case 'google':
-        content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        break;
-      default:
-        content = '';
-    }
-
-    await trackUsage(env, keyInfo, model, body.messages, { response: content });
-
-    return jsonResponse({
-      id: `chat-${Date.now()}`,
-      model,
-      provider,
-      choices: [{
-        index: 0,
-        message: {
-          role: 'assistant',
-          content,
-        },
-        finish_reason: 'stop',
-      }],
-      usage: {
-        prompt_tokens: estimateTokens(body.messages),
-        completion_tokens: estimateTokens(content),
-      },
-    });
-  } catch (error) {
-    console.error(`${provider} chat error:`, error);
-    return jsonError(`Failed to call ${provider} API`, 500);
-  }
+// All models are Cloudflare-only
+function detectProvider(_model: string): string {
+  return 'cloudflare';
 }
 
-// Detect provider from model name
-function detectProvider(model: string): string {
-  if (model.startsWith('@cf/')) return 'cloudflare';
-  if (model.startsWith('gpt-')) return 'openai';
-  if (model.startsWith('claude-')) return 'anthropic';
-  if (model.startsWith('gemini-')) return 'google';
-  return 'cloudflare'; // default
-}
-
-// Check if provider is configured
-function isProviderConfigured(env: Env, provider: string): boolean {
-  switch (provider) {
-    case 'cloudflare': return true;
-    case 'openai': return !!env.OPENAI_API_KEY;
-    case 'anthropic': return !!env.ANTHROPIC_API_KEY;
-    case 'google': return !!env.GOOGLE_API_KEY;
-    default: return false;
-  }
+function isProviderConfigured(_env: Env, provider: string): boolean {
+  return provider === 'cloudflare';
 }
 
 // ============ Structured Output Handler ============
@@ -1377,31 +1227,7 @@ async function handleGetFirstApiKey(env: Env, sessionInfo: SessionInfo): Promise
   });
 }
 
-// ============ OpenRouter Fallback ============
-
-async function handleChatWithOpenRouter(env: Env, body: ChatRequest, model?: string): Promise<Response> {
-  // Map model to OpenRouter format if needed
-  const openRouterModel = model?.startsWith('@cf/') 
-    ? 'meta-llama/llama-3.1-8b-instruct:free' 
-    : model || 'meta-llama/llama-3.1-8b-instruct:free';
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: openRouterModel,
-      messages: body.messages,
-      temperature: body.temperature ?? 0.7,
-      max_tokens: body.max_tokens ?? 1024,
-    }),
-  });
-
-  const data = await response.json();
-  return jsonResponse(data);
-}
+// ============ (External provider fallbacks removed - Cloudflare only) ============
 
 // ============ Helpers ============
 

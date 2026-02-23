@@ -165,40 +165,32 @@ function AgentChat({ agent }) {
   // ...
 }`,
   },
-  multiProvider: {
-    title: 'Multi-Provider',
-    description: 'Switch providers with one line',
+  cloudflareModels: {
+    title: 'Model Selection',
+    description: 'Choose the right Cloudflare model for your use case',
     code: `const ai = createBinario({
   providers: {
     cloudflare: { 
       accountId: process.env.CF_ACCOUNT_ID,
       apiKey: process.env.CF_API_TOKEN,
-      defaultModel: '@cf/meta/llama-3.2-1b-instruct', // Free tier
-    },
-    lovable: {
-      apiKey: process.env.LOVABLE_API_KEY,
-      defaultModel: 'google/gemini-2.5-flash',
-    },
-    openai: { 
-      apiKey: process.env.OPENAI_KEY,
-      defaultModel: 'gpt-4o'
-    },
-    anthropic: { 
-      apiKey: process.env.ANTHROPIC_KEY,
-      defaultModel: 'claude-3-5-sonnet-20241022'
     },
   },
-  defaultProvider: 'cloudflare', // Start with free tier!
 });
 
-// Use Cloudflare (FREE tier)
-await ai.chat(messages);
+// Most efficient (free tier champion: ~985 tokens/day)
+await ai.chat(messages, { model: '@cf/ibm-granite/granite-4.0-h-micro' });
 
-// Use Lovable AI Gateway
-await ai.chat(messages, { provider: 'lovable' });
+// Best quality/cost ratio (~328 tokens/day free)
+await ai.chat(messages, { model: '@cf/qwen/qwen3-30b-a3b-fp8' });
 
-// Use Claude for complex reasoning
-await ai.chat(messages, { provider: 'anthropic' });`,
+// Best for reasoning (~147 tokens/day free)
+await ai.chat(messages, { model: '@cf/openai/gpt-oss-120b' });
+
+// Highest quality (Pro tier recommended)
+await ai.chat(messages, { model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' });
+
+// Vision support
+await ai.chat(messages, { model: '@cf/meta/llama-3.2-11b-vision-instruct' });`,
   },
   rag: {
     title: 'RAG Pipeline',
