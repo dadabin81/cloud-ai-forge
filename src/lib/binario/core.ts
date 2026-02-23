@@ -8,6 +8,7 @@ import type {
   BinarioConfig,
   StreamCallbacks,
   ProviderConfig,
+  CloudflareModel,
 } from './types';
 import { runWithBinding, runWithRestAPI, streamWithRestAPI, DEFAULT_CLOUDFLARE_MODEL } from './providers/cloudflare';
 import { parseStructuredOutput } from './schema';
@@ -256,7 +257,7 @@ export class BinarioAI {
       }
       
       const response = await this.retryWithBackoff(
-        () => runWithRestAPI(providerConfig, messages, cfOptions),
+        () => runWithRestAPI(providerConfig.apiKey || '', providerConfig.apiKey || '', messages, cfOptions),
         options.retries
       );
       return this.handleStructuredOutput(response, options);
@@ -353,21 +354,31 @@ export class BinarioAI {
     const model = options.model || providerConfig.defaultModel || DEFAULT_MODELS[provider] || '';
 
     if (provider === 'cloudflare') {
-      const stream = streamWithRestAPI(providerConfig, messages, {
-        model,
+      const stream = streamWithRestAPI(providerConfig.apiKey || '', providerConfig.apiKey || '', messages, {
+        model: model as CloudflareModel,
         maxTokens: options.maxTokens,
         temperature: options.temperature,
       });
 
+      let fullStreamContent = '';
       for await (const token of stream) {
         callbacks?.onToken?.(token);
+        fullStreamContent += token;
         yield token;
       }
 
-      const result = await stream.next();
-      const response = result.value as ChatResponse;
-      callbacks?.onComplete?.(response);
-      return response;
+      const streamResponse: ChatResponse = {
+        id: crypto.randomUUID(),
+        provider: 'cloudflare',
+        model,
+        content: fullStreamContent,
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        finishReason: 'stop',
+        latency: Date.now() - Date.now(),
+        cached: false,
+      };
+      callbacks?.onComplete?.(streamResponse);
+      return streamResponse;
     }
 
     const startTime = Date.now();

@@ -4,7 +4,7 @@ import { Navigation } from '@/components/Navigation';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Zap, Building, Sparkles, Bell, X } from 'lucide-react';
+import { Check, Zap, Building, Sparkles, Bell, X, Cpu, Image, Mic, Database } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
@@ -13,14 +13,16 @@ const plans = [
     name: 'Free',
     price: '$0',
     period: '/month',
-    description: 'Perfect for getting started and experimenting',
+    description: 'Experiment with Cloudflare Workers AI free tier',
     icon: Zap,
     features: [
-      '1,000 requests/month',
-      'Cloudflare Workers AI models',
-      'Basic rate limiting (10 req/min)',
+      '10,000 neurons/day (~500-1,000 tokens text)',
+      '~2,000 AI images/day (Flux Schnell)',
+      '~243 min audio transcription/day',
+      '~9.3M embedding tokens/day',
+      'RAG with Vectorize (5M vectors)',
+      'D1 database (5GB)',
       'Community support',
-      '7-day usage history',
     ],
     cta: 'Get Started',
     highlighted: false,
@@ -28,18 +30,18 @@ const plans = [
   },
   {
     name: 'Pro',
-    price: '$19',
+    price: '$5',
     period: '/month',
-    description: 'For developers building production applications',
+    description: 'Millions of tokens for production apps',
     icon: Sparkles,
     features: [
-      '50,000 requests/month',
-      'Access to all models',
-      'Higher rate limits (100 req/min)',
-      'Priority support',
+      '~450K neurons/month ($5 at $0.011/1K)',
+      '~3M+ output tokens (Qwen3-30B)',
+      'All 17+ Cloudflare AI models',
+      'Priority rate limits (100 req/min)',
+      'Response caching (KV)',
       '90-day usage history',
-      'Response caching',
-      'Custom model routing',
+      'Smart model routing',
     ],
     cta: 'Coming Soon',
     highlighted: true,
@@ -49,16 +51,16 @@ const plans = [
     name: 'Enterprise',
     price: 'Custom',
     period: '',
-    description: 'For teams with advanced requirements',
+    description: 'Dedicated infrastructure for teams',
     icon: Building,
     features: [
-      'Unlimited requests',
-      'Dedicated infrastructure',
+      'Unlimited neurons',
+      'All models including 70B+',
       'Custom rate limits',
       'SLA guarantee (99.9%)',
-      'Priority queue access',
-      'Custom integrations',
       'Dedicated support',
+      'Custom integrations',
+      'On-premise option',
     ],
     cta: 'Contact Us',
     highlighted: false,
@@ -66,22 +68,40 @@ const plans = [
   },
 ];
 
+const freeServices = [
+  { icon: Cpu, name: 'Text AI', detail: '~500-1,000 tokens/day', sub: 'IBM Granite Micro (most efficient)' },
+  { icon: Image, name: 'Image Gen', detail: '~2,000 images/day', sub: 'Flux Schnell - completely free' },
+  { icon: Mic, name: 'Audio', detail: '~243 min/day', sub: 'Whisper transcription' },
+  { icon: Database, name: 'Embeddings', detail: '~9.3M tokens/day', sub: 'BGE-M3 for RAG/search' },
+];
+
+const modelPricing = [
+  { model: 'IBM Granite Micro', output: '~985', efficiency: '★★★★★', tier: 'free' },
+  { model: 'Mistral 7B', output: '~578', efficiency: '★★★★', tier: 'free' },
+  { model: 'Llama 3.2 1B', output: '~548', efficiency: '★★★★', tier: 'free' },
+  { model: 'GPT-OSS 20B', output: '~367', efficiency: '★★★', tier: 'free' },
+  { model: 'Qwen3-30B-A3B', output: '~328', efficiency: '★★★', tier: 'pro' },
+  { model: 'Llama 3.1 8B Fast', output: '~287', efficiency: '★★★', tier: 'free' },
+  { model: 'GPT-OSS 120B', output: '~147', efficiency: '★★', tier: 'pro' },
+  { model: 'Llama 3.3 70B', output: '~49', efficiency: '★', tier: 'pro' },
+];
+
 const faqs = [
   {
-    q: 'What happens if I exceed my request limit?',
-    a: 'Your requests will be rate-limited until the next billing cycle. You can upgrade your plan at any time to increase your limits.',
+    q: 'What are neurons?',
+    a: 'Neurons are Cloudflare\'s billing unit for Workers AI. Free tier gives 10,000 neurons/day. Different models consume neurons at different rates — smaller models are much more efficient.',
   },
   {
-    q: 'When will Pro and Enterprise plans be available?',
-    a: 'We\'re currently in beta. Sign up for our waitlist and we\'ll notify you when paid plans become available.',
+    q: 'How many tokens can I get for free?',
+    a: 'It depends on the model. IBM Granite Micro gives ~985 output tokens/day, while Llama 3.3 70B only gives ~49. We default to the most efficient model to maximize your free usage.',
   },
   {
-    q: 'What models are included in the free tier?',
-    a: 'Free plans include access to Cloudflare Workers AI models like Llama 3.1 8B, Mistral 7B, and more. These run on Cloudflare\'s free tier (10,000 neurons/day).',
+    q: 'Are images and audio really free?',
+    a: 'Yes! Flux Schnell image generation (~2,000/day) and Whisper audio transcription (~243 min/day) are included in Cloudflare\'s free tier at no additional cost.',
   },
   {
-    q: 'Can I use my own API keys for other providers?',
-    a: 'Currently, the hosted API uses Cloudflare Workers AI. For other providers (OpenAI, Anthropic, Google), you can self-host the SDK with your own API keys.',
+    q: 'What does the Pro plan include?',
+    a: 'At $5/month you get ~450K neurons, which translates to ~3M+ tokens with efficient models like Qwen3-30B. That\'s extremely competitive compared to OpenAI or Anthropic.',
   },
 ];
 
@@ -138,10 +158,7 @@ export default function Pricing() {
                 <Bell className="w-5 h-5 text-primary" />
                 <h3 className="font-semibold">Join the Waitlist</h3>
               </div>
-              <button 
-                onClick={() => setShowWaitlist(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={() => setShowWaitlist(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -149,13 +166,7 @@ export default function Pricing() {
               Paid plans are coming soon! Enter your email and we'll notify you when they're available.
             </p>
             <form onSubmit={handleWaitlistSubmit} className="space-y-3">
-              <Input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+              <Input type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? 'Joining...' : 'Notify Me'}
               </Button>
@@ -169,14 +180,26 @@ export default function Pricing() {
           {/* Header */}
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/30 mb-4">
-              <span className="text-sm text-amber-400 font-medium">Beta - Free tier available</span>
+              <span className="text-sm text-amber-400 font-medium">100% Cloudflare Workers AI — No external APIs</span>
             </div>
             <h1 className="text-4xl font-bold mb-4">
-              Simple, Transparent <span className="gradient-text">Pricing</span>
+              Transparent <span className="gradient-text">Pricing</span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Start free with Cloudflare's AI models. Paid plans coming soon.
+              Powered exclusively by Cloudflare's infrastructure. Images, audio & embeddings are practically free.
             </p>
+          </div>
+
+          {/* Free Services Highlight */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
+            {freeServices.map((s) => (
+              <div key={s.name} className="p-4 rounded-xl border border-border bg-card text-center">
+                <s.icon className="w-8 h-8 text-primary mx-auto mb-2" />
+                <p className="font-semibold text-sm">{s.name}</p>
+                <p className="text-primary text-lg font-bold">{s.detail}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
+              </div>
+            ))}
           </div>
 
           {/* Pricing Cards */}
@@ -184,16 +207,12 @@ export default function Pricing() {
             {plans.map((plan) => (
               <Card 
                 key={plan.name}
-                className={`relative ${
-                  plan.highlighted 
-                    ? 'border-primary shadow-lg shadow-primary/10' 
-                    : ''
-                } ${!plan.available ? 'opacity-80' : ''}`}
+                className={`relative ${plan.highlighted ? 'border-primary shadow-lg shadow-primary/10' : ''} ${!plan.available ? 'opacity-80' : ''}`}
               >
                 {plan.highlighted && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1 rounded-full">
-                      Coming Soon
+                      Best Value
                     </span>
                   </div>
                 )}
@@ -217,11 +236,7 @@ export default function Pricing() {
                       </li>
                     ))}
                   </ul>
-                  <Button 
-                    className="w-full" 
-                    variant={plan.highlighted ? 'default' : 'outline'}
-                    onClick={() => handlePlanClick(plan)}
-                  >
+                  <Button className="w-full" variant={plan.highlighted ? 'default' : 'outline'} onClick={() => handlePlanClick(plan)}>
                     {plan.cta}
                   </Button>
                 </CardContent>
@@ -229,74 +244,33 @@ export default function Pricing() {
             ))}
           </div>
 
-          {/* Comparison Table */}
+          {/* Model Cost Table */}
           <div className="mb-20">
-            <h2 className="text-2xl font-bold text-center mb-8">Compare Plans</h2>
+            <h2 className="text-2xl font-bold text-center mb-2">Free Tier Token Reality</h2>
+            <p className="text-center text-muted-foreground mb-8">Output tokens per day with 10,000 free neurons</p>
             <div className="overflow-x-auto">
               <table className="w-full border border-border rounded-xl overflow-hidden">
                 <thead className="bg-secondary/50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-sm font-medium">Feature</th>
-                    <th className="px-6 py-4 text-center text-sm font-medium">Free</th>
-                    <th className="px-6 py-4 text-center text-sm font-medium bg-primary/5">Pro</th>
-                    <th className="px-6 py-4 text-center text-sm font-medium">Enterprise</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium">Model</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium">Output Tokens/Day</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium">Efficiency</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium">Tier</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Monthly Requests</td>
-                    <td className="px-6 py-4 text-sm text-center">1,000</td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">50,000</td>
-                    <td className="px-6 py-4 text-sm text-center">Unlimited</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Rate Limit</td>
-                    <td className="px-6 py-4 text-sm text-center">10/min</td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">100/min</td>
-                    <td className="px-6 py-4 text-sm text-center">Custom</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Models Access</td>
-                    <td className="px-6 py-4 text-sm text-center">Basic</td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">All</td>
-                    <td className="px-6 py-4 text-sm text-center">All + Custom</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Agent Framework</td>
-                    <td className="px-6 py-4 text-sm text-center">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-center">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Streaming</td>
-                    <td className="px-6 py-4 text-sm text-center">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-center">
-                      <Check className="w-5 h-5 text-emerald-500 mx-auto" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">Support</td>
-                    <td className="px-6 py-4 text-sm text-center">Community</td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">Priority</td>
-                    <td className="px-6 py-4 text-sm text-center">Dedicated</td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 text-sm">SLA</td>
-                    <td className="px-6 py-4 text-sm text-center text-muted-foreground">—</td>
-                    <td className="px-6 py-4 text-sm text-center bg-primary/5">99%</td>
-                    <td className="px-6 py-4 text-sm text-center">99.9%</td>
-                  </tr>
+                  {modelPricing.map((m) => (
+                    <tr key={m.model}>
+                      <td className="px-6 py-4 text-sm font-medium">{m.model}</td>
+                      <td className="px-6 py-4 text-sm text-center font-mono">{m.output}</td>
+                      <td className="px-6 py-4 text-sm text-center">{m.efficiency}</td>
+                      <td className="px-6 py-4 text-sm text-center">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${m.tier === 'free' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-primary/10 text-primary'}`}>
+                          {m.tier}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -320,11 +294,11 @@ export default function Pricing() {
             <div className="p-8 rounded-2xl border border-border bg-gradient-to-b from-primary/5 to-transparent">
               <h2 className="text-2xl font-bold mb-4">Ready to get started?</h2>
               <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-                Start building AI-powered applications with Binario today.
+                Start building AI-powered applications with Binario. Free images, audio, and embeddings included.
               </p>
               <div className="flex items-center justify-center gap-4">
-                <Button size="lg">Start for Free</Button>
-                <Button variant="outline" size="lg">Contact Sales</Button>
+                <Button size="lg" onClick={() => window.location.href = '/auth'}>Start for Free</Button>
+                <Button variant="outline" size="lg" onClick={() => setShowWaitlist(true)}>Join Pro Waitlist</Button>
               </div>
             </div>
           </div>

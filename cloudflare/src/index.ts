@@ -30,16 +30,13 @@ export interface Env {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
-  // Optional advanced bindings (disabled for now)
+  // Optional advanced bindings
   BINARIO_AGENT?: DurableObjectNamespace;
   SANDBOX_PROJECT?: DurableObjectNamespace;
   VECTORIZE_INDEX?: VectorizeIndex;
   RESEARCH_WORKFLOW?: Workflow;
   RAG_WORKFLOW?: Workflow;
-  OPENROUTER_API_KEY?: string;
-  OPENAI_API_KEY?: string;
-  ANTHROPIC_API_KEY?: string;
-  GOOGLE_API_KEY?: string;
+  // Cloudflare-only: No external provider keys needed
   ENVIRONMENT: string;
 }
 
@@ -81,8 +78,8 @@ const RATE_LIMITS = {
 };
 
 const MODEL_ROUTING = {
-  free: '@cf/meta/llama-3.1-8b-instruct',
-  pro: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  free: '@cf/ibm-granite/granite-4.0-h-micro',
+  pro: '@cf/qwen/qwen3-30b-a3b-fp8',
   enterprise: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
 };
 
@@ -112,25 +109,26 @@ interface ChatRequest {
   cache?: boolean | { ttl?: number }; // Enable response caching
 }
 
-// Provider-specific model mappings
+// All models are Cloudflare Workers AI only
 const PROVIDER_MODELS: Record<string, string[]> = {
   cloudflare: [
+    '@cf/ibm-granite/granite-4.0-h-micro',
     '@cf/meta/llama-3.2-1b-instruct',
     '@cf/meta/llama-3.2-3b-instruct',
-    '@cf/meta/llama-3.1-8b-instruct',
+    '@cf/mistral/mistral-7b-instruct-v0.1',
     '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
-    '@cf/mistral/mistral-7b-instruct-v0.2',
-    '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-    '@cf/meta/llama-4-scout-17b-16e-instruct',
+    '@cf/zai-org/glm-4.7-flash',
+    '@cf/openai/gpt-oss-20b',
     '@cf/meta/llama-3.2-11b-vision-instruct',
-    '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
-    '@cf/qwen/qwen2.5-coder-32b-instruct',
+    '@cf/google/gemma-3-12b-it',
     '@cf/mistralai/mistral-small-3.1-24b-instruct',
     '@cf/qwen/qwen3-30b-a3b-fp8',
+    '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
+    '@cf/openai/gpt-oss-120b',
+    '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
+    '@cf/qwen/qwq-32b',
   ],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-  anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
-  google: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
 };
 
 interface StructuredRequest {
@@ -343,15 +341,11 @@ async function handleRequest(request: Request, env: Env, path: string, url: URL)
         return jsonResponse({ models: getAvailableModels(env) });
       }
 
-      // Providers status endpoint (public)
+      // Providers status endpoint (Cloudflare-only)
       if (path === '/v1/providers/status') {
         return jsonResponse({
           providers: {
             cloudflare: { available: true, configured: true, name: 'Cloudflare Workers AI' },
-            openai: { available: true, configured: !!env.OPENAI_API_KEY, name: 'OpenAI' },
-            anthropic: { available: true, configured: !!env.ANTHROPIC_API_KEY, name: 'Anthropic' },
-            google: { available: true, configured: !!env.GOOGLE_API_KEY, name: 'Google' },
-            openrouter: { available: true, configured: !!env.OPENROUTER_API_KEY, name: 'OpenRouter' },
           },
           defaultProvider: 'cloudflare',
           websocket: { enabled: !!env.BINARIO_AGENT, durableObjects: !!env.BINARIO_AGENT },
@@ -755,31 +749,21 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
     }
   }
 
-  // Validate provider/model compatibility
-  if (provider !== 'cloudflare' && !isProviderConfigured(env, provider)) {
-    // Try to use OpenRouter as a fallback for external models
-    if (env.OPENROUTER_API_KEY) {
-      return await handleChatWithOpenRouter(env, body, model);
-    }
-    return jsonError(`Provider '${provider}' is not configured. Add the required API key or use Cloudflare models.`, 400);
+  // All models go through Cloudflare Workers AI
+  if (!model.startsWith('@cf/') && !model.startsWith('@hf/')) {
+    // Non-Cloudflare model requested - map to best Cloudflare equivalent
+    console.log(`Non-CF model "${model}" requested, routing to default`);
   }
 
   try {
-    // Route to the appropriate provider
-    if (provider !== 'cloudflare') {
-      return await handleExternalProviderChat(env, body, provider, model, keyInfo);
-    }
+    // All requests go through Cloudflare Workers AI
+    const cfModel = model.startsWith('@cf/') || model.startsWith('@hf/') ? model : MODEL_ROUTING[keyInfo.plan];
 
-    // Cloudflare Workers AI path
-    let messages = body.messages;
-    if (body.response_format?.type === 'json_object') {
-      const schemaInstructions = body.response_format.schema 
-        ? `\n\nYou must respond with valid JSON that conforms to this schema:\n${JSON.stringify(body.response_format.schema, null, 2)}`
-        : '\n\nYou must respond with valid JSON.';
-      
-      messages = messages.map((msg, i) => 
-        i === 0 && msg.role === 'system' 
-          ? { ...msg, content: msg.content + schemaInstructions }
+    const response = await env.AI.run(cfModel as any, {
+      messages,
+      temperature: body.temperature ?? 0.7,
+      max_tokens: body.max_tokens ?? 1024,
+    });
           : msg
       );
       
@@ -1620,50 +1604,29 @@ function getNextMonthResetTimestamp(): number {
 }
 
 function getAvailableModels(env?: Env) {
-  const models: Array<{
-    id: string; name: string; tier: string; provider: string;
-    neurons_per_m_input?: number; neurons_per_m_output?: number;
-    capabilities?: string[]; context_window?: number;
-  }> = [
-    // Free tier models (included in 10,000 neurons/day)
-    { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 2457, neurons_per_m_output: 18252, capabilities: ['chat'], context_window: 131072 },
-    { id: '@cf/meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4625, neurons_per_m_output: 34375, capabilities: ['chat', 'code'], context_window: 131072 },
-    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
-    { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 30623, capabilities: ['chat', 'code'], context_window: 131072 },
-    { id: '@cf/mistral/mistral-7b-instruct-v0.2', name: 'Mistral 7B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 3800, neurons_per_m_output: 28000, capabilities: ['chat'], context_window: 32768 },
-    // Pro tier models (low cost per neuron)
-    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 26668, neurons_per_m_output: 204805, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072 },
-    { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 10000, neurons_per_m_output: 75000, capabilities: ['chat', 'code', 'vision'], context_window: 131072 },
-    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 8500, neurons_per_m_output: 63000, capabilities: ['chat', 'vision'], context_window: 131072 },
-    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['chat', 'reasoning'], context_window: 65536 },
-    { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 15000, neurons_per_m_output: 112000, capabilities: ['code'], context_window: 131072 },
-    { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1 24B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 12000, neurons_per_m_output: 90000, capabilities: ['chat', 'code'], context_window: 131072 },
-    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen 3 30B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 14000, neurons_per_m_output: 105000, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072 },
+  return [
+    // Ultra Efficient
+    { id: '@cf/ibm-granite/granite-4.0-h-micro', name: 'Granite Micro', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 1542, neurons_per_m_output: 10158, capabilities: ['chat'], context_window: 8192, category: 'most-efficient' },
+    { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 2457, neurons_per_m_output: 18252, capabilities: ['chat'], context_window: 131072, category: 'most-efficient' },
+    { id: '@cf/meta/llama-3.2-3b-instruct', name: 'Llama 3.2 3B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4625, neurons_per_m_output: 30475, capabilities: ['chat', 'code'], context_window: 131072, category: 'most-efficient' },
+    { id: '@cf/mistral/mistral-7b-instruct-v0.1', name: 'Mistral 7B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 10000, neurons_per_m_output: 17300, capabilities: ['chat'], context_window: 32768, category: 'most-efficient' },
+    // Efficient
+    { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 4119, neurons_per_m_output: 34868, capabilities: ['chat', 'code'], context_window: 131072, category: 'best-for-code' },
+    { id: '@cf/zai-org/glm-4.7-flash', name: 'GLM 4.7 Flash', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 5500, neurons_per_m_output: 36400, capabilities: ['chat'], context_window: 131072, category: 'most-efficient' },
+    { id: '@cf/openai/gpt-oss-20b', name: 'GPT-OSS 20B', tier: 'free', provider: 'cloudflare', neurons_per_m_input: 18182, neurons_per_m_output: 27273, capabilities: ['chat', 'code'], context_window: 131072, category: 'best-for-code' },
+    // Medium
+    { id: '@cf/meta/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 4410, neurons_per_m_output: 61493, capabilities: ['chat', 'vision'], context_window: 131072, category: 'vision' },
+    { id: '@cf/google/gemma-3-12b-it', name: 'Gemma 3 12B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 31371, neurons_per_m_output: 50560, capabilities: ['chat', 'code'], context_window: 131072, category: 'best-for-code' },
+    { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', name: 'Mistral Small 3.1 24B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 31876, neurons_per_m_output: 50488, capabilities: ['chat', 'code'], context_window: 131072, category: 'best-for-code' },
+    { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3 30B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 4625, neurons_per_m_output: 30475, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072, category: 'best-quality' },
+    // Large
+    { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 26668, neurons_per_m_output: 204805, capabilities: ['chat', 'code', 'reasoning'], context_window: 131072, category: 'best-quality' },
+    { id: '@cf/meta/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout 17B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 24545, neurons_per_m_output: 77273, capabilities: ['chat', 'code', 'vision'], context_window: 131072, category: 'best-quality' },
+    { id: '@cf/openai/gpt-oss-120b', name: 'GPT-OSS 120B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 31818, neurons_per_m_output: 68182, capabilities: ['chat', 'reasoning'], context_window: 131072, category: 'reasoning' },
+    // Reasoning
+    { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 45170, neurons_per_m_output: 443756, capabilities: ['chat', 'reasoning'], context_window: 65536, category: 'reasoning' },
+    { id: '@cf/qwen/qwq-32b', name: 'QwQ 32B', tier: 'pro', provider: 'cloudflare', neurons_per_m_input: 60000, neurons_per_m_output: 90909, capabilities: ['chat', 'reasoning'], context_window: 131072, category: 'reasoning' },
   ];
-
-  // Add external provider models only if configured
-  if (env?.OPENAI_API_KEY) {
-    models.push(
-      { id: 'gpt-4o', name: 'GPT-4o', tier: 'pro', provider: 'openai' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', tier: 'free', provider: 'openai' },
-    );
-  }
-
-  if (env?.ANTHROPIC_API_KEY) {
-    models.push(
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', tier: 'pro', provider: 'anthropic' },
-      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', tier: 'enterprise', provider: 'anthropic' },
-    );
-  }
-
-  if (env?.GOOGLE_API_KEY) {
-    models.push(
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', tier: 'free', provider: 'google' },
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', tier: 'pro', provider: 'google' },
-    );
-  }
-
-  return models;
 }
 
 function jsonResponse(data: any, status = 200): Response {

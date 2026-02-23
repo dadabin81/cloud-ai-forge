@@ -17,19 +17,23 @@ import { useAuth, API_BASE_URL } from '@/contexts/AuthContext';
 interface BenchmarkResult {
   model: string;
   provider: string;
-  latency: number;      // ms
+  latency: number;
   tokensPerSec: number;
-  quality: number;       // 1-10
-  costPer1k: number;     // $ per 1k tokens
+  quality: number;
+  costPer1k: number;
   responseLength: number;
+  neuronsPerMOutput: number;
 }
 
+// All Cloudflare Workers AI models with official neuron costs
 const MODELS = [
-  { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', provider: 'Cloudflare' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', provider: 'Cloudflare' },
-  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', provider: 'Cloudflare' },
-  { id: '@cf/qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', provider: 'Cloudflare' },
-  { id: '@cf/google/gemma-7b-it-lora', name: 'Gemma 7B', provider: 'Cloudflare' },
+  { id: '@cf/ibm-granite/granite-4.0-h-micro', name: 'Granite Micro', provider: 'Cloudflare', neuronsOut: 10158 },
+  { id: '@cf/meta/llama-3.2-1b-instruct', name: 'Llama 3.2 1B', provider: 'Cloudflare', neuronsOut: 18252 },
+  { id: '@cf/meta/llama-3.1-8b-instruct-fp8-fast', name: 'Llama 3.1 8B Fast', provider: 'Cloudflare', neuronsOut: 34868 },
+  { id: '@cf/qwen/qwen3-30b-a3b-fp8', name: 'Qwen3 30B', provider: 'Cloudflare', neuronsOut: 30475 },
+  { id: '@cf/openai/gpt-oss-20b', name: 'GPT-OSS 20B', provider: 'Cloudflare', neuronsOut: 27273 },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', name: 'Llama 3.3 70B', provider: 'Cloudflare', neuronsOut: 204805 },
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', name: 'DeepSeek R1 32B', provider: 'Cloudflare', neuronsOut: 443756 },
 ];
 
 const PROMPTS = [
@@ -61,7 +65,7 @@ export default function ModelBenchmark() {
 
       try {
         const start = performance.now();
-        const res = await fetch(`${API_BASE_URL}/v1/chat`, {
+        const res = await fetch(`${API_BASE_URL}/v1/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -79,6 +83,8 @@ export default function ModelBenchmark() {
           const data = await res.json();
           const content = data.choices?.[0]?.message?.content || data.result?.response || '';
           const tokens = data.usage?.total_tokens || content.split(/\s+/).length * 1.3;
+          const costPerNeuron = 0.011 / 1000; // $0.011 per 1K neurons
+          const neuronsForRequest = (model.neuronsOut * tokens) / 1_000_000;
           
           newResults.push({
             model: model.name,
@@ -86,19 +92,20 @@ export default function ModelBenchmark() {
             latency,
             tokensPerSec: Math.round((tokens / (latency / 1000)) * 10) / 10,
             quality: Math.min(10, Math.max(1, Math.round((content.length / 50) + Math.random() * 2))),
-            costPer1k: model.id.includes('70b') ? 0.9 : model.id.includes('32b') ? 0.6 : 0.05,
+            costPer1k: Math.round(costPerNeuron * model.neuronsOut * 10000) / 10000,
             responseLength: content.length,
+            neuronsPerMOutput: model.neuronsOut,
           });
         } else {
           newResults.push({
             model: model.name, provider: model.provider,
-            latency, tokensPerSec: 0, quality: 0, costPer1k: 0, responseLength: 0,
+            latency, tokensPerSec: 0, quality: 0, costPer1k: 0, responseLength: 0, neuronsPerMOutput: model.neuronsOut,
           });
         }
       } catch {
         newResults.push({
           model: model.name, provider: model.provider,
-          latency: 0, tokensPerSec: 0, quality: 0, costPer1k: 0, responseLength: 0,
+          latency: 0, tokensPerSec: 0, quality: 0, costPer1k: 0, responseLength: 0, neuronsPerMOutput: model.neuronsOut,
         });
       }
       setResults([...newResults]);
@@ -114,7 +121,7 @@ export default function ModelBenchmark() {
     latency: Math.max(0, 100 - (r.latency / 50)),
   }));
 
-  const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent-foreground))', '#f59e0b', '#10b981', '#8b5cf6'];
+  const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent-foreground))', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4'];
 
   return (
     <div className="min-h-screen bg-background">
@@ -128,43 +135,33 @@ export default function ModelBenchmark() {
               </span>
             </h1>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Compare AI model performance across latency, speed, quality and cost
+              Compare Cloudflare Workers AI models — latency, speed, quality and real neuron costs
             </p>
           </div>
 
-          {/* Config */}
           <Card className="mb-8">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <FlaskConical className="w-5 h-5" /> Benchmark Configuration
               </CardTitle>
-              <CardDescription>Select a prompt type or enter a custom prompt</CardDescription>
+              <CardDescription>All models run on Cloudflare Workers AI (no external providers)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {PROMPTS.map(p => (
-                  <Button
-                    key={p.id}
-                    variant={selectedPrompt.id === p.id && !customPrompt ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => { setSelectedPrompt(p); setCustomPrompt(''); }}
-                  >
+                  <Button key={p.id} variant={selectedPrompt.id === p.id && !customPrompt ? 'default' : 'outline'} size="sm" onClick={() => { setSelectedPrompt(p); setCustomPrompt(''); }}>
                     {p.label}
                   </Button>
                 ))}
               </div>
-              <Input
-                placeholder="Or enter a custom prompt..."
-                value={customPrompt}
-                onChange={e => setCustomPrompt(e.target.value)}
-              />
+              <Input placeholder="Or enter a custom prompt..." value={customPrompt} onChange={e => setCustomPrompt(e.target.value)} />
               <div className="flex items-center gap-4">
                 <Button onClick={runBenchmark} disabled={isRunning} className="gap-2">
                   {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                   {isRunning ? `Testing ${progress.current}/${progress.total}...` : 'Run Benchmark'}
                 </Button>
-                <div className="flex gap-1">
-                  {MODELS.map((m, i) => (
+                <div className="flex gap-1 flex-wrap">
+                  {MODELS.map((m) => (
                     <Badge key={m.id} variant="secondary" className="text-[10px]">{m.name}</Badge>
                   ))}
                 </div>
@@ -172,7 +169,6 @@ export default function ModelBenchmark() {
             </CardContent>
           </Card>
 
-          {/* Results */}
           {results.length > 0 && (
             <Tabs defaultValue="latency" className="space-y-6">
               <TabsList>
@@ -274,7 +270,7 @@ export default function ModelBenchmark() {
                           <th className="text-right py-2 font-medium text-muted-foreground">Latency</th>
                           <th className="text-right py-2 font-medium text-muted-foreground">Tokens/s</th>
                           <th className="text-right py-2 font-medium text-muted-foreground">Quality</th>
-                          <th className="text-right py-2 font-medium text-muted-foreground">Cost/1K</th>
+                          <th className="text-right py-2 font-medium text-muted-foreground">Neurons/M out</th>
                           <th className="text-right py-2 font-medium text-muted-foreground">Length</th>
                         </tr>
                       </thead>
@@ -285,7 +281,7 @@ export default function ModelBenchmark() {
                             <td className="py-2 text-right">{r.latency}ms</td>
                             <td className="py-2 text-right">{r.tokensPerSec}</td>
                             <td className="py-2 text-right">{r.quality}/10</td>
-                            <td className="py-2 text-right">${r.costPer1k}</td>
+                            <td className="py-2 text-right font-mono text-xs">{r.neuronsPerMOutput.toLocaleString()}</td>
                             <td className="py-2 text-right">{r.responseLength} chars</td>
                           </tr>
                         ))}
