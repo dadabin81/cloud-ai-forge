@@ -3,7 +3,7 @@
  * Re-exports for easy importing
  */
 
-// New unified hook (Agents SDK compatible)
+// Unified hook (Agents SDK compatible) - replaces useWebSocketChat, useHttpChat, useAgent
 export { useBinarioAgent } from './useBinarioAgent';
 export type { 
   UseBinarioAgentOptions, 
@@ -12,10 +12,3 @@ export type {
   AgentState,
   ConnectionStatus,
 } from './useBinarioAgent';
-
-// Legacy hooks (still available for backward compatibility)
-export { useAgent } from './useAgent';
-export type { 
-  UseAgentOptions, 
-  UseAgentReturn, 
-} from './useAgent';

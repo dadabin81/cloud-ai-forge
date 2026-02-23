@@ -29,8 +29,7 @@ import { ChatMessage } from '@/components/ChatMessage';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
 import { usePlaygroundProject } from '@/hooks/usePlaygroundProject';
-import { useWebSocketChat } from '@/hooks/useWebSocketChat';
-import { useHttpChat } from '@/hooks/useHttpChat';
+import { useBinarioAgent } from '@/hooks/useBinarioAgent';
 import { useProjectSync } from '@/hooks/useProjectSync';
 import { buildGenerationPrompt } from '@/lib/blueprintSystem';
 import { buildErrorCorrectionPrompt, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
@@ -112,10 +111,7 @@ export default function Playground() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [streamingContent, setStreamingContent] = useState('');
   const [copied, setCopied] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
-  const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // API Key
@@ -137,9 +133,41 @@ export default function Playground() {
 
   const getEffectiveApiKey = useCallback(() => apiKeyInput || storedApiKey || '', [apiKeyInput, storedApiKey]);
 
-  // Refs for latest state access in hooks
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
+  // Unified Binario Agent hook - replaces useWebSocketChat + useHttpChat + useAgent
+  const {
+    status: agentStatus,
+    streamingContent,
+    isStreaming,
+    isLoading,
+    agentState,
+    tokensPerSecond,
+    send: agentSend,
+    stop: agentStop,
+    clear: agentClear,
+    updateState,
+    connect: agentConnect,
+    disconnect: agentDisconnect,
+    sendHttp,
+  } = useBinarioAgent({
+    baseUrl: API_BASE_URL,
+    apiKey: getEffectiveApiKey() || undefined,
+    autoConnect: false,
+    systemPrompt,
+    model: selectedModel,
+    onToken: () => {},
+    onComplete: () => {},
+    onError: (error) => {
+      toast.error(error.message);
+    },
+    onStatusChange: (status) => {
+      if (status === 'connected') {
+        toast.success('Agent connected!');
+      }
+    },
+  });
+
+  // Sync agent messages back to local messages state
+  const agentMessagesRef = useRef<Message[]>([]);
 
   // Project sync hook
   const {
@@ -161,37 +189,6 @@ export default function Playground() {
 
   const projectFilesRef = useRef(projectFiles);
   projectFilesRef.current = projectFiles;
-
-  // WebSocket hook
-  const {
-    wsStatus, wsRef, connectWebSocket, disconnectWebSocket,
-    sendWebSocket, manualReconnect, clearWs, stopWs,
-  } = useWebSocketChat({
-    getApiKey: getEffectiveApiKey,
-    selectedModel,
-    systemPrompt,
-    onMessages: setMessages,
-    onStreamingContent: setStreamingContent,
-    onThinking: setIsThinking,
-    onTokensPerSecond: setTokensPerSecond,
-  });
-
-  // HTTP hook
-  const { isLoading, sendHttp, stopHttp } = useHttpChat({
-    getApiKey: getEffectiveApiKey,
-    selectedModel,
-    selectedProvider,
-    systemPrompt,
-    onMessages: setMessages,
-    onStreamingContent: setStreamingContent,
-    onThinking: setIsThinking,
-    onTokensPerSecond: setTokensPerSecond,
-    getMessages: () => messagesRef.current,
-    getProjectFiles: () => projectFilesRef.current,
-    projectName: project?.name,
-    firstUserMessageRef,
-    setIsApiKeyValid,
-  });
 
   // Persist preferences
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.provider, selectedProvider); }, [selectedProvider]);
@@ -235,16 +232,21 @@ export default function Playground() {
     return () => clearTimeout(debounce);
   }, [apiKeyInput, storedApiKey]);
 
-  // WebSocket connection lifecycle
+  // WebSocket connection lifecycle via unified agent
   useEffect(() => {
     if (useWebSocket && isApiKeyValid) {
-      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-        connectWebSocket();
-      }
-    } else if (!useWebSocket) { disconnectWebSocket(); }
-    return () => { wsRef.current?.close(); };
+      agentConnect();
+    } else if (!useWebSocket) {
+      agentDisconnect();
+    }
+    return () => { agentDisconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useWebSocket, isApiKeyValid]);
+
+  // Sync model changes to agent state
+  useEffect(() => {
+    updateState({ model: selectedModel });
+  }, [selectedModel, updateState]);
 
   useEffect(() => {
     const providerModels = models[selectedProvider];
@@ -279,18 +281,49 @@ export default function Playground() {
     } catch (error) { toast.error(`Network error: ${(error as Error).message}`); }
   };
 
-  const handleSend = () => {
+  // Unified send - routes through agent (WS) or HTTP fallback
+  const handleSend = useCallback(() => {
     if (!input.trim()) return;
     const content = input.trim();
     setInput('');
-    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) sendWebSocket(content);
-    else sendHttp(content);
-  };
+    
+    if (!firstUserMessageRef.current) {
+      firstUserMessageRef.current = content;
+    }
 
-  const handleStop = () => {
-    if (useWebSocket) stopWs();
-    else stopHttp();
-  };
+    // Add user message to local state
+    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
+
+    if (useWebSocket && agentStatus === 'connected') {
+      agentSend(content);
+    } else {
+      sendHttp(content);
+    }
+  }, [input, useWebSocket, agentStatus, agentSend, sendHttp]);
+
+  // Also handle sending programmatic messages (for error correction, blueprints)
+  const handleSendMessage = useCallback((content: string) => {
+    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
+    if (useWebSocket && agentStatus === 'connected') {
+      agentSend(content);
+    } else {
+      sendHttp(content);
+    }
+  }, [useWebSocket, agentStatus, agentSend, sendHttp]);
+
+  // Sync streaming completion to messages
+  useEffect(() => {
+    if (!isStreaming && !isLoading && streamingContent === '' && agentMessagesRef.current.length > 0) {
+      // Agent finished - messages are already tracked by useBinarioAgent
+    }
+  }, [isStreaming, isLoading, streamingContent]);
+
+  const handleStop = useCallback(() => {
+    agentStop();
+    if (streamingContent) {
+      setMessages(prev => [...prev, { role: 'assistant', content: streamingContent, timestamp: Date.now() }]);
+    }
+  }, [agentStop, streamingContent]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -306,12 +339,11 @@ export default function Playground() {
 
   const clearChat = () => {
     setMessages([]);
-    setStreamingContent('');
     resetProject();
     setPreviewErrors([]);
     setErrorCorrectionAttempts(0);
     firstUserMessageRef.current = null;
-    if (useWebSocket) clearWs();
+    agentClear();
   };
 
   // Handle preview errors
@@ -320,27 +352,36 @@ export default function Playground() {
     if (autoCorrectEnabled && canAutoCorrect(errorCorrectionAttempts)) {
       const prompt = buildErrorCorrectionPrompt(errors, projectFiles);
       setErrorCorrectionAttempts(a => a + 1);
-      sendHttp(prompt);
+      handleSendMessage(prompt);
     }
-  }, [autoCorrectEnabled, errorCorrectionAttempts, projectFiles, sendHttp]);
+  }, [autoCorrectEnabled, errorCorrectionAttempts, projectFiles, handleSendMessage]);
 
   // Handle blueprint approval
   const handleBlueprintApprove = useCallback(() => {
     if (!currentBlueprint) return;
     setCurrentPhase('generating');
     const prompt = buildGenerationPrompt(currentBlueprint);
-    sendHttp(prompt);
-  }, [currentBlueprint, sendHttp]);
+    handleSendMessage(prompt);
+  }, [currentBlueprint, handleSendMessage, setCurrentPhase]);
 
   const handleBlueprintModify = useCallback(() => {
     setCurrentBlueprint(null);
     setCurrentPhase('idle');
     toast.info('Describe los cambios que quieres en el blueprint');
-  }, []);
+  }, [setCurrentBlueprint, setCurrentPhase]);
+
+  const manualReconnect = useCallback(() => {
+    agentDisconnect();
+    setTimeout(() => agentConnect(), 500);
+  }, [agentDisconnect, agentConnect]);
 
   const selectedProviderData = providers.find(p => p.id === selectedProvider);
   const currentModels = models[selectedProvider] || [];
+  const isThinking = isLoading && !streamingContent;
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
+
+  // Map agent status to legacy wsStatus format for ConnectionStatus component
+  const wsStatus = agentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
 
   const suggestionChips = [
     "Crea un blog moderno con dark mode",
@@ -351,8 +392,12 @@ export default function Playground() {
 
   const handleSuggestionClick = (suggestion: string) => {
     if (isStreamingOrLoading) return;
-    if (useWebSocket && wsRef.current?.readyState === WebSocket.OPEN) {
-      sendWebSocket(suggestion);
+    if (!firstUserMessageRef.current) {
+      firstUserMessageRef.current = suggestion;
+    }
+    setMessages(prev => [...prev, { role: 'user', content: suggestion, timestamp: Date.now() }]);
+    if (useWebSocket && agentStatus === 'connected') {
+      agentSend(suggestion);
     } else {
       sendHttp(suggestion);
     }
@@ -462,12 +507,12 @@ export default function Playground() {
                   </h4>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">{useWebSocket ? 'WebSocket' : 'HTTP'}</p>
-                      <p className="text-xs text-muted-foreground">{useWebSocket ? 'Real-time, persistent' : 'Standard streaming'}</p>
+                      <p className="text-sm font-medium">{useWebSocket ? 'WebSocket (Agents SDK)' : 'HTTP'}</p>
+                      <p className="text-xs text-muted-foreground">{useWebSocket ? 'Real-time, reactive state' : 'Standard streaming'}</p>
                     </div>
                     <Switch checked={useWebSocket} onCheckedChange={setUseWebSocket} />
                   </div>
-                  {useWebSocket && wsStatus !== 'connected' && (
+                  {useWebSocket && agentStatus !== 'connected' && (
                     <Button size="sm" variant="outline" onClick={manualReconnect} className="w-full text-xs">
                       <RefreshCw className="w-3 h-3 mr-1" /> Reconnect
                     </Button>
@@ -771,7 +816,7 @@ export default function Playground() {
                             const prompt = buildErrorCorrectionPrompt(previewErrors, projectFiles);
                             setErrorCorrectionAttempts(a => a + 1);
                             setPreviewErrors([]);
-                            sendHttp(prompt);
+                            handleSendMessage(prompt);
                           }}
                         >
                           <Wrench className="w-3 h-3" /> Auto-fix ({3 - errorCorrectionAttempts} left)
