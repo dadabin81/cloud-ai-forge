@@ -1,157 +1,328 @@
 
 
-# Plan: Optimizar Binario para usar SOLO Cloudflare Workers AI
+# Plan: Integrar Cloudflare Agents SDK, MCP y Servicios Avanzados en Binario
 
-## Objetivo
-Actualizar la plataforma para funcionar exclusivamente con la tecnologia de Cloudflare, sin depender de OpenRouter, OpenAI, Anthropic ni Google como proveedores externos. Maximizar el valor del tier gratuito y ofrecer precios competitivos en el tier de pago.
+## Resumen Ejecutivo
 
-## Problema actual
-1. Los costes de neuronas en el codigo estan desactualizados vs. los precios oficiales de Cloudflare
-2. Faltan 6+ modelos nuevos (GPT-OSS, Gemma 3, GLM Flash, Llama 4 Scout)
-3. El codigo tiene fallbacks a OpenRouter/OpenAI/Anthropic que deberian eliminarse
-4. No se comunica al usuario de forma clara la realidad del tier gratuito (~500-1000 tokens/dia)
+Migrar la arquitectura actual de Binario (Durable Objects manuales) al ecosistema oficial de Cloudflare: **Agents SDK** (`agents`, `@cloudflare/ai-chat`), **MCP** (`agents/mcp`), y aprovechar capacidades avanzadas como estado reactivo, scheduling proactivo, human-in-the-loop, y sandboxes. Todo sin salir de Cloudflare.
 
-## Lo que Cloudflare ofrece GRATIS (por dia)
+## Estado Actual vs. Objetivo
 
-| Servicio | Cuota gratuita |
-|----------|---------------|
-| Workers AI (neuronas) | 10,000 neuronas |
-| D1 (base de datos) | 5GB almacenamiento, 5M filas leidas |
-| KV (cache) | 100,000 lecturas |
-| R2 (archivos) | 10GB almacenamiento |
-| Workers (requests) | 100,000 invocaciones |
-| Vectorize (RAG) | 5M vectores almacenados |
-| Flux Schnell (imagenes) | ~2,000 imagenes |
-| Whisper (audio) | ~243 minutos transcripcion |
-| Embeddings bge-m3 | ~9.3M tokens |
+```text
+ACTUAL                                    OBJETIVO
++---------------------------+             +----------------------------------+
+| BinarioAgent              |             | BinarioAgent                     |
+| (DurableObject manual)    |             | (extends AIChatAgent)            |
+| - WebSocket manual        |  ------>    | - WebSocket nativo               |
+| - storage.get/put manual  |             | - this.setState() reactivo       |
+| - Sin scheduling          |             | - this.sql (SQLite embebido)     |
+| - Sin tool calling        |             | - schedule() / scheduleEvery()   |
+| - Sin MCP                 |             | - Tool calling nativo            |
++---------------------------+             | - ResumableStream                |
+                                          +----------------------------------+
++---------------------------+
+| useAgent hook (manual WS) |             +----------------------------------+
+| useWebSocketChat          |  ------>    | useAgent (agents/react)          |
+| useHttpChat               |             | useAgentChat (@cloudflare/ai-chat)|
++---------------------------+             +----------------------------------+
 
-## Tokens de texto gratis por dia (realidad)
-
-| Modelo | Output gratis/dia | Uso ideal |
-|--------|-------------------|-----------|
-| IBM Granite 4.0 Micro | ~985 tokens | Clasificacion, tareas simples |
-| Mistral 7B | ~578 tokens | Codigo, respuestas cortas |
-| Llama 3.2 1B | ~548 tokens | Chat rapido |
-| GPT-OSS 20B | ~367 tokens | Razonamiento medio |
-| Qwen3-30B-A3B | ~328 tokens | Mejor calidad/coste |
-| Llama 3.1 8B fast | ~287 tokens | General |
-| GPT-OSS 120B | ~147 tokens | Razonamiento complejo |
-| Llama 3.3 70B | ~49 tokens | Mejor calidad (casi inutil gratis) |
-
-## Estrategia de costes para el tier de pago
-
-A $0.011 por 1,000 neuronas, un usuario que gaste $1/mes obtiene:
-
-| Modelo | Tokens output con $1/mes |
-|--------|--------------------------|
-| Qwen3-30B-A3B | ~2.98M tokens |
-| GPT-OSS 20B | ~3.33M tokens |
-| Llama 3.1 8B fast | ~2.61M tokens |
-| Llama 3.3 70B | ~444K tokens |
-
-Esto es extremadamente barato comparado con OpenAI/Anthropic.
+                                          +----------------------------------+
+         (no existe)         ------>      | BinarioMCP                       |
+                                          | (extends McpAgent)               |
+                                          | - Expone tools via MCP           |
+                                          | - Resources de proyecto          |
+                                          | - Conecta con Claude/Cursor      |
+                                          +----------------------------------+
+```
 
 ---
 
-## Cambios a implementar
+## Fase 1: Migrar BinarioAgent al Agents SDK
 
-### Paso 1: Actualizar catalogo de modelos y precios
+### 1.1 Reescribir `cloudflare/src/agent.ts`
 
-**Archivo**: `packages/binario/src/providers/cloudflare.ts`
-- Agregar modelos nuevos: `gpt-oss-120b`, `gpt-oss-20b`, `gemma-3-12b`, `glm-4.7-flash`, `llama-4-scout`
-- Corregir TODOS los `NEURON_COSTS` con los valores oficiales actuales de Cloudflare
-- Agregar categorias: "Mas eficiente", "Mejor calidad", "Mejor para codigo", "Razonamiento"
+Reemplazar la clase `BinarioAgent` que actualmente extiende `DurableObject` manualmente por una que extienda `AIChatAgent` del paquete `@cloudflare/ai-chat`.
 
-### Paso 2: Actualizar el Worker backend
+**Cambios clave:**
+- Importar `AIChatAgent` de `@cloudflare/ai-chat`
+- Eliminar todo el manejo manual de WebSocket (onopen, onmessage, onclose)
+- Eliminar el manejo manual de `ctx.storage.get/put` para estado
+- Usar `this.messages` (array de UIMessage gestionado automaticamente)
+- Usar `this.setState()` para estado reactivo (modelo, system prompt, configuracion)
+- Usar `this.sql` para consultas SQLite embebidas directas
+- Implementar `onChatMessage()` como metodo principal de respuesta
+- El streaming se maneja automaticamente via `ResumableStream`
 
-**Archivo**: `cloudflare/src/index.ts`
-- Eliminar todas las referencias a `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
-- Eliminar las funciones `handleExternalProviderChat`, `handleChatWithOpenRouter`
-- Simplificar el routing: todo va por `env.AI.run()`
-- Actualizar `MODEL_ROUTING` con los modelos mas eficientes por tier
-- Actualizar el endpoint `/v1/models` para mostrar precios reales y categorias
+**Estructura nueva:**
+```text
+export class BinarioAgent extends AIChatAgent<AgentEnv, AgentState> {
+  // Estado reactivo sincronizado con clientes
+  initialState = { model: '@cf/ibm-granite/granite-4.0-h-micro', ... }
 
-### Paso 3: Implementar routing inteligente por coste
+  // Se llama automaticamente cuando el usuario envia un mensaje
+  async onChatMessage(onFinish) {
+    const result = await generateText({
+      model: cloudflare(this.env.AI, this.state.model),
+      messages: this.messages,
+      tools: this.getActiveTools(),
+    });
+    return result.toDataStreamResponse();
+  }
 
-**Archivo**: `cloudflare/src/index.ts` (nuevo modulo de routing)
-- Tier gratis: Auto-seleccionar el modelo mas eficiente (`Granite Micro` o `Qwen3-30B-A3B`)
-- Tier pro: Permitir cualquier modelo, sugerir el optimo segun la tarea
-- Agregar header `X-Neurons-Used` y `X-Neurons-Remaining` en cada respuesta
-- Implementar "smart fallback" dentro de Cloudflare: si un modelo grande falla por limites, bajar a uno mas pequeno automaticamente
+  // Estado reactivo - se sincroniza con todos los clientes
+  onStateUpdate(state, source) { ... }
 
-### Paso 4: Actualizar la UI de modelos
+  // Scheduling proactivo
+  async onAlarm() { ... }
+}
+```
 
-**Archivos**: `src/pages/ModelBenchmark.tsx`, `src/components/CloudPanel.tsx`
-- Mostrar precios reales en neuronas y dolares por 1M tokens
-- Agregar indicador visual de "eficiencia" (tokens por neuron)
-- Mostrar el medidor de neuronas restantes en el dia
-- Eliminar referencias a proveedores externos en toda la UI
+### 1.2 Actualizar `cloudflare/wrangler.toml`
 
-### Paso 5: Maximizar servicios gratuitos de Cloudflare
+- Agregar dependencia del paquete `agents` y `@cloudflare/ai-chat`
+- Mantener los bindings existentes (AI, DB, KV, VECTORIZE_INDEX)
+- La clase `BinarioAgent` sigue siendo un Durable Object, pero ahora con las capacidades del SDK
 
-**Archivos**: Multiples
-- Aprovechar que embeddings (`bge-m3`) son practicamente gratis (~9.3M tokens/dia)
-- Aprovechar generacion de imagenes con Flux Schnell (~2,000 imagenes gratis/dia)
-- Aprovechar Whisper para transcripcion de audio (~243 min gratis/dia)
-- Exponer estos servicios como features premium de la plataforma sin coste adicional
+### 1.3 Actualizar el routing en `cloudflare/src/index.ts`
 
-### Paso 6: Actualizar la pagina de precios
-
-**Archivo**: `src/pages/Pricing.tsx`
-- Plan Free: ~500-1000 tokens texto/dia + imagenes ilimitadas + audio + embeddings + RAG
-- Plan Pro ($5/mes): Workers Paid + ~90K neuronas/mes = millones de tokens
-- Plan Enterprise: Sin limites, soporte dedicado
-- Ser TRANSPARENTE sobre los limites reales del tier gratuito
+- Las rutas `/v1/agent/` ahora se manejan de forma mas limpia
+- El SDK maneja WebSocket upgrade automaticamente
+- Mantener las rutas REST existentes para chat HTTP, RAG, workflows, etc.
 
 ---
 
-## Seccion tecnica
+## Fase 2: Implementar MCP Server Nativo
 
-### Modelos a agregar al catalogo
+### 2.1 Crear `cloudflare/src/mcp.ts`
 
+Nuevo archivo: Un servidor MCP que expone las capacidades de Binario como herramientas estandar.
+
+**Tools MCP a exponer:**
+- `binario_chat` - Enviar mensaje al modelo AI
+- `binario_rag_search` - Buscar en documentos vectorizados
+- `binario_rag_ingest` - Ingestar documentos
+- `binario_embed` - Generar embeddings
+- `binario_generate_image` - Generar imagenes con Flux Schnell
+- `binario_transcribe` - Transcribir audio con Whisper
+- `binario_project_create` - Crear proyecto sandbox
+- `binario_project_files` - Leer/escribir archivos de proyecto
+
+**Resources MCP:**
+- `binario://models` - Lista de modelos disponibles
+- `binario://usage` - Estado de neuronas consumidas
+- `binario://project/{id}` - Archivos de un proyecto
+
+**Estructura:**
 ```text
-'gpt-oss-120b':  '@cf/openai/gpt-oss-120b'         // 31,818 in / 68,182 out neurons per M
-'gpt-oss-20b':   '@cf/openai/gpt-oss-20b'           // 18,182 in / 27,273 out neurons per M
-'gemma-3-12b':   '@cf/google/gemma-3-12b-it'         // 31,371 in / 50,560 out neurons per M
-'glm-4.7-flash': '@cf/zai-org/glm-4.7-flash'        // 5,500 in / 36,400 out neurons per M
-'granite-micro':  '@cf/ibm-granite/granite-4.0-h-micro' // 1,542 in / 10,158 out neurons per M
+export class BinarioMCP extends McpAgent<AgentEnv> {
+  server = new McpServer({ name: "Binario AI", version: "1.0.0" });
+
+  async init() {
+    // Tools
+    this.server.tool("chat", { message: z.string(), model: z.string().optional() }, ...);
+    this.server.tool("rag_search", { query: z.string(), topK: z.number().optional() }, ...);
+    this.server.tool("generate_image", { prompt: z.string() }, ...);
+    this.server.tool("transcribe", { audioUrl: z.string() }, ...);
+
+    // Resources
+    this.server.resource("models", "binario://models", ...);
+    this.server.resource("usage", "binario://usage", ...);
+  }
+}
 ```
 
-### NEURON_COSTS corregidos (valores oficiales Cloudflare)
+### 2.2 Actualizar `cloudflare/wrangler.toml`
+
+Agregar el nuevo Durable Object `BinarioMCP` y su ruta SSE (`/mcp/sse`).
+
+### 2.3 Actualizar `cloudflare/src/index.ts`
+
+Agregar ruta `/mcp/` que enruta al MCP server via `McpAgent.serve()`.
+
+---
+
+## Fase 3: Human-in-the-Loop y Scheduling
+
+### 3.1 Agregar tool calling con aprobacion al Agent
+
+En el `BinarioAgent` migrado, implementar herramientas que requieran aprobacion del usuario antes de ejecutarse:
+
+- `deploy_project` - Requiere aprobacion antes de deployar
+- `delete_files` - Requiere aprobacion antes de borrar
+- `modify_database` - Requiere aprobacion antes de cambios D1
+
+El SDK maneja esto automaticamente con el flujo `addToolResult` del lado del cliente.
+
+### 3.2 Implementar scheduling proactivo
+
+Usar `schedule()` y `scheduleEvery()` del Agent para:
+
+- **Recordatorios de uso**: Notificar cuando quedan pocas neuronas del dia
+- **Tareas programadas**: Ejecutar workflows RAG de actualizacion periodica
+- **Limpieza**: Limpiar conversaciones antiguas automaticamente
+
+---
+
+## Fase 4: Actualizar Frontend (SDK + Hooks)
+
+### 4.1 Crear `src/hooks/useAgentChat.ts` (nuevo)
+
+Hook que usa `useAgent` de `agents/react` y `useAgentChat` de `@cloudflare/ai-chat/react`:
 
 ```text
-'@cf/meta/llama-3.2-1b-instruct':                { input: 2457,  output: 18252  }
-'@cf/meta/llama-3.2-3b-instruct':                { input: 4625,  output: 30475  }
-'@cf/meta/llama-3.1-8b-instruct-fp8-fast':       { input: 4119,  output: 34868  }
-'@cf/meta/llama-3.2-11b-vision-instruct':        { input: 4410,  output: 61493  }
-'@cf/mistralai/mistral-small-3.1-24b-instruct':  { input: 31876, output: 50488  }
-'@cf/qwen/qwen3-30b-a3b-fp8':                    { input: 4625,  output: 30475  }
-'@cf/meta/llama-3.3-70b-instruct-fp8-fast':      { input: 26668, output: 204805 }
-'@cf/meta/llama-4-scout-17b-16e-instruct':       { input: 24545, output: 77273  }
-'@cf/deepseek-ai/deepseek-r1-distill-qwen-32b':  { input: 45170, output: 443756 }
-'@cf/qwen/qwq-32b':                              { input: 60000, output: 90909  }
-'@cf/openai/gpt-oss-120b':                       { input: 31818, output: 68182  }
-'@cf/openai/gpt-oss-20b':                        { input: 18182, output: 27273  }
-'@cf/google/gemma-3-12b-it':                     { input: 31371, output: 50560  }
-'@cf/zai-org/glm-4.7-flash':                     { input: 5500,  output: 36400  }
-'@cf/ibm-granite/granite-4.0-h-micro':           { input: 1542,  output: 10158  }
-'@cf/mistral/mistral-7b-instruct-v0.1':          { input: 10000, output: 17300  }
+// Reemplaza useWebSocketChat + useHttpChat + useAgent
+export function useBinarioAgent(options) {
+  const agent = useAgent({
+    agent: "BinarioAgent",
+    name: options.conversationId,
+  });
+
+  const chat = useAgentChat({
+    agent,
+    // Mensajes, streaming, tools se manejan automaticamente
+  });
+
+  // Estado reactivo del agente (modelo, neuronas, etc.)
+  // Se sincroniza automaticamente via WebSocket
+
+  return { ...chat, state: agent.state };
+}
 ```
 
-### Routing por tier optimizado
+### 4.2 Actualizar `src/pages/Playground.tsx`
+
+- Reemplazar las importaciones de `useWebSocketChat` y `useHttpChat` por el nuevo `useBinarioAgent`
+- Eliminar la logica manual de conexion/reconexion WebSocket
+- Eliminar la logica manual de streaming SSE
+- Usar el estado reactivo del agente para mostrar modelo actual, neuronas, etc.
+- Simplificar significativamente el componente (~200 lineas menos)
+
+### 4.3 Actualizar `src/hooks/useAgent.ts`
+
+Simplificar para que sea un wrapper delgado sobre `useAgent` de `agents/react` en lugar del WebSocket manual actual.
+
+---
+
+## Fase 5: Servicios Gratuitos de Cloudflare en la Plataforma
+
+### 5.1 Endpoint de Generacion de Imagenes
+
+**Archivo**: `cloudflare/src/index.ts` (nuevo endpoint)
+
+Agregar `/v1/images/generate` que usa `@cf/black-forest-labs/FLUX.1-schnell`:
+- ~2,000 imagenes gratis por dia
+- Exponer como feature premium sin coste adicional
+
+### 5.2 Endpoint de Transcripcion de Audio
+
+Agregar `/v1/audio/transcribe` que usa `@cf/openai/whisper`:
+- ~243 minutos gratis por dia
+- Exponer como feature de accesibilidad
+
+### 5.3 Endpoint de Traduccion
+
+Agregar `/v1/translate` que usa `@cf/meta/m2m100-1.2b`:
+- Traduccion multiidioma gratis
+- Integrar en el chat para respuestas automaticas en el idioma del usuario
+
+### 5.4 Tools MCP para estos servicios
+
+Todos estos servicios se exponen automaticamente como tools MCP, permitiendo que agentes externos (Claude, Cursor) los usen.
+
+---
+
+## Fase 6: Actualizar SDK npm (`packages/binario`)
+
+### 6.1 Actualizar exports del paquete
+
+Agregar nuevas exportaciones:
+- `BinarioAgentBase` - Clase base para crear agentes con el SDK
+- `BinarioMCPBase` - Clase base para crear MCP servers
+- `useBinarioAgent` - Hook React para conectar con agentes
+- `useBinarioMCP` - Hook React para conectar con MCP servers
+
+### 6.2 Actualizar `packages/binario/src/cloudflare.ts`
+
+Agregar helpers para crear agentes y MCP servers facilmente:
+```text
+import { createBinarioAgent } from 'binario/cloudflare';
+
+export class MyAgent extends createBinarioAgent({
+  model: '@cf/qwen/qwen3-30b-a3b-fp8',
+  tools: [searchTool, calculatorTool],
+  systemPrompt: 'You are a helpful assistant',
+}) { }
+```
+
+---
+
+## Seccion Tecnica Detallada
+
+### Dependencias nuevas para `cloudflare/package.json`
 
 ```text
-free:       '@cf/ibm-granite/granite-4.0-h-micro'   (maximo tokens gratis)
-pro:        '@cf/qwen/qwen3-30b-a3b-fp8'            (mejor calidad/coste)
-enterprise: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' (maxima calidad)
+"agents": "^0.5.0"
+"@cloudflare/ai-chat": "^0.1.0"
+"@modelcontextprotocol/sdk": "^1.12.1"
+"ai": "^4.3.0"
 ```
 
-### Variables de entorno a ELIMINAR del Worker
+### Archivos a crear
+
+| Archivo | Proposito |
+|---------|-----------|
+| `cloudflare/src/mcp.ts` | MCP Server (BinarioMCP) |
+| `src/hooks/useBinarioAgent.ts` | Hook unificado para frontend |
+
+### Archivos a modificar significativamente
+
+| Archivo | Cambio |
+|---------|--------|
+| `cloudflare/src/agent.ts` | Reescribir: DurableObject -> AIChatAgent |
+| `cloudflare/src/index.ts` | Agregar rutas MCP, imagenes, audio, traduccion |
+| `cloudflare/wrangler.toml` | Agregar binding BinarioMCP |
+| `cloudflare/package.json` | Agregar dependencias SDK |
+| `src/pages/Playground.tsx` | Simplificar con useBinarioAgent |
+| `src/hooks/useAgent.ts` | Wrapper sobre agents/react |
+| `packages/binario/src/cloudflare.ts` | Agregar helpers Agent/MCP |
+| `packages/binario/src/index.ts` | Exportar nuevos modulos |
+
+### Archivos que pueden eliminarse (reemplazados)
+
+| Archivo | Razon |
+|---------|-------|
+| `src/hooks/useWebSocketChat.ts` | Reemplazado por useBinarioAgent |
+| `src/hooks/useHttpChat.ts` | Reemplazado por useBinarioAgent |
+
+### Esquema de rutas final del Worker
 
 ```text
-OPENROUTER_API_KEY  (eliminar de Env interface y wrangler.toml)
-OPENAI_API_KEY      (eliminar)
-ANTHROPIC_API_KEY   (eliminar)
-GOOGLE_API_KEY      (eliminar)
+/health                    -> Health check
+/v1/models                 -> Lista de modelos
+/v1/providers/status       -> Estado del proveedor
+/v1/auth/*                 -> Autenticacion
+/v1/keys/*                 -> Gestion de API keys
+/v1/chat/completions       -> Chat HTTP (mantener para SDK)
+/v1/chat/stream            -> Chat SSE (mantener para SDK)
+/v1/structured             -> Output estructurado
+/v1/agent/*                -> BinarioAgent (ahora via Agents SDK)
+/v1/rag/*                  -> RAG (Vectorize)
+/v1/workflows/*            -> Workflows
+/v1/images/generate        -> NUEVO: Flux Schnell
+/v1/audio/transcribe       -> NUEVO: Whisper
+/v1/translate              -> NUEVO: M2M100
+/v1/sandbox/*              -> Sandbox projects
+/mcp/sse                   -> NUEVO: MCP Server (SSE transport)
+/v1/usage                  -> Uso de neuronas
+/v1/account/*              -> Cuenta del usuario
 ```
+
+### Orden de implementacion recomendado
+
+1. Migrar `BinarioAgent` a `AIChatAgent` (base para todo)
+2. Crear `BinarioMCP` (diferenciacion competitiva)
+3. Agregar endpoints de imagenes/audio/traduccion
+4. Actualizar frontend con `useBinarioAgent`
+5. Actualizar SDK npm con exports nuevos
+6. Limpiar codigo legacy (useWebSocketChat, useHttpChat)
 
