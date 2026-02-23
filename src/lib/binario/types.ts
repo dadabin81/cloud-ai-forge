@@ -1,7 +1,7 @@
 // Binario SDK Types
 import type { z } from 'zod';
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'mistral' | 'cohere' | 'cloudflare' | 'lovable';
+export type Provider = 'cloudflare';
 
 export type CloudflareModel =
   // Small models - Best for free tier
@@ -17,8 +17,12 @@ export type CloudflareModel =
   | '@cf/meta/llama-3.1-70b-instruct'
   | '@cf/meta/llama-4-scout-17b-16e-instruct'
   // Function calling models
-  | '@hf/nousresearch/hermes-2-pro-mistral-7b'
-  | '@cf/ibm/granite-4.0-h-micro'
+  | '@cf/ibm-granite/granite-4.0-h-micro'
+  | '@cf/openai/gpt-oss-20b'
+  | '@cf/openai/gpt-oss-120b'
+  | '@cf/google/gemma-3-12b-it'
+  | '@cf/zai-org/glm-4.7-flash'
+  | '@cf/mistral/mistral-7b-instruct-v0.1'
   // Reasoning models
   | '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b'
   | '@cf/qwen/qwq-32b'

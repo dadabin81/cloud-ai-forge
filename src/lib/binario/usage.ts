@@ -312,28 +312,23 @@ export function createUsageTracker(options?: {
  * Pre-configured free models for fallback
  */
 export const FREE_FALLBACK_MODELS = {
-  // OpenRouter free models
-  openrouter: {
-    provider: 'openrouter',
+  // Cloudflare Workers AI - most efficient models for fallback
+  cloudflare: {
+    provider: 'cloudflare',
     models: [
-      'meta-llama/llama-3-8b-instruct:free',
-      'google/gemma-7b-it:free',
-      'mistralai/mistral-7b-instruct:free',
+      '@cf/ibm-granite/granite-4.0-h-micro',
+      '@cf/meta/llama-3.2-1b-instruct',
+      '@cf/meta/llama-3.2-3b-instruct',
     ],
-  },
-  // Groq free tier (very generous)
-  groq: {
-    provider: 'groq',
-    models: ['llama-3.1-8b-instant', 'llama-3.2-3b-preview', 'gemma2-9b-it'],
   },
 };
 
 /**
- * Default fallback configuration
+ * Default fallback configuration - Cloudflare only
  */
 export const DEFAULT_FALLBACK_CONFIG: FallbackConfig = {
   enabled: true,
   trigger: 'neurons_exhausted',
-  provider: 'openrouter',
-  model: 'meta-llama/llama-3-8b-instruct:free',
+  provider: 'cloudflare',
+  model: '@cf/ibm-granite/granite-4.0-h-micro',
 };

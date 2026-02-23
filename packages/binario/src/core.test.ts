@@ -21,8 +21,8 @@ describe('BinarioAI Core', () => {
       expect(createBinario({ providers: {}, defaultProvider: 'cloudflare' })).toBeInstanceOf(BinarioAI);
     });
 
-    it('creates with OpenRouter provider', () => {
-      expect(createBinario({ providers: { openrouter: { apiKey: 'k' } }, defaultProvider: 'openrouter' })).toBeInstanceOf(BinarioAI);
+    it('creates with Cloudflare provider', () => {
+      expect(createBinario({ providers: { cloudflare: { apiKey: 'k' } }, defaultProvider: 'cloudflare' })).toBeInstanceOf(BinarioAI);
     });
   });
 

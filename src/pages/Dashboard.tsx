@@ -946,10 +946,10 @@ console.log(response);`;
                       { name: 'PBKDF2 Password Hashing', desc: '100K iterations + random salt', active: true },
                       { name: 'Restrictive CORS', desc: 'Origin whitelist only', active: true },
                       { name: 'API Key Authentication', desc: 'SHA-256 hashed, rate limited', active: true },
-                      { name: 'Provider Fallback', desc: 'Cloudflare → OpenRouter auto-switch', active: true },
+                      { name: 'Smart Fallback', desc: 'Auto-downgrade to efficient model on limits', active: true },
                       { name: 'Response Caching', desc: 'KV-based with configurable TTL', active: true },
                       { name: 'Structured Output', desc: 'JSON Schema validation + retries', active: true },
-                      { name: 'Multi-Provider Routing', desc: 'Cloudflare, OpenAI, Anthropic, Google', active: true },
+                      { name: 'Neuron Tracking', desc: 'Real-time usage with X-Neurons headers', active: true },
                     ].map((feature) => (
                       <div key={feature.name} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
                         <div className={`w-2 h-2 rounded-full ${feature.active ? 'bg-emerald-500' : 'bg-muted-foreground'}`} />
