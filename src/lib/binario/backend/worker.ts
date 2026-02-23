@@ -8,7 +8,6 @@ interface Env {
   AI: any;
   DB: D1Database;
   KV: KVNamespace;
-  OPENROUTER_API_KEY?: string;
 }
 
 // CORS - Restrictive origin whitelist
@@ -41,10 +40,9 @@ const RATE_LIMITS = {
 
 // Model routing configuration
 const MODEL_ROUTING = {
-  // Default models by tier
-  free: '@cf/meta/llama-3.2-1b-instruct',
-  pro: '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
-  enterprise: '@hf/nousresearch/hermes-2-pro-mistral-7b',
+  free: '@cf/ibm-granite/granite-4.0-h-micro',
+  pro: '@cf/qwen/qwen3-30b-a3b-fp8',
+  enterprise: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
 };
 
 // Request/Response types
@@ -179,10 +177,6 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       },
     });
   } catch (error) {
-    // Fallback to OpenRouter if available
-    if (env.OPENROUTER_API_KEY) {
-      return await handleChatWithOpenRouter(body, env);
-    }
     throw error;
   }
 }
@@ -413,33 +407,7 @@ async function handleUsage(request: Request, env: Env): Promise<Response> {
   });
 }
 
-// OpenRouter fallback
-async function handleChatWithOpenRouter(body: ChatRequest, env: Env): Promise<Response> {
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'meta-llama/llama-3.2-1b-instruct:free',
-      messages: body.messages,
-      temperature: body.temperature,
-      max_tokens: body.max_tokens,
-    }),
-  });
-
-  const data = await response.json() as any;
-  
-  return jsonResponse({
-    content: data.choices?.[0]?.message?.content || '',
-    model: 'openrouter/llama-3.2-1b',
-    usage: {
-      inputTokens: data.usage?.prompt_tokens || 0,
-      outputTokens: data.usage?.completion_tokens || 0,
-    },
-  });
-}
+// (External provider fallbacks removed - Cloudflare only)
 
 // Helper functions
 async function validateApiKey(db: D1Database, key: string): Promise<ApiKeyInfo | null> {

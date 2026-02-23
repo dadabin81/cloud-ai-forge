@@ -1,22 +1,20 @@
-import { ProviderBadge } from '@/components/ProviderBadge';
 import { StatsCard } from '@/components/StatsCard';
+import { Cpu, Image, Mic, Database, Brain, HardDrive } from 'lucide-react';
 
-const providers = [
-  { name: 'Cloudflare', color: '#f38020', highlight: true },
-  { name: 'OpenAI', color: '#10a37f' },
-  { name: 'Anthropic', color: '#d4a574' },
-  { name: 'Google AI', color: '#4285f4' },
-  { name: 'Mistral', color: '#ff7000' },
-  { name: 'Cohere', color: '#39594d' },
-  { name: 'Azure OpenAI', color: '#0078d4' },
-  { name: 'Groq', color: '#f55036' },
+const services = [
+  { icon: Brain, name: 'Workers AI', detail: '17+ Models', sub: 'Text generation & reasoning' },
+  { icon: Image, name: 'Flux Schnell', detail: '~2,000 img/day', sub: 'Free image generation' },
+  { icon: Mic, name: 'Whisper', detail: '~243 min/day', sub: 'Free audio transcription' },
+  { icon: Database, name: 'BGE-M3', detail: '~9.3M tokens/day', sub: 'Free embeddings for RAG' },
+  { icon: Cpu, name: 'Vectorize', detail: '5M vectors', sub: 'Free vector search' },
+  { icon: HardDrive, name: 'D1 + KV + R2', detail: '5GB+ storage', sub: 'Free database & cache' },
 ];
 
 const stats = [
   { value: '10K', label: 'Free Neurons/Day' },
-  { value: '7+', label: 'Providers' },
+  { value: '17+', label: 'AI Models' },
   { value: '<2kb', label: 'Gzipped Size' },
-  { value: '100%', label: 'TypeScript' },
+  { value: '100%', label: 'Cloudflare Native' },
 ];
 
 export function ProvidersSection() {
@@ -30,26 +28,30 @@ export function ProvidersSection() {
           ))}
         </div>
 
-        {/* Providers */}
+        {/* Services */}
         <div className="text-center">
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            One SDK,
-            <span className="gradient-text"> every provider</span>
+            One platform,
+            <span className="gradient-text"> everything included</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto mb-4">
-            Switch providers with a single line change. Start free with Cloudflare, scale with any provider.
+            Powered exclusively by Cloudflare's global edge network. Text, images, audio, embeddings — all in one SDK.
           </p>
           <p className="text-sm text-emerald-400 font-medium mb-12">
-            ✨ Cloudflare Workers AI: 10,000 free neurons/day
+            ✨ Images, audio & embeddings are practically free
           </p>
 
-          <div className="flex flex-wrap justify-center gap-4">
-            {providers.map((provider) => (
-              <ProviderBadge
-                key={provider.name}
-                name={provider.name}
-                color={provider.color}
-              />
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+            {services.map((service) => (
+              <div
+                key={service.name}
+                className="p-4 rounded-xl bg-card border border-border/50 hover:border-border transition-colors text-center"
+              >
+                <service.icon className="w-6 h-6 text-primary mx-auto mb-2" />
+                <p className="text-sm font-semibold">{service.name}</p>
+                <p className="text-primary text-lg font-bold">{service.detail}</p>
+                <p className="text-xs text-muted-foreground mt-1">{service.sub}</p>
+              </div>
             ))}
           </div>
         </div>

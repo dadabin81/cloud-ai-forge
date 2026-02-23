@@ -9,7 +9,6 @@ export interface AgentEnv {
   AI: Ai;
   DB: D1Database;
   KV: KVNamespace;
-  OPENROUTER_API_KEY?: string;
 }
 
 interface ChatMessage {
