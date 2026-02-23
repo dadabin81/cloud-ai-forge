@@ -1,4 +1,5 @@
-// Binario SDK v0.2.0 - Main Entry Point
+// Binario SDK v0.3.0 - Main Entry Point
+// Now with Agents SDK, MCP, and media service support
 
 // Client (SaaS) - Primary API
 export { Binario, BinarioAgent, createBinarioClient, BinarioRateLimitError, BinarioPaymentError } from './client';
@@ -23,9 +24,12 @@ export * from './embeddings';
 export { useBinarioAgent } from './hooks';
 export type { UseBinarioAgentOptions, UseBinarioAgentReturn } from './hooks';
 
-// React Hooks - SaaS Client (NEW in v0.2.0)
+// React Hooks - SaaS Client
 export { useChat, useStream, useAgent, useUsage, BinarioProvider, useBinarioClient } from './client-hooks';
 export type { UseChatOptions, UseChatReturn, UseStreamOptions, UseStreamReturn, UseAgentOptions, UseAgentReturn, UseUsageReturn } from './client-hooks';
+
+// Cloudflare Agents SDK helpers
+export { createBinarioAgentConfig } from './cloudflare';
 
 // Observability & Usage
 export { consoleHooks } from './observability';
