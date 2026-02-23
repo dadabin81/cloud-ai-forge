@@ -113,8 +113,8 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">
             © 2026 Binario. All rights reserved.
           </p>
-          <p className="text-sm text-muted-foreground">Made with ❤️ for developers everywhere 
-     coded by @hichamanvers
+          <p className="text-sm text-muted-foreground">Made with ❤️ for developers everywhere .      coded by @hichamanvers
+
           </p>
         </div>
       </div>
