@@ -15,11 +15,12 @@ import { Switch } from '@/components/ui/switch';
 import { 
   Send, Bot, User, Zap, Loader2, Sparkles, Copy, Check, Settings, Key,
   CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, AlertTriangle,
-  ChevronDown, MessageSquare, Layers, Save, Wrench, Rocket, Shield,
+  ChevronDown, MessageSquare, Layers, Save, Wrench, Rocket, Shield, Brain,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { Progress } from '@/components/ui/progress';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { FileExplorer } from '@/components/FileExplorer';
 import { CodeEditor } from '@/components/CodeEditor';
@@ -34,6 +35,7 @@ import { useProjectSync } from '@/hooks/useProjectSync';
 import { buildGenerationPrompt } from '@/lib/blueprintSystem';
 import { buildErrorCorrectionPrompt, canAutoCorrect, type PreviewError } from '@/lib/errorCorrection';
 
+// Message type used for display (mapped from AgentMessage)
 interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -41,7 +43,6 @@ interface Message {
 }
 
 const STORAGE_KEYS = {
-  provider: 'binario_provider',
   model: 'binario_model',
   useWebSocket: 'binario_websocket',
   systemPrompt: 'binario_system_prompt',
@@ -98,9 +99,10 @@ export default function Playground() {
   const { providers, models, isLoading: isLoadingProviders, refetch: refetchProviders } = useProviders();
   const { project, projects, isSaving, createProject, saveFiles, loadProject, loadProjects, deleteProject, setProject } = usePlaygroundProject(user?.id, token ?? undefined);
   
-  const [selectedProvider, setSelectedProvider] = useState(() => 
-    localStorage.getItem(STORAGE_KEYS.provider) || 'cloudflare'
-  );
+  // Force cloudflare as the only provider - clean up legacy localStorage
+  const selectedProvider = 'cloudflare';
+  useEffect(() => { localStorage.removeItem('binario_provider'); }, []);
+
   const [selectedModel, setSelectedModel] = useState(() => 
     localStorage.getItem(STORAGE_KEYS.model) || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
   );
@@ -109,7 +111,7 @@ export default function Playground() {
   );
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Messages are derived from the agent hook - single source of truth (no local state)
   const [input, setInput] = useState('');
   const [copied, setCopied] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -133,9 +135,10 @@ export default function Playground() {
 
   const getEffectiveApiKey = useCallback(() => apiKeyInput || storedApiKey || '', [apiKeyInput, storedApiKey]);
 
-  // Unified Binario Agent hook - replaces useWebSocketChat + useHttpChat + useAgent
+  // Unified Binario Agent hook - single source of truth for messages
   const {
     status: agentStatus,
+    messages: agentMessages,
     streamingContent,
     isStreaming,
     isLoading,
@@ -166,8 +169,15 @@ export default function Playground() {
     },
   });
 
-  // Sync agent messages back to local messages state
-  const agentMessagesRef = useRef<Message[]>([]);
+  // Derive display messages from agent hook (single source of truth)
+  const messages: Message[] = useMemo(() => 
+    agentMessages.map(m => ({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+      timestamp: m.createdAt?.getTime(),
+    })),
+    [agentMessages]
+  );
 
   // Project sync hook
   const {
@@ -191,7 +201,7 @@ export default function Playground() {
   projectFilesRef.current = projectFiles;
 
   // Persist preferences
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.provider, selectedProvider); }, [selectedProvider]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.useWebSocket, String(useWebSocket)); }, [useWebSocket]);
   useEffect(() => { localStorage.setItem('binario_autocorrect', String(autoCorrectEnabled)); }, [autoCorrectEnabled]);
@@ -282,6 +292,7 @@ export default function Playground() {
   };
 
   // Unified send - routes through agent (WS) or HTTP fallback
+  // The hook manages messages internally - no local setMessages needed
   const handleSend = useCallback(() => {
     if (!input.trim()) return;
     const content = input.trim();
@@ -291,9 +302,6 @@ export default function Playground() {
       firstUserMessageRef.current = content;
     }
 
-    // Add user message to local state
-    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
-
     if (useWebSocket && agentStatus === 'connected') {
       agentSend(content);
     } else {
@@ -301,9 +309,8 @@ export default function Playground() {
     }
   }, [input, useWebSocket, agentStatus, agentSend, sendHttp]);
 
-  // Also handle sending programmatic messages (for error correction, blueprints)
+  // Handle sending programmatic messages (for error correction, blueprints)
   const handleSendMessage = useCallback((content: string) => {
-    setMessages(prev => [...prev, { role: 'user', content, timestamp: Date.now() }]);
     if (useWebSocket && agentStatus === 'connected') {
       agentSend(content);
     } else {
@@ -311,19 +318,11 @@ export default function Playground() {
     }
   }, [useWebSocket, agentStatus, agentSend, sendHttp]);
 
-  // Sync streaming completion to messages
-  useEffect(() => {
-    if (!isStreaming && !isLoading && streamingContent === '' && agentMessagesRef.current.length > 0) {
-      // Agent finished - messages are already tracked by useBinarioAgent
-    }
-  }, [isStreaming, isLoading, streamingContent]);
+  // No longer needed - messages are tracked by the hook
 
   const handleStop = useCallback(() => {
     agentStop();
-    if (streamingContent) {
-      setMessages(prev => [...prev, { role: 'assistant', content: streamingContent, timestamp: Date.now() }]);
-    }
-  }, [agentStop, streamingContent]);
+  }, [agentStop]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -338,12 +337,11 @@ export default function Playground() {
   };
 
   const clearChat = () => {
-    setMessages([]);
+    agentClear();
     resetProject();
     setPreviewErrors([]);
     setErrorCorrectionAttempts(0);
     firstUserMessageRef.current = null;
-    agentClear();
   };
 
   // Handle preview errors
@@ -375,8 +373,7 @@ export default function Playground() {
     setTimeout(() => agentConnect(), 500);
   }, [agentDisconnect, agentConnect]);
 
-  const selectedProviderData = providers.find(p => p.id === selectedProvider);
-  const currentModels = models[selectedProvider] || [];
+  const currentModels = models[selectedProvider] || models['cloudflare'] || [];
   const isThinking = isLoading && !streamingContent;
   const isStreamingOrLoading = isThinking || isLoading || !!streamingContent;
 
@@ -395,7 +392,6 @@ export default function Playground() {
     if (!firstUserMessageRef.current) {
       firstUserMessageRef.current = suggestion;
     }
-    setMessages(prev => [...prev, { role: 'user', content: suggestion, timestamp: Date.now() }]);
     if (useWebSocket && agentStatus === 'connected') {
       agentSend(suggestion);
     } else {
@@ -428,6 +424,16 @@ export default function Playground() {
             </Badge>
           )}
           <ConnectionStatus wsStatus={wsStatus} useWebSocket={useWebSocket} isApiKeyValid={isApiKeyValid} />
+          {/* Neurons usage indicator */}
+          {agentState.neuronsUsed > 0 && (
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/80 border border-border text-xs">
+              <Brain className="w-3 h-3 text-primary" />
+              <span className="text-muted-foreground">
+                {Math.round(agentState.neuronsUsed).toLocaleString()}/{Math.round(agentState.neuronsLimit).toLocaleString()}
+              </span>
+              <Progress value={(agentState.neuronsUsed / agentState.neuronsLimit) * 100} className="w-12 h-1.5" />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <ProjectManager
@@ -438,7 +444,7 @@ export default function Playground() {
             onNewProject={() => {
               resetProject();
               setProject(null);
-              setMessages([]);
+              agentClear();
               firstUserMessageRef.current = null;
             }}
             onProjectLoaded={(proj) => {
@@ -533,26 +539,13 @@ export default function Playground() {
                   </div>
                 </div>
 
-                {/* Provider/Model */}
+                {/* Model Selection */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <Layers className="w-4 h-4" /> Provider & Model
+                    <Layers className="w-4 h-4" /> Model
                     {isLoadingProviders && <Loader2 className="w-3 h-3 animate-spin" />}
+                    <Badge variant="secondary" className="text-[10px]">Cloudflare AI</Badge>
                   </h4>
-                  <Select value={selectedProvider} onValueChange={setSelectedProvider}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {providers.map(p => (
-                        <SelectItem key={p.id} value={p.id}>
-                          <div className="flex items-center gap-2">
-                            {p.name}
-                            {p.free && <Badge variant="secondary" className="text-xs bg-emerald-500/10 text-emerald-400">Free</Badge>}
-                            {!p.configured && <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-400"><AlertTriangle className="w-3 h-3 mr-1" />NC</Badge>}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                   <Select value={selectedModel} onValueChange={setSelectedModel}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -767,7 +760,7 @@ export default function Playground() {
                     </div>
                     <div className="flex items-center justify-between mt-2 px-1">
                       <span className="text-[11px] text-muted-foreground/60">
-                        {selectedProviderData?.name || selectedProvider} · {selectedModel.split('/').pop()}
+                        Cloudflare AI · {selectedModel.split('/').pop()}
                       </span>
                       <span className="text-[11px] text-muted-foreground/40">
                         Enter ↵ enviar · Shift+Enter nueva línea
