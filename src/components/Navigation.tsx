@@ -21,21 +21,21 @@ import {
 } from '@/components/ui/navigation-menu';
 
 const productLinks = [
-  { name: 'Features', href: '/#features', description: 'Everything Binario offers' },
-  { name: 'Providers', href: '/#providers', description: '7 AI providers supported' },
+  { name: 'Platform', href: '/#features', description: 'Cloudflare-native AI platform' },
+  { name: 'Models', href: '/#providers', description: '17+ AI models included' },
   { name: 'Pricing', href: '/pricing', description: 'Free tier & paid plans' },
   { name: 'Use Cases', href: '/use-cases', description: 'Real-world applications' },
 ];
 
-const resourceLinks = [
-  { name: 'Documentation', href: '/docs', description: 'Guides & API reference' },
-  { name: 'Playground', href: '/playground', description: 'Try Binario live in-browser' },
-  { name: 'RAG Demo', href: '/rag-example', description: 'Retrieval-augmented generation' },
+const buildLinks = [
+  { name: 'Playground IDE', href: '/playground', description: 'Chat, code & deploy in-browser' },
+  { name: 'RAG Studio', href: '/rag-example', description: 'Embeddings, search & Q&A' },
+  { name: 'Model Benchmark', href: '/benchmark', description: 'Compare AI models side-by-side' },
   { name: 'Templates', href: '/templates', description: 'Community project templates' },
 ];
 
-const communityLinks = [
-  { name: 'Benchmark', href: '/benchmark', description: 'Compare AI models side-by-side' },
+const learnLinks = [
+  { name: 'Documentation', href: '/docs', description: 'Guides & API reference' },
   { name: 'About', href: '/about', description: 'The team behind Binario' },
   { name: 'Contact', href: '/contact', description: 'Get in touch' },
 ];
@@ -89,11 +89,11 @@ export function Navigation() {
 
                 <NavigationMenuItem>
                   <NavigationMenuTrigger className="bg-transparent text-muted-foreground hover:text-foreground text-sm">
-                    Resources
+                    Build
                   </NavigationMenuTrigger>
                   <NavigationMenuContent>
                     <ul className="grid w-[320px] gap-1 p-3">
-                      {resourceLinks.map((link) => (
+                      {buildLinks.map((link) => (
                         <li key={link.name}>
                           <Link
                             to={link.href}
@@ -110,11 +110,11 @@ export function Navigation() {
 
                 <NavigationMenuItem>
                   <NavigationMenuTrigger className="bg-transparent text-muted-foreground hover:text-foreground text-sm">
-                    Community
+                    Learn
                   </NavigationMenuTrigger>
                   <NavigationMenuContent>
                     <ul className="grid w-[320px] gap-1 p-3">
-                      {communityLinks.map((link) => (
+                      {learnLinks.map((link) => (
                         <li key={link.name}>
                           <Link
                             to={link.href}
@@ -218,8 +218,8 @@ export function Navigation() {
             </Link>
           ))}
 
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Resources</p>
-          {resourceLinks.map((link) => (
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Build</p>
+          {buildLinks.map((link) => (
             <Link
               key={link.name}
               to={link.href}
@@ -230,8 +230,8 @@ export function Navigation() {
             </Link>
           ))}
 
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Community</p>
-          {communityLinks.map((link) => (
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-4 pb-1">Learn</p>
+          {learnLinks.map((link) => (
             <Link
               key={link.name}
               to={link.href}
