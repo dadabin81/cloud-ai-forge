@@ -1,234 +1,157 @@
 
 
-# Plan Maestro: De 7/10 a 10/10 -- Nivel Senior Expert
+# Plan: Optimizar Binario para usar SOLO Cloudflare Workers AI
 
-## Resumen Ejecutivo
+## Objetivo
+Actualizar la plataforma para funcionar exclusivamente con la tecnologia de Cloudflare, sin depender de OpenRouter, OpenAI, Anthropic ni Google como proveedores externos. Maximizar el valor del tier gratuito y ofrecer precios competitivos en el tier de pago.
 
-Este plan esta dividido en 6 fases incrementales. Cada fase se puede completar de forma independiente y aporta valor inmediato. El objetivo es cerrar todas las brechas identificadas en la auditoria previa: seguridad, testing, estabilidad del Playground, documentacion, observabilidad y pulido profesional.
+## Problema actual
+1. Los costes de neuronas en el codigo estan desactualizados vs. los precios oficiales de Cloudflare
+2. Faltan 6+ modelos nuevos (GPT-OSS, Gemma 3, GLM Flash, Llama 4 Scout)
+3. El codigo tiene fallbacks a OpenRouter/OpenAI/Anthropic que deberian eliminarse
+4. No se comunica al usuario de forma clara la realidad del tier gratuito (~500-1000 tokens/dia)
 
----
+## Lo que Cloudflare ofrece GRATIS (por dia)
 
-## FASE 1: Seguridad y Robustez (Prioridad Critica)
+| Servicio | Cuota gratuita |
+|----------|---------------|
+| Workers AI (neuronas) | 10,000 neuronas |
+| D1 (base de datos) | 5GB almacenamiento, 5M filas leidas |
+| KV (cache) | 100,000 lecturas |
+| R2 (archivos) | 10GB almacenamiento |
+| Workers (requests) | 100,000 invocaciones |
+| Vectorize (RAG) | 5M vectores almacenados |
+| Flux Schnell (imagenes) | ~2,000 imagenes |
+| Whisper (audio) | ~243 minutos transcripcion |
+| Embeddings bge-m3 | ~9.3M tokens |
 
-**Por que importa:** Un producto que maneja API keys y datos de usuario sin seguridad solida no puede considerarse profesional.
+## Tokens de texto gratis por dia (realidad)
 
-### 1.1 Corregir RLS policies permisivas
-- Las tablas `contact_messages` y `waitlist` tienen politicas INSERT con `WITH CHECK (true)` -- cualquiera puede insertar sin limite
-- Agregar rate limiting a nivel de base de datos o validacion en edge functions
-- Agregar validacion de longitud y formato a los campos antes de insertar
+| Modelo | Output gratis/dia | Uso ideal |
+|--------|-------------------|-----------|
+| IBM Granite 4.0 Micro | ~985 tokens | Clasificacion, tareas simples |
+| Mistral 7B | ~578 tokens | Codigo, respuestas cortas |
+| Llama 3.2 1B | ~548 tokens | Chat rapido |
+| GPT-OSS 20B | ~367 tokens | Razonamiento medio |
+| Qwen3-30B-A3B | ~328 tokens | Mejor calidad/coste |
+| Llama 3.1 8B fast | ~287 tokens | General |
+| GPT-OSS 120B | ~147 tokens | Razonamiento complejo |
+| Llama 3.3 70B | ~49 tokens | Mejor calidad (casi inutil gratis) |
 
-### 1.2 Corregir el deploy service roto
-- `src/lib/deployService.ts` usa `supabase.auth.getUser()` que falla igual que los proyectos (mismo problema de auth dual)
-- Migrar a la misma estrategia: edge function con validacion de token Cloudflare
+## Estrategia de costes para el tier de pago
 
-### 1.3 Validacion de inputs en edge functions
-- `manage-playground-project`: no valida longitud de `name`, tamano de `files`, ni caracteres peligrosos
-- `deploy-cloudflare`: no sanitiza `projectName` antes de enviarlo a la API de Cloudflare
-- Agregar validacion con Zod en todas las edge functions
+A $0.011 por 1,000 neuronas, un usuario que gaste $1/mes obtiene:
 
-### 1.4 Sanitizar CORS
-- Ambas edge functions usan `Access-Control-Allow-Origin: *` -- demasiado permisivo
-- Restringir a los dominios conocidos del proyecto
+| Modelo | Tokens output con $1/mes |
+|--------|--------------------------|
+| Qwen3-30B-A3B | ~2.98M tokens |
+| GPT-OSS 20B | ~3.33M tokens |
+| Llama 3.1 8B fast | ~2.61M tokens |
+| Llama 3.3 70B | ~444K tokens |
 
-### Archivos afectados:
-- `supabase/functions/manage-playground-project/index.ts`
-- `supabase/functions/deploy-cloudflare/index.ts`
-- `src/lib/deployService.ts`
-- Nueva migracion SQL para politicas RLS
-
----
-
-## FASE 2: Estabilidad del Playground (El Producto Core)
-
-**Por que importa:** El Playground es la experiencia principal del usuario. Si falla, nada mas importa.
-
-### 2.1 Manejo de errores robusto en el chat
-- El `Playground.tsx` tiene 1127 lineas en un solo archivo -- dividirlo en hooks y componentes
-- Extraer: `useWebSocketChat`, `useHttpChat`, `useProjectSync`, `useErrorCorrection`
-- Mover la logica de envio HTTP (lineas 415-572) a un hook dedicado
-
-### 2.2 Manejo de estado del proyecto
-- Cuando el usuario recarga, los archivos del proyecto se pierden si no se guardo
-- Agregar persistencia local con `localStorage` como fallback
-- Agregar indicador visual claro de "guardado/no guardado"
-
-### 2.3 Mejorar la preview con sandbox aislado
-- Actualmente la preview usa un iframe con `srcdoc` -- vulnerable a XSS
-- Implementar Content Security Policy en el iframe
-- Agregar sandbox attributes: `allow-scripts allow-forms`
-
-### 2.4 Auto-correccion de errores funcional
-- El sistema de auto-correccion existe (`errorCorrection.ts`) pero esta deshabilitado (`autoCorrectEnabled` siempre es `false`)
-- Activarlo con un toggle visible y un limite de 3 intentos ya implementado
-
-### Archivos afectados:
-- `src/pages/Playground.tsx` (refactorizar en multiples archivos)
-- Nuevos: `src/hooks/useWebSocketChat.ts`, `src/hooks/useHttpChat.ts`, `src/hooks/useProjectSync.ts`
-- `src/components/CodePreview.tsx`
+Esto es extremadamente barato comparado con OpenAI/Anthropic.
 
 ---
 
-## FASE 3: Testing Profesional
+## Cambios a implementar
 
-**Por que importa:** Sin tests, cada cambio puede romper algo. Un SDK serio necesita cobertura de tests.
+### Paso 1: Actualizar catalogo de modelos y precios
 
-### 3.1 Tests del SDK (packages/binario)
-- Actualmente solo tiene tests triviales que verifican que `typeof method === 'function'`
-- Agregar tests reales con mocks para:
-  - `client.ts`: chat, stream, agent, error handling, rate limit retry
-  - `schema.ts`: zodToJsonSchema con todos los tipos de Zod
-  - `memory/buffer.ts`: add, getMessages, maxMessages, token trimming
-  - `memory/vector.ts`: search, similarity
-  - `agent.ts`: multi-step execution, tool calling, max iterations
+**Archivo**: `packages/binario/src/providers/cloudflare.ts`
+- Agregar modelos nuevos: `gpt-oss-120b`, `gpt-oss-20b`, `gemma-3-12b`, `glm-4.7-flash`, `llama-4-scout`
+- Corregir TODOS los `NEURON_COSTS` con los valores oficiales actuales de Cloudflare
+- Agregar categorias: "Mas eficiente", "Mejor calidad", "Mejor para codigo", "Razonamiento"
 
-### 3.2 Tests de edge functions
-- Agregar tests para `manage-playground-project`:
-  - Token invalido retorna 401
-  - CRUD completo funcional
-  - Validacion de inputs
-- Agregar tests para `deploy-cloudflare`:
-  - Auth check
-  - Cloudflare API mocking
+### Paso 2: Actualizar el Worker backend
 
-### 3.3 Tests de componentes React
-- Tests para `usePlaygroundProject` hook
-- Tests para `ChatMessage` rendering
-- Tests para `CodeEditor` cambios de codigo
+**Archivo**: `cloudflare/src/index.ts`
+- Eliminar todas las referencias a `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
+- Eliminar las funciones `handleExternalProviderChat`, `handleChatWithOpenRouter`
+- Simplificar el routing: todo va por `env.AI.run()`
+- Actualizar `MODEL_ROUTING` con los modelos mas eficientes por tier
+- Actualizar el endpoint `/v1/models` para mostrar precios reales y categorias
 
-### Archivos nuevos:
-- `packages/binario/src/client.test.ts`
-- `packages/binario/src/memory/buffer.test.ts`
-- `packages/binario/src/agent.test.ts`
-- `supabase/functions/manage-playground-project/index.test.ts`
-- `src/hooks/__tests__/usePlaygroundProject.test.ts`
+### Paso 3: Implementar routing inteligente por coste
 
----
+**Archivo**: `cloudflare/src/index.ts` (nuevo modulo de routing)
+- Tier gratis: Auto-seleccionar el modelo mas eficiente (`Granite Micro` o `Qwen3-30B-A3B`)
+- Tier pro: Permitir cualquier modelo, sugerir el optimo segun la tarea
+- Agregar header `X-Neurons-Used` y `X-Neurons-Remaining` en cada respuesta
+- Implementar "smart fallback" dentro de Cloudflare: si un modelo grande falla por limites, bajar a uno mas pequeno automaticamente
 
-## FASE 4: Observabilidad y Monitoring
+### Paso 4: Actualizar la UI de modelos
 
-**Por que importa:** En produccion, si no puedes ver que esta pasando, no puedes arreglar nada.
+**Archivos**: `src/pages/ModelBenchmark.tsx`, `src/components/CloudPanel.tsx`
+- Mostrar precios reales en neuronas y dolares por 1M tokens
+- Agregar indicador visual de "eficiencia" (tokens por neuron)
+- Mostrar el medidor de neuronas restantes en el dia
+- Eliminar referencias a proveedores externos en toda la UI
 
-### 4.1 Dashboard de metricas en tiempo real
-- Crear pagina `/dashboard/analytics` con:
-  - Requests por hora/dia
-  - Latencia promedio por modelo
-  - Errores por tipo
-  - Uso de neuronas Cloudflare
-- Los datos ya estan en la tabla `usage` de D1, solo falta exponerlos
+### Paso 5: Maximizar servicios gratuitos de Cloudflare
 
-### 4.2 Logging estructurado en edge functions
-- Agregar logs con formato JSON consistente
-- Incluir: request_id, user_id, action, duration_ms, status
-- Usar `console.log(JSON.stringify({...}))` para que aparezcan en los logs de Lovable Cloud
+**Archivos**: Multiples
+- Aprovechar que embeddings (`bge-m3`) son practicamente gratis (~9.3M tokens/dia)
+- Aprovechar generacion de imagenes con Flux Schnell (~2,000 imagenes gratis/dia)
+- Aprovechar Whisper para transcripcion de audio (~243 min gratis/dia)
+- Exponer estos servicios como features premium de la plataforma sin coste adicional
 
-### 4.3 Health check endpoint
-- Agregar ruta `/health` en el Cloudflare Worker que verifique:
-  - Conexion a D1
-  - Conexion a KV
-  - Workers AI disponible
-  - Latencia de cada servicio
+### Paso 6: Actualizar la pagina de precios
 
-### Archivos afectados:
-- `supabase/functions/manage-playground-project/index.ts` (logging)
-- Nuevo: `src/pages/Analytics.tsx`
-- `cloudflare/src/index.ts` (health endpoint)
+**Archivo**: `src/pages/Pricing.tsx`
+- Plan Free: ~500-1000 tokens texto/dia + imagenes ilimitadas + audio + embeddings + RAG
+- Plan Pro ($5/mes): Workers Paid + ~90K neuronas/mes = millones de tokens
+- Plan Enterprise: Sin limites, soporte dedicado
+- Ser TRANSPARENTE sobre los limites reales del tier gratuito
 
 ---
 
-## FASE 5: Experiencia de Desarrollador (DX) del SDK
+## Seccion tecnica
 
-**Por que importa:** Si el SDK es dificil de usar, nadie lo adoptara. La DX es lo que diferencia un proyecto amateur de uno profesional.
-
-### 5.1 Publicar SDK en npm
-- El `packages/binario/package.json` ya tiene la configuracion de build (`tsup`)
-- Falta: README actualizado con badges, CHANGELOG, version semantica
-- Agregar GitHub Action para publicar automaticamente en npm al crear un tag
-
-### 5.2 Documentacion interactiva (upgrade /docs)
-- La pagina actual de Docs es estatica con code blocks
-- Agregar seccion "Try it live" que conecte al Playground con ejemplos pre-cargados
-- Agregar busqueda de documentacion
-- Agregar seccion de API Reference generada desde los tipos TypeScript
-
-### 5.3 CLI tool
-- Comando `npx create-binario` que genere un proyecto starter
-- Templates: chat-app, agent-with-tools, rag-pipeline
-- Ya existe `generateProjectStructure()` en `generate-config.ts` -- aprovecharlo
-
-### Archivos afectados:
-- `packages/binario/package.json`
-- `packages/binario/README.md`
-- `src/pages/Docs.tsx`
-- Nuevo: `.github/workflows/publish-npm.yml`
-
----
-
-## FASE 6: Diferenciacion de Mercado
-
-**Por que importa:** Sin algo unico, Binario es "otro SDK de AI mas". Estas features lo posicionan como la opcion profesional para edge computing.
-
-### 6.1 Template Marketplace
-- Los usuarios pueden guardar y compartir templates de proyectos
-- Nueva tabla `public_templates` con: name, description, files, author, stars, category
-- Pagina `/templates` con galeria filtrable
-- Boton "Use this template" que carga los archivos en el Playground
-
-### 6.2 Collaboration en tiempo real
-- Usar Realtime de Lovable Cloud para sincronizar cambios entre usuarios
-- Agregar `ALTER PUBLICATION supabase_realtime ADD TABLE playground_projects`
-- Mostrar cursor/edicion de otros usuarios en el CodeEditor
-
-### 6.3 AI Model Benchmarking
-- Pagina `/benchmark` que compare modelos side-by-side
-- El usuario envia un prompt y ve la respuesta de 2-3 modelos simultaneamente
-- Muestra: latencia, tokens/s, calidad subjetiva, costo en neuronas
-- Esto es algo que ningun competidor ofrece integrado en el IDE
-
----
-
-## Seccion Tecnica: Orden de Implementacion
+### Modelos a agregar al catalogo
 
 ```text
-Semana 1-2: FASE 1 (Seguridad)
-  - Dia 1-2: RLS policies + validacion de inputs
-  - Dia 3-4: Deploy service fix + CORS
-  - Dia 5: Auditoria de seguridad final
-
-Semana 3-4: FASE 2 (Estabilidad Playground)
-  - Dia 1-3: Refactorizacion de Playground.tsx en hooks
-  - Dia 4-5: Persistencia local + auto-save visual
-  - Dia 6-7: Sandbox CSP + auto-correccion
-
-Semana 5-6: FASE 3 (Testing)
-  - Dia 1-3: Tests del SDK (client, schema, memory, agent)
-  - Dia 4-5: Tests de edge functions
-  - Dia 6-7: Tests de componentes React
-
-Semana 7-8: FASE 4 (Observabilidad)
-  - Dia 1-3: Dashboard de analytics
-  - Dia 4-5: Logging estructurado
-  - Dia 6: Health check
-
-Semana 9-10: FASE 5 (DX del SDK)
-  - Dia 1-2: Publicar en npm
-  - Dia 3-5: Docs interactivos
-  - Dia 6-7: CLI tool
-
-Semana 11-12: FASE 6 (Diferenciacion)
-  - Dia 1-3: Template marketplace
-  - Dia 4-5: Collaboration
-  - Dia 6-7: Model benchmarking
+'gpt-oss-120b':  '@cf/openai/gpt-oss-120b'         // 31,818 in / 68,182 out neurons per M
+'gpt-oss-20b':   '@cf/openai/gpt-oss-20b'           // 18,182 in / 27,273 out neurons per M
+'gemma-3-12b':   '@cf/google/gemma-3-12b-it'         // 31,371 in / 50,560 out neurons per M
+'glm-4.7-flash': '@cf/zai-org/glm-4.7-flash'        // 5,500 in / 36,400 out neurons per M
+'granite-micro':  '@cf/ibm-granite/granite-4.0-h-micro' // 1,542 in / 10,158 out neurons per M
 ```
 
-## Resultado Esperado
+### NEURON_COSTS corregidos (valores oficiales Cloudflare)
 
-Al completar las 6 fases:
-- **Seguridad**: Input validation, CORS restrictivo, RLS correctas, auth unificada
-- **Estabilidad**: Playground robusto, auto-save, error recovery
-- **Testing**: +50 tests cubriendo SDK, edge functions y componentes
-- **Observabilidad**: Dashboard de metricas, logging estructurado, health checks
-- **DX**: SDK publicado en npm, docs interactivos, CLI
-- **Diferenciacion**: Templates compartidos, collaboration, model benchmarking
+```text
+'@cf/meta/llama-3.2-1b-instruct':                { input: 2457,  output: 18252  }
+'@cf/meta/llama-3.2-3b-instruct':                { input: 4625,  output: 30475  }
+'@cf/meta/llama-3.1-8b-instruct-fp8-fast':       { input: 4119,  output: 34868  }
+'@cf/meta/llama-3.2-11b-vision-instruct':        { input: 4410,  output: 61493  }
+'@cf/mistralai/mistral-small-3.1-24b-instruct':  { input: 31876, output: 50488  }
+'@cf/qwen/qwen3-30b-a3b-fp8':                    { input: 4625,  output: 30475  }
+'@cf/meta/llama-3.3-70b-instruct-fp8-fast':      { input: 26668, output: 204805 }
+'@cf/meta/llama-4-scout-17b-16e-instruct':       { input: 24545, output: 77273  }
+'@cf/deepseek-ai/deepseek-r1-distill-qwen-32b':  { input: 45170, output: 443756 }
+'@cf/qwen/qwq-32b':                              { input: 60000, output: 90909  }
+'@cf/openai/gpt-oss-120b':                       { input: 31818, output: 68182  }
+'@cf/openai/gpt-oss-20b':                        { input: 18182, output: 27273  }
+'@cf/google/gemma-3-12b-it':                     { input: 31371, output: 50560  }
+'@cf/zai-org/glm-4.7-flash':                     { input: 5500,  output: 36400  }
+'@cf/ibm-granite/granite-4.0-h-micro':           { input: 1542,  output: 10158  }
+'@cf/mistral/mistral-7b-instruct-v0.1':          { input: 10000, output: 17300  }
+```
 
-Esto posiciona a Binario como un producto de nivel **senior/expert (9-10/10)** que compite directamente con Vercel AI SDK y LangChain, pero con la ventaja unica de ser edge-native y tener un IDE integrado.
+### Routing por tier optimizado
+
+```text
+free:       '@cf/ibm-granite/granite-4.0-h-micro'   (maximo tokens gratis)
+pro:        '@cf/qwen/qwen3-30b-a3b-fp8'            (mejor calidad/coste)
+enterprise: '@cf/meta/llama-3.3-70b-instruct-fp8-fast' (maxima calidad)
+```
+
+### Variables de entorno a ELIMINAR del Worker
+
+```text
+OPENROUTER_API_KEY  (eliminar de Env interface y wrangler.toml)
+OPENAI_API_KEY      (eliminar)
+ANTHROPIC_API_KEY   (eliminar)
+GOOGLE_API_KEY      (eliminar)
+```
 
