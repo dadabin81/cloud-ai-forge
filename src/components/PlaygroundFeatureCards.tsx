@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Bot, Database, Image, Mic, Languages, BarChart3 } from 'lucide-react';
+import { Bot, Database, Image, Mic, Languages, BarChart3, Wand2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface PlaygroundFeatureCardsProps {
@@ -17,30 +17,30 @@ const capabilities = [
   },
   {
     icon: Database,
-    title: 'RAG Pipeline',
-    description: 'Búsqueda semántica en documentos',
+    title: 'RAG Studio',
+    description: 'Embeddings y búsqueda semántica',
     href: '/rag-example',
     color: 'from-emerald-500/20 to-emerald-500/5',
   },
   {
     icon: Image,
-    title: 'Image Generation',
-    description: 'Genera imágenes con Flux',
-    prompt: 'Genera una imagen de un paisaje futurista usando la API de Cloudflare Flux',
+    title: 'App de Imágenes',
+    description: 'Crea una app con Flux AI',
+    prompt: 'Crea una app que permita generar imágenes a partir de texto usando la API de Cloudflare Flux. Incluye un input para el prompt, un botón de generar, y una galería de imágenes generadas',
     color: 'from-violet-500/20 to-violet-500/5',
   },
   {
     icon: Mic,
-    title: 'Audio Transcription',
-    description: 'Transcribe con Whisper gratis',
-    prompt: 'Crea un componente que permita grabar audio y transcribirlo usando Whisper de Cloudflare',
+    title: 'App de Audio',
+    description: 'Crea una app con Whisper',
+    prompt: 'Crea una app que permita grabar o subir audio y transcribirlo usando Whisper de Cloudflare. Incluye un botón de grabar, visualización de audio, y el texto transcrito',
     color: 'from-amber-500/20 to-amber-500/5',
   },
   {
     icon: Languages,
-    title: 'Translation',
-    description: '100+ idiomas con M2M100',
-    prompt: 'Crea un traductor de texto que use el modelo M2M100 de Cloudflare para traducir entre español, inglés y francés',
+    title: 'App de Traducción',
+    description: 'Crea una app con M2M100',
+    prompt: 'Crea una app de traducción de texto que use el modelo M2M100 de Cloudflare. Incluye selector de idioma origen/destino, input de texto y resultado de traducción',
     color: 'from-sky-500/20 to-sky-500/5',
   },
   {
@@ -49,6 +49,13 @@ const capabilities = [
     description: 'Compara modelos side-by-side',
     href: '/benchmark',
     color: 'from-rose-500/20 to-rose-500/5',
+  },
+  {
+    icon: Wand2,
+    title: 'AI Tools',
+    description: 'Prueba las capacidades AI',
+    href: '/ai-tools',
+    color: 'from-primary/10 to-accent/10',
   },
 ];
 
@@ -65,7 +72,7 @@ export function PlaygroundFeatureCards({ onSendPrompt, disabled }: PlaygroundFea
   const navigate = useNavigate();
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 w-full max-w-[320px]">
+    <div className="grid grid-cols-2 gap-2.5 w-full max-w-[340px]">
       {capabilities.map((cap, i) => (
         <motion.button
           key={cap.title}

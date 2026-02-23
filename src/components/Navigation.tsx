@@ -29,6 +29,7 @@ const productLinks = [
 
 const buildLinks = [
   { name: 'Playground IDE', href: '/playground', description: 'Chat, code & deploy in-browser' },
+  { name: 'AI Tools', href: '/ai-tools', description: 'Test AI capabilities directly' },
   { name: 'RAG Studio', href: '/rag-example', description: 'Embeddings, search & Q&A' },
   { name: 'Model Benchmark', href: '/benchmark', description: 'Compare AI models side-by-side' },
   { name: 'Templates', href: '/templates', description: 'Community project templates' },
