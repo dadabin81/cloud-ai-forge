@@ -13,7 +13,7 @@ const features: Feature[] = [
   { name: 'Free AI tier (10K neurons/day)', binario: true, vercel: false, langchain: false, pydantic: false },
   { name: 'Pydantic-style schemas', binario: true, vercel: 'partial', langchain: 'partial', pydantic: true },
   { name: 'Agent framework', binario: true, vercel: false, langchain: true, pydantic: true },
-  { name: 'Multi-provider support', binario: true, vercel: true, langchain: true, pydantic: true },
+  { name: 'Cloudflare-native edge runtime', binario: true, vercel: 'partial', langchain: false, pydantic: false },
   { name: 'Native streaming', binario: true, vercel: true, langchain: 'partial', pydantic: 'partial' },
   { name: 'Edge runtime ready', binario: true, vercel: true, langchain: false, pydantic: false },
   { name: 'React hooks', binario: true, vercel: true, langchain: false, pydantic: false },

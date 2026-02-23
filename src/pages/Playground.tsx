@@ -203,7 +203,6 @@ export default function Playground() {
 
   // Persist preferences
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.model, selectedModel); }, [selectedModel]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.useWebSocket, String(useWebSocket)); }, [useWebSocket]);
   useEffect(() => { localStorage.setItem('binario_autocorrect', String(autoCorrectEnabled)); }, [autoCorrectEnabled]);
 

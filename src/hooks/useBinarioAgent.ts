@@ -309,37 +309,7 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
     wsRef.current.send(JSON.stringify({ type: 'chat', content }));
   }, []);
 
-  // HTTP fallback for when WebSocket is unavailable
-  const sendHttpFallback = useCallback(async (content: string) => {
-    if (!apiKey) {
-      onError?.(new Error('API key required'));
-      return;
-    }
-
-    const userMessage: AgentMessage = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content,
-      createdAt: new Date(),
-    };
-    setMessages(prev => {
-      // Capture current messages for the request body using the updater
-      const allMessages = [...prev, userMessage];
-      // Schedule the fetch after state update
-      queueMicrotask(() => {
-        performHttpRequest(allMessages, controller);
-      });
-      return allMessages;
-    });
-    setIsLoading(true);
-    streamingContentRef.current = '';
-    setStreamingContent('');
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-  }, [apiKey, baseUrl, agentState.model, agentState.systemPrompt, onToken, onComplete, onError]);
-
-  // Extracted HTTP request logic to avoid stale closure
+  // HTTP request logic
   const performHttpRequest = useCallback(async (allMessages: AgentMessage[], controller: AbortController) => {
     try {
       const response = await fetch(`${baseUrl}/v1/chat/stream`, {
@@ -402,7 +372,6 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
         }
       }
 
-      // Finalize
       if (streamingContentRef.current) {
         setMessages(prev => [...prev, {
           id: `msg-${Date.now()}`,
@@ -429,6 +398,33 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
     }
   }, [apiKey, baseUrl, agentState.model, agentState.systemPrompt, onToken, onComplete, onError]);
 
+  // HTTP fallback for when WebSocket is unavailable
+  const sendHttpFallback = useCallback(async (content: string) => {
+    if (!apiKey) {
+      onError?.(new Error('API key required'));
+      return;
+    }
+
+    const userMessage: AgentMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content,
+      createdAt: new Date(),
+    };
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setMessages(prev => {
+      const allMessages = [...prev, userMessage];
+      queueMicrotask(() => {
+        performHttpRequest(allMessages, controller);
+      });
+      return allMessages;
+    });
+    setIsLoading(true);
+    streamingContentRef.current = '';
+    setStreamingContent('');
+  }, [apiKey, onError, performHttpRequest]);
   // Stop generation
   const stop = useCallback(() => {
     setIsStreaming(false);
