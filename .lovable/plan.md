@@ -1,166 +1,114 @@
 
+# Correccion de Inconsistencias y Centro Unificado de Funciones
 
-# Audit y Correcciones: 6 Fases del Plan Agents SDK + MCP
+## Problema Principal
 
-## Resumen del Audit
+Las funciones de la plataforma estan **dispersas en 6+ paginas diferentes** sin una guia clara para el usuario. Ademas, hay textos obsoletos que mencionan "7 AI providers" cuando ahora somos exclusivamente Cloudflare. Esto genera confusion.
 
-Tras investigar a fondo todo el codigo implementado en las 6 fases, he encontrado **7 problemas criticos** y **5 mejoras importantes** que necesitan correccion para que todo funcione correctamente en produccion.
+### Mapa actual de funciones (dispersas)
 
----
+| Funcion | Donde esta | Problema |
+|---------|-----------|----------|
+| Chat AI + VibeCoding | `/playground` | Requiere API key, no explica las tools disponibles |
+| RAG (embeddings, search, Q&A) | `/rag-example` (pagina separada) | Desconectada del Playground, requiere su propia API key |
+| Benchmark de modelos | `/benchmark` | Requiere auth, no enlazado claramente |
+| Documentacion + ejemplos de codigo | `/docs` | Solo texto, no interactivo |
+| Use Cases con snippets | `/use-cases` | Solo codigo copiable, no ejecutable |
+| Templates | `/templates` | Depende de base de datos de templates |
+| Dashboard (API keys, uso) | `/dashboard` | Protegido, buen flujo |
+| Projects | `/projects` | Protegido, buen flujo |
 
-## Problemas Criticos Encontrados
+### Inconsistencias de texto encontradas
 
-### 1. Backend NO desplegado - Datos legacy en produccion
-
-**Severidad: CRITICA**
-
-El worker desplegado en `binario-api.databin81.workers.dev` NO refleja los cambios del codigo. La respuesta actual de `/v1/providers/status` sigue mostrando:
-
-```text
-OpenAI: available: true
-Anthropic: available: true
-Google: available: true
-OpenRouter: available: true
-```
-
-Pero el codigo ya solo devuelve Cloudflare. **El worker necesita ser re-desplegado** con `npx wrangler deploy` desde la carpeta `cloudflare/`.
-
-**Impacto:** Los usuarios ven proveedores fantasma que no funcionan. Si seleccionan OpenAI en el Playground, el sistema falla silenciosamente.
-
-
-### 2. Playground muestra selector de Providers innecesario
-
-**Severidad: ALTA**
-
-El Playground (lineas 536-555) muestra un `<Select>` para elegir proveedor, pero Binario es exclusivamente Cloudflare. El usuario puede seleccionar un proveedor que no existe y la lista de modelos queda vacia.
-
-**Solucion:** Eliminar el selector de "Provider" del Config Sheet. Solo mostrar el selector de modelos (todos son Cloudflare).
-
-
-### 3. Sincronizacion de mensajes rota entre Agent y Playground
-
-**Severidad: ALTA**
-
-El `useBinarioAgent` hook mantiene su propia lista de `messages`, pero el Playground TAMBIEN mantiene una lista local de `messages` (linea 112). Los mensajes se duplican o se pierden:
-
-- Cuando el usuario envia via HTTP fallback, el hook agrega el mensaje a SU estado (linea 319) Y el Playground agrega el mensaje a SU estado (linea 295).
-- El `streamingContent` se acumula en el hook, pero cuando completa, el hook agrega el mensaje final (linea 225), y ADEMAS el Playground potencialmente lo agrega otra vez.
-
-**Solucion:** El Playground debe usar directamente `messages` del hook en lugar de mantener su propio estado. Sincronizar en una sola fuente de verdad.
-
-
-### 4. Hook `sendHttpFallback` usa closure stale de `messages`
-
-**Severidad: ALTA**
-
-En `useBinarioAgent.ts` linea 341, el `sendHttpFallback` envia `messages` del closure, pero como el Playground tambien mantiene sus propios mensajes, el contexto enviado al backend puede estar desactualizado o incompleto.
-
-**Solucion:** Unificar la fuente de mensajes. El hook debe ser la unica fuente de verdad.
-
-
-### 5. STORAGE_KEYS.provider persiste un provider legacy
-
-**Severidad: MEDIA**
-
-Si un usuario tenia `openrouter` guardado en localStorage de sesiones anteriores, al cargar la pagina el `selectedProvider` sera `openrouter`, que no tiene modelos, y el chat queda inutilizable hasta que el usuario cambie manualmente.
-
-**Solucion:** Forzar `cloudflare` como unico provider, ignorar valores legacy en localStorage.
-
-
-### 6. El `sendHttp` del hook no incluye `systemPrompt`
-
-**Severidad: MEDIA**
-
-En `useBinarioAgent.ts` linea 334-348, el body del request HTTP no incluye el `systemPrompt`. El modelo responde sin contexto del sistema, produciendo respuestas genericas en vez de actuar como "Binario AI VibeCoding assistant".
-
-**Solucion:** Agregar `system_prompt: agentState.systemPrompt` al body del POST.
-
-
-### 7. `onComplete` del Playground no sincroniza el mensaje final
-
-**Severidad: MEDIA**
-
-El callback `onComplete` en la configuracion del hook (linea 158) esta vacio. Cuando el streaming termina, el ultimo mensaje del asistente debe agregarse al estado local del Playground, pero no hay logica para eso. El efecto en linea 315-319 tampoco hace nada util.
-
-**Solucion:** En el `onComplete` callback, capturar el ultimo mensaje del hook y sincronizarlo.
-
----
-
-## Mejoras Importantes
-
-### A. Eliminar referencia a `useWebSocketChat` y `useHttpChat` en imports
-
-Los archivos fueron eliminados correctamente, pero verificar que no hay imports rotos en ningun lado.
-
-### B. El `useProviders` hook sigue siendo necesario para el selector de modelos
-
-Aunque el provider selector se eliminara, el `useProviders` hook se usa para obtener la lista de modelos del backend. Mantenerlo pero simplificarlo.
-
-### C. Modelos del Benchmark no coinciden con modelos del backend
-
-El `ModelBenchmark.tsx` tiene 7 modelos hardcoded, pero el backend expone 16 modelos. Sincronizar para que el benchmark use los modelos del endpoint `/v1/models`.
-
-### D. ConnectionStatus component - verificar compatibilidad con nuevo hook
-
-El componente `ConnectionStatus` recibe `wsStatus` que es un cast directo del `agentStatus` del hook. Verificar que los valores coincidan.
-
-### E. Playground no muestra el estado de neuronas del agente
-
-El hook expone `agentState.neuronsUsed` y `agentState.neuronsLimit`, pero el Playground no los muestra. Agregar un indicador visual.
+1. **HeroSection.tsx linea 47**: `{ value: '7', label: 'AI providers' }` - FALSO, somos solo Cloudflare
+2. **HeroSection.tsx linea 117**: "Multi-provider streaming" en el subtitulo - OBSOLETO
+3. **Navigation.tsx linea 25**: `description: '7 AI providers supported'` - FALSO
+4. **FeaturesSection.tsx linea 42**: "Multi-Provider: Cloudflare, OpenAI, Anthropic, Google" - OBSOLETO
+5. **ComparisonSection.tsx**: Probablemente compara con multi-provider (necesita revision)
+6. **ProvidersSection.tsx linea 47**: `{ value: '7', label: 'AI providers' }` en ProvidersSection (si existe stat similar)
 
 ---
 
 ## Plan de Correccion
 
-### Paso 1: Unificar fuente de mensajes en Playground
+### Paso 1: Corregir todos los textos obsoletos de "7 providers"
 
-Eliminar el estado local `messages` del Playground y usar directamente `messages` del `useBinarioAgent` hook. Esto resuelve los problemas 3, 4 y 7.
+**Archivos a modificar:**
 
-**Archivo:** `src/pages/Playground.tsx`
-- Eliminar `const [messages, setMessages] = useState<Message[]>([])` (linea 112)
-- Usar `messages` del hook directamente
-- Adaptar `handleSend`, `handleSendMessage`, `handleStop`, `clearChat` para no duplicar mensajes
-- Mapear `AgentMessage` del hook al formato que espera `ChatMessage`
+- `src/components/HeroSection.tsx`
+  - Linea 47: Cambiar `'7', 'AI providers'` a `'17+', 'AI Models'`
+  - Linea ~117: Cambiar "Multi-provider" a "Edge-native streaming"
 
-### Paso 2: Eliminar Provider Selector del Playground
+- `src/components/Navigation.tsx`
+  - Linea 25: Cambiar description de `'7 AI providers supported'` a `'Cloudflare-native AI platform'`
 
-**Archivo:** `src/pages/Playground.tsx`
-- Eliminar el estado `selectedProvider` y su persistencia
-- Eliminar el `<Select>` de Provider en el Config Sheet (lineas 542-555)
-- Hardcodear `selectedProvider = 'cloudflare'`
-- Simplificar `currentModels` para apuntar siempre a `models['cloudflare']`
+- `src/components/FeaturesSection.tsx`
+  - Linea 42: Cambiar "Multi-Provider" feature para reflejar que es Cloudflare-native con 17+ modelos
 
-### Paso 3: Corregir HTTP fallback - agregar systemPrompt
+### Paso 2: Agregar seccion "Prueba Todo" al Playground
 
-**Archivo:** `src/hooks/useBinarioAgent.ts`
-- En `sendHttpFallback`, agregar `system_prompt` al body del POST
-- Asegurar que el `messages` array usado en el request es el estado actual del hook, no un closure stale
+Actualmente el Playground solo tiene chat. El usuario no sabe que tiene acceso a:
+- Generacion de imagenes (Flux)
+- Transcripcion de audio (Whisper)
+- Traduccion (M2M100)
+- RAG (Vectorize)
+- Workflows
 
-### Paso 4: Limpiar localStorage legacy
+**Solucion:** Agregar una barra lateral o tabs en el Playground que muestre las capacidades disponibles como "tools" que el usuario puede activar:
 
-**Archivo:** `src/pages/Playground.tsx`
-- En el init de `selectedProvider`, forzar `'cloudflare'`
-- Eliminar `STORAGE_KEYS.provider` ya que no hay opcion
-
-### Paso 5: Sincronizar modelos del Benchmark con el backend
-
-**Archivo:** `src/pages/ModelBenchmark.tsx`
-- Usar el hook `useProviders` o fetch directo a `/v1/models` para obtener modelos dinamicamente
-- Eliminar la lista hardcoded `MODELS`
-
-### Paso 6: Agregar indicador de neuronas en el Playground
-
-**Archivo:** `src/pages/Playground.tsx`
-- Mostrar `agentState.neuronsUsed / agentState.neuronsLimit` en el top bar
-- Indicador visual (progress bar o badge) del consumo de neuronas
-
-### Paso 7: Nota sobre re-deploy del Worker
-
-El worker de Cloudflare debe ser re-desplegado manualmente por el usuario ejecutando:
-```text
-cd cloudflare && npx wrangler deploy
 ```
-Esto no se puede hacer desde Lovable, pero es critico para que los cambios del backend surtan efecto.
+[Chat] [RAG] [Images] [Audio] [Translate]
+```
+
+Cada tab mostraria un mini-formulario especifico:
+- **Chat**: El chat actual (sin cambios)
+- **RAG**: Integrar la funcionalidad de `/rag-example` directamente en el Playground
+- **Images**: Un prompt para generar imagenes con Flux
+- **Audio**: Upload de audio para transcribir con Whisper
+- **Translate**: Input de texto con selector de idioma
+
+### Paso 3: Simplificar la navegacion para el usuario
+
+**Cambios en Navigation.tsx:**
+
+Reestructurar los links para que sean mas claros:
+
+```
+Product:
+  - Platform (antes "Features") -> /#features
+  - Models -> /#providers (antes "7 AI providers")
+  - Pricing -> /pricing
+  - Use Cases -> /use-cases
+
+Build:
+  - Playground IDE -> /playground
+  - RAG Studio -> /rag-example  
+  - Model Benchmark -> /benchmark
+  - Templates -> /templates
+
+Learn:
+  - Documentation -> /docs
+  - About -> /about
+  - Contact -> /contact
+```
+
+### Paso 4: Agregar "Feature Cards" interactivas en el Playground
+
+En la vista inicial del Playground (cuando no hay mensajes), en lugar de solo mostrar suggestion chips de texto, agregar tarjetas que muestren cada capacidad:
+
+```
++------------------+  +------------------+  +------------------+
+| Chat & Code      |  | RAG Pipeline     |  | Image Gen        |
+| Crea apps con AI |  | Busca en docs    |  | Genera con Flux  |
+| [Probar]         |  | [Probar]         |  | [Probar]         |
++------------------+  +------------------+  +------------------+
+| Audio Transcribe |  | Translation      |  | Benchmark        |
+| Whisper free     |  | 100+ idiomas     |  | Compara modelos  |
+| [Probar]         |  | [Probar]         |  | [Ver]            |
++------------------+  +------------------+  +------------------+
+```
+
+Al hacer click en "Probar", se inyectaria un prompt de ejemplo relevante o se navegaria a la seccion correspondiente.
 
 ---
 
@@ -168,17 +116,31 @@ Esto no se puede hacer desde Lovable, pero es critico para que los cambios del b
 
 ### Archivos a modificar
 
-| Archivo | Cambios |
-|---------|---------|
-| `src/pages/Playground.tsx` | Eliminar estado local de mensajes, eliminar provider selector, agregar indicador de neuronas, limpiar localStorage legacy |
-| `src/hooks/useBinarioAgent.ts` | Agregar systemPrompt al HTTP fallback, asegurar messages no-stale |
-| `src/pages/ModelBenchmark.tsx` | Usar modelos dinamicos del backend en vez de hardcoded |
+| Archivo | Cambio |
+|---------|--------|
+| `src/components/HeroSection.tsx` | Corregir stats "7 providers" a "17+ Models", actualizar subtitulo |
+| `src/components/Navigation.tsx` | Actualizar descriptions de links, reestructurar categorias |
+| `src/components/FeaturesSection.tsx` | Corregir feature "Multi-Provider" a "Cloudflare Native" |
+| `src/pages/Playground.tsx` | Agregar feature cards en estado vacio, agregar tabs de herramientas |
+
+### Archivos que NO se modifican
+
+| Archivo | Razon |
+|---------|-------|
+| `src/pages/RAGExample.tsx` | Se mantiene como pagina independiente (algunos usuarios la enlazan directamente) |
+| `src/pages/ModelBenchmark.tsx` | Ya corregido en el paso anterior |
+| `src/pages/Dashboard.tsx` | Funciona correctamente |
 
 ### Orden de implementacion
 
-1. Corregir `useBinarioAgent.ts` (systemPrompt en HTTP)
-2. Unificar mensajes en `Playground.tsx` (fuente unica de verdad)
-3. Eliminar provider selector (solo Cloudflare)
-4. Agregar indicador de neuronas
-5. Sincronizar modelos del Benchmark
+1. Corregir textos obsoletos (HeroSection, Navigation, FeaturesSection) - elimina confusion inmediata
+2. Reestructurar navegacion - mejora la descubribilidad
+3. Agregar feature cards al Playground - da acceso directo a todas las capacidades
+4. Agregar tabs de herramientas al Playground (Chat/RAG/Images/Audio/Translate) - experiencia unificada
 
+### Impacto esperado
+
+- El usuario ya no vera "7 AI providers" cuando solo hay Cloudflare
+- Desde el Playground, el usuario podra descubrir y probar TODAS las funciones
+- La navegacion guiara al usuario: "quiero construir" va a Build, "quiero aprender" va a Learn
+- No se rompe ninguna URL existente (las paginas individuales siguen funcionando)
