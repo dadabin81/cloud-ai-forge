@@ -44,7 +44,7 @@ const fadeUp = {
 };
 
 const stats = [
-  { value: '7', label: 'AI providers' },
+  { value: '17+', label: 'AI Models' },
   { value: '10', label: 'React hooks' },
   { value: '151', label: 'tests passing' },
 ];
@@ -117,7 +117,7 @@ export function HeroSection() {
             >
               <strong className="text-foreground">Free Llama 3</strong> via Cloudflare Workers AI.
               Pydantic-style schemas. Agent framework with tools.
-              Multi-provider streaming. Built for developers who demand more.
+              Edge-native streaming. Built for developers who demand more.
             </motion.p>
 
             {/* Stats row */}

@@ -47,8 +47,9 @@ const features = [
   },
   {
     icon: Layers,
-    title: 'Multi-Provider',
-    description: 'Cloudflare (built-in), OpenAI, Anthropic, Google. External providers require your own API keys.',
+    title: 'Cloudflare Native',
+    description: '17+ models via Workers AI. Text, images, audio, embeddings — all on Cloudflare\'s global edge.',
+    highlight: true,
   },
   {
     icon: Zap,

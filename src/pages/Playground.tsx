@@ -26,6 +26,7 @@ import { FileExplorer } from '@/components/FileExplorer';
 import { CodeEditor } from '@/components/CodeEditor';
 import { CodePreview } from '@/components/CodePreview';
 import { BlueprintCard } from '@/components/BlueprintCard';
+import { PlaygroundFeatureCards } from '@/components/PlaygroundFeatureCards';
 import { ChatMessage } from '@/components/ChatMessage';
 import { ProjectManager } from '@/components/ProjectManager';
 import { DeployDialog } from '@/components/DeployDialog';
@@ -634,25 +635,18 @@ export default function Playground() {
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {messages.length === 0 && !streamingContent && !isThinking && (
                       <div className="h-full flex items-center justify-center">
-                        <div className="text-center space-y-4 max-w-[280px]">
+                        <div className="text-center space-y-5 max-w-[320px]">
                           <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center animate-float" style={{ background: 'linear-gradient(135deg, hsl(175 80% 50% / 0.15), hsl(262 80% 60% / 0.15))' }}>
                             <Sparkles className="w-8 h-8 text-primary" />
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground">¿Qué quieres crear?</p>
-                            <p className="text-xs text-muted-foreground mt-1">Describe tu proyecto y lo construiré</p>
+                            <p className="text-xs text-muted-foreground mt-1">Elige una capacidad o describe tu proyecto</p>
                           </div>
-                          <div className="flex flex-wrap gap-2 justify-center">
-                            {suggestionChips.map((chip, i) => (
-                              <button
-                                key={i}
-                                onClick={() => handleSuggestionClick(chip)}
-                                className="px-3 py-1.5 rounded-full text-xs border border-border/50 hover:border-primary/50 hover:bg-primary/5 transition-all text-muted-foreground hover:text-foreground"
-                              >
-                                {chip}
-                              </button>
-                            ))}
-                          </div>
+                          <PlaygroundFeatureCards
+                            onSendPrompt={handleSuggestionClick}
+                            disabled={isStreamingOrLoading}
+                          />
                         </div>
                       </div>
                     )}
