@@ -58,24 +58,7 @@ export {
 // OpenAPI Agent Builder
 export { createOpenAPIAgent, createMultiAPIAgent } from './cloudflare/openapi-agent';
 
-// Providers - Lovable
-export {
-  createLovableProvider,
-  streamWithLovable,
-  LOVABLE_MODELS,
-} from './providers/lovable';
-
-// Providers - OpenRouter
-export {
-  createOpenRouterProvider,
-  runWithOpenRouter,
-  streamWithOpenRouter,
-  OPENROUTER_MODELS,
-  DEFAULT_FREE_MODEL,
-  getFreeModels,
-  isModelFree,
-  getRecommendedOpenRouterModel,
-} from './providers/openrouter';
+// CLOUDFLARE-ONLY: External providers (OpenRouter, Lovable, OpenAI, etc.) removed
 
 // Cloudflare Worker Utilities
 export {
