@@ -1,87 +1,134 @@
 
 
-# Limpiar el Playground: Solo VibeCoding
+# Fix: Proyecto Generado No Aparece en el IDE
 
-## Problema actual
+## Problemas Encontrados
 
-El chat del Playground muestra 7 cards mezcladas:
-- 3 cards que envian prompts al chat (correcto: VibeCoding)
-- 4 cards que navegan FUERA del Playground (RAG, Benchmark, AI Tools) - esto confunde porque el usuario sale del IDE sin entender por que
+### Problema 1: Bug critico en el parser SSE - perdida de tokens
 
-El Playground debe ser exclusivamente el entorno de desarrollo de apps. Las otras herramientas ya tienen sus propias paginas dedicadas (`/ai-tools`, `/rag-example`, `/benchmark`).
+El parser SSE en `useBinarioAgent.ts` NO buferea lineas incompletas entre chunks del stream. Cuando un chunk del servidor se corta a mitad de una linea JSON, el `JSON.parse` falla silenciosamente y ese token se pierde. Esto corrompe el contenido acumulado, rompiendo los marcadores de archivo (`**filename.ext**\n\`\`\``) que `useProjectSync` necesita para extraer los archivos del proyecto.
 
-## Solucion
-
-### Paso 1: Simplificar PlaygroundFeatureCards - solo templates de apps
-
-**Archivo:** `src/components/PlaygroundFeatureCards.tsx`
-
-Eliminar TODAS las cards que navegan fuera (`href`). Dejar solo cards que generan apps dentro del IDE:
-
-| Card actual | Accion | Destino |
-|---|---|---|
-| Chat & VibeCoding | prompt | QUEDA (template de blog) |
-| RAG Studio | href /rag-example | SE ELIMINA |
-| App de Imagenes | prompt | QUEDA (genera app de imagenes) |
-| App de Audio | prompt | QUEDA (genera app de audio) |
-| App de Traduccion | prompt | QUEDA (genera app de traduccion) |
-| Model Benchmark | href /benchmark | SE ELIMINA |
-| AI Tools | href /ai-tools | SE ELIMINA |
-
-Se agregan 3 nuevos templates de apps para completar la grilla:
-
-- **Dashboard Analytics** - "Crea un dashboard con graficas de ventas, usuarios activos y metricas clave usando Recharts"
-- **E-Commerce** - "Crea una tienda online con catalogo de productos, carrito de compras y checkout"
-- **Landing SaaS** - "Crea una landing page profesional para un producto SaaS con hero, features, pricing y CTA"
-
-Resultado: 7 cards, todas generan apps dentro del IDE. Ninguna saca al usuario del Playground.
-
-### Paso 2: Mejorar los suggestion chips del Playground
-
-**Archivo:** `src/pages/Playground.tsx`
-
-Los `suggestionChips` (lineas 383-388) se muestran debajo del input. Actualizar para que complementen las cards con mas ideas de apps:
-
-```
-"Chat app con WebSocket"
-"Panel de administracion"  
-"App de notas con Markdown"
-"Portfolio con animaciones"
+**Codigo actual (lineas 343-394):**
+```text
+const chunk = decoder.decode(value, { stream: true });
+const lines = chunk.split('\n');
+for (const line of lines) {
+  if (line.startsWith('data: ')) {
+    const data = line.slice(6);
+    try {
+      const parsed = JSON.parse(data); // FALLA si la linea esta cortada
+      ...
+    } catch { /* token perdido silenciosamente */ }
+  }
+}
 ```
 
-### Paso 3: Texto de bienvenida mas claro
+**Solucion:** Agregar un buffer que acumule texto entre chunks y solo procese lineas completas (separadas por `\n`). La ultima linea incompleta se guarda para el siguiente chunk.
 
-**Archivo:** `src/pages/Playground.tsx` (lineas 641-644)
+### Problema 2: Race condition en sendHttpFallback
 
-Cambiar de:
-- "Elige una capacidad o describe tu proyecto"
+La funcion `sendHttpFallback` usa `queueMicrotask` dentro del callback de `setMessages` para disparar `performHttpRequest`. Esto es fragil y puede causar requests duplicados (confirmado en los network logs: dos POST identicos al mismo timestamp).
 
-A:
-- "Elige un template o describe la app que quieres crear"
+**Solucion:** Mover la llamada a `performHttpRequest` fuera del callback de `setMessages` usando un ref para los mensajes.
 
-Esto refuerza que el Playground es SOLO para crear apps.
+### Problema 3: Suggestion chips definidos pero nunca renderizados
+
+Los `suggestionChips` (linea 383-388 de Playground.tsx) estan definidos como array pero NO se renderizan en el JSX. Solo se usan via `handleSuggestionClick` que se pasa a los feature cards. Deberian mostrarse como chips debajo del input del chat.
+
+---
+
+## Cambios Tecnicos
+
+### Archivo: `src/hooks/useBinarioAgent.ts`
+
+**Cambio 1: Buffering SSE correcto**
+
+En `performHttpRequest` (lineas ~340-395), agregar un buffer de lineas:
+
+```typescript
+// ANTES del while loop
+let lineBuffer = '';
+
+// DENTRO del while loop
+const chunk = decoder.decode(value, { stream: true });
+lineBuffer += chunk;
+const lines = lineBuffer.split('\n');
+lineBuffer = lines.pop() || ''; // guardar linea incompleta
+
+for (const line of lines) {
+  if (line.startsWith('data: ')) {
+    // ... (resto del parsing igual)
+  }
+}
+```
+
+Despues del while loop, procesar el buffer restante si contiene datos.
+
+**Cambio 2: Refactorizar sendHttpFallback**
+
+Reemplazar el patron `queueMicrotask` con un flujo mas directo:
+
+```typescript
+const sendHttpFallback = useCallback(async (content: string) => {
+  if (!apiKey) { onError?.(new Error('API key required')); return; }
+
+  const userMessage = { id: `msg-${Date.now()}`, role: 'user', content, createdAt: new Date() };
+  
+  // Primero obtener mensajes actuales y agregar el nuevo
+  const allMessages = [...messagesRef.current, userMessage];
+  
+  setMessages(allMessages);
+  setIsLoading(true);
+  streamingContentRef.current = '';
+  setStreamingContent('');
+  
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
+  
+  // Ejecutar request directamente, no dentro de setMessages
+  await performHttpRequest(allMessages, controller);
+}, [apiKey, onError, performHttpRequest]);
+```
+
+Esto requiere agregar un `messagesRef` que siempre apunte al estado actual de `messages`.
+
+### Archivo: `src/pages/Playground.tsx`
+
+**Cambio 3: Renderizar suggestion chips**
+
+Agregar los chips debajo del input del chat (despues de linea ~761):
+
+```typescript
+{messages.length === 0 && !isStreamingOrLoading && (
+  <div className="flex flex-wrap gap-1.5 mt-1.5">
+    {suggestionChips.map((chip) => (
+      <button
+        key={chip}
+        onClick={() => handleSuggestionClick(chip)}
+        className="text-[11px] px-2.5 py-1 rounded-full border border-border/50 
+                   text-muted-foreground hover:text-foreground hover:border-primary/40 
+                   transition-colors"
+      >
+        {chip}
+      </button>
+    ))}
+  </div>
+)}
+```
 
 ---
 
 ## Archivos a modificar
 
 | Archivo | Cambio |
-|---|---|
-| `src/components/PlaygroundFeatureCards.tsx` | Eliminar cards con `href`, agregar 3 templates nuevos de apps |
-| `src/pages/Playground.tsx` | Actualizar suggestion chips y texto de bienvenida |
-
-## Archivos que NO se tocan
-
-| Archivo | Razon |
-|---|---|
-| `src/pages/AITools.tsx` | Ya funciona como pagina independiente |
-| `src/pages/RAGExample.tsx` | Ya funciona como pagina independiente |
-| `src/components/Navigation.tsx` | Ya tiene links a todas las herramientas |
+|---------|--------|
+| `src/hooks/useBinarioAgent.ts` | Agregar buffering SSE + refactorizar sendHttpFallback |
+| `src/pages/Playground.tsx` | Renderizar suggestion chips debajo del input |
 
 ## Resultado esperado
 
-- El Playground es 100% VibeCoding: cada card genera una app dentro del IDE
-- No hay confusion: nada navega fuera del entorno de desarrollo
-- Las herramientas (AI Tools, RAG, Benchmark) se acceden desde la navegacion principal, no desde el Playground
-- Todo lo generado se guarda en el proyecto (ya funciona via `useProjectSync` + `usePlaygroundProject`)
+- Los tokens del stream NUNCA se pierden por cortes de chunk
+- Los archivos generados se parsean correctamente y aparecen en el file explorer, code editor y preview
+- No hay requests HTTP duplicados
+- Los suggestion chips aparecen como ideas rapidas debajo del input
 
