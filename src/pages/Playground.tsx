@@ -759,6 +759,19 @@ export default function Playground() {
                         Enter ↵ enviar · Shift+Enter nueva línea
                       </span>
                     </div>
+                    {messages.length === 0 && !isStreamingOrLoading && (
+                      <div className="flex flex-wrap gap-1.5 mt-1.5 px-1">
+                        {suggestionChips.map((chip) => (
+                          <button
+                            key={chip}
+                            onClick={() => handleSuggestionClick(chip)}
+                            className="text-[11px] px-2.5 py-1 rounded-full border border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
