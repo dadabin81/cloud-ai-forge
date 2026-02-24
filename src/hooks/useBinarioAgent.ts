@@ -153,6 +153,12 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
   const reconnectAttemptsRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef(providedConversationId || crypto.randomUUID());
+  const messagesRef = useRef<AgentMessage[]>([]);
+
+  // Keep messagesRef in sync
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Update status with callback
   const updateStatus = useCallback((newStatus: ConnectionStatus) => {
@@ -339,13 +345,16 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
 
       const decoder = new TextDecoder();
       streamStartTimeRef.current = Date.now();
+      let lineBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        lineBuffer += chunk;
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() || ''; // keep incomplete line for next chunk
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -394,6 +403,21 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
         }
       }
 
+      // Process any remaining buffered data
+      if (lineBuffer.startsWith('data: ')) {
+        const data = lineBuffer.slice(6);
+        if (data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data);
+            const token = parsed.choices?.[0]?.delta?.content || '';
+            if (token) {
+              streamingContentRef.current += token;
+              setStreamingContent(streamingContentRef.current);
+            }
+          } catch { /* incomplete final line */ }
+        }
+      }
+
       if (streamingContentRef.current) {
         setMessages(prev => [...prev, {
           id: `msg-${Date.now()}`,
@@ -433,19 +457,17 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
       content,
       createdAt: new Date(),
     };
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
 
-    setMessages(prev => {
-      const allMessages = [...prev, userMessage];
-      queueMicrotask(() => {
-        performHttpRequest(allMessages, controller);
-      });
-      return allMessages;
-    });
+    const allMessages = [...messagesRef.current, userMessage];
+    setMessages(allMessages);
     setIsLoading(true);
     streamingContentRef.current = '';
     setStreamingContent('');
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    await performHttpRequest(allMessages, controller);
   }, [apiKey, onError, performHttpRequest]);
   // Stop generation
   const stop = useCallback(() => {
