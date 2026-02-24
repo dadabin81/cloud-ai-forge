@@ -1,92 +1,87 @@
 
 
-# Fix: Respuesta del Chat Muestra Datos SSE Crudos
+# Limpiar el Playground: Solo VibeCoding
 
-## Problema Encontrado
+## Problema actual
 
-El chat del Playground muestra texto como:
-```
-data: {"response":"¡","tool_calls":[],"p":"abdef"}
-data: {"response":"Claro!","tool_calls":[],"p":"abdefghij"}
-```
+El chat del Playground muestra 7 cards mezcladas:
+- 3 cards que envian prompts al chat (correcto: VibeCoding)
+- 4 cards que navegan FUERA del Playground (RAG, Benchmark, AI Tools) - esto confunde porque el usuario sale del IDE sin entender por que
 
-En lugar de mostrar simplemente: **"¡Claro! ..."**
-
-## Causa Raiz
-
-El backend de Cloudflare Workers devuelve un formato SSE **doblemente envuelto**:
-
-```text
-Capa exterior (OpenAI-compatible):
-data: {"choices":[{"delta":{"content":"CONTENIDO_AQUI"}}]}
-
-Pero CONTENIDO_AQUI es OTRA capa SSE de Cloudflare Workers AI:
-data: {"response":"texto_real","tool_calls":[],"p":"hash"}
-```
-
-El parser actual en `useBinarioAgent.ts` (linea 356) solo extrae la capa exterior:
-```typescript
-const token = parsed.choices?.[0]?.delta?.content || '';
-```
-
-Esto devuelve `data: {"response":"texto_real",...}` como el "token", que se concatena directamente al chat.
+El Playground debe ser exclusivamente el entorno de desarrollo de apps. Las otras herramientas ya tienen sus propias paginas dedicadas (`/ai-tools`, `/rag-example`, `/benchmark`).
 
 ## Solucion
 
-Modificar el parser en `src/hooks/useBinarioAgent.ts` para detectar y desempaquetar la capa interior cuando el contenido viene en formato SSE de Cloudflare Workers AI.
+### Paso 1: Simplificar PlaygroundFeatureCards - solo templates de apps
 
-### Cambio en `performHttpRequest` (lineas 354-358)
+**Archivo:** `src/components/PlaygroundFeatureCards.tsx`
 
-Antes:
-```typescript
-const parsed = JSON.parse(data);
-const token = parsed.choices?.[0]?.delta?.content || '';
+Eliminar TODAS las cards que navegan fuera (`href`). Dejar solo cards que generan apps dentro del IDE:
+
+| Card actual | Accion | Destino |
+|---|---|---|
+| Chat & VibeCoding | prompt | QUEDA (template de blog) |
+| RAG Studio | href /rag-example | SE ELIMINA |
+| App de Imagenes | prompt | QUEDA (genera app de imagenes) |
+| App de Audio | prompt | QUEDA (genera app de audio) |
+| App de Traduccion | prompt | QUEDA (genera app de traduccion) |
+| Model Benchmark | href /benchmark | SE ELIMINA |
+| AI Tools | href /ai-tools | SE ELIMINA |
+
+Se agregan 3 nuevos templates de apps para completar la grilla:
+
+- **Dashboard Analytics** - "Crea un dashboard con graficas de ventas, usuarios activos y metricas clave usando Recharts"
+- **E-Commerce** - "Crea una tienda online con catalogo de productos, carrito de compras y checkout"
+- **Landing SaaS** - "Crea una landing page profesional para un producto SaaS con hero, features, pricing y CTA"
+
+Resultado: 7 cards, todas generan apps dentro del IDE. Ninguna saca al usuario del Playground.
+
+### Paso 2: Mejorar los suggestion chips del Playground
+
+**Archivo:** `src/pages/Playground.tsx`
+
+Los `suggestionChips` (lineas 383-388) se muestran debajo del input. Actualizar para que complementen las cards con mas ideas de apps:
+
+```
+"Chat app con WebSocket"
+"Panel de administracion"  
+"App de notas con Markdown"
+"Portfolio con animaciones"
 ```
 
-Despues:
-```typescript
-const parsed = JSON.parse(data);
-let token = parsed.choices?.[0]?.delta?.content || '';
+### Paso 3: Texto de bienvenida mas claro
 
-// Unwrap double-wrapped SSE from Cloudflare Workers AI
-// The backend sometimes wraps the Workers AI SSE response inside an OpenAI-compatible SSE
-if (typeof token === 'string' && token.startsWith('data: ')) {
-  const innerLines = token.split('\n');
-  const extractedTokens: string[] = [];
-  for (const innerLine of innerLines) {
-    if (innerLine.startsWith('data: ')) {
-      const innerData = innerLine.slice(6).trim();
-      if (innerData && innerData !== '[DONE]') {
-        try {
-          const innerParsed = JSON.parse(innerData);
-          // Cloudflare Workers AI format: {"response":"text","tool_calls":[],"p":"hash"}
-          if (innerParsed.response !== undefined) {
-            extractedTokens.push(innerParsed.response);
-          }
-        } catch { /* skip malformed inner JSON */ }
-      }
-    }
-  }
-  if (extractedTokens.length > 0) {
-    token = extractedTokens.join('');
-  }
-}
-```
+**Archivo:** `src/pages/Playground.tsx` (lineas 641-644)
 
-## Seccion Tecnica
+Cambiar de:
+- "Elige una capacidad o describe tu proyecto"
 
-### Archivo a modificar
+A:
+- "Elige un template o describe la app que quieres crear"
+
+Esto refuerza que el Playground es SOLO para crear apps.
+
+---
+
+## Archivos a modificar
 
 | Archivo | Cambio |
-|---------|--------|
-| `src/hooks/useBinarioAgent.ts` | Agregar logica de unwrapping del SSE doble en `performHttpRequest`, lineas ~354-358 |
+|---|---|
+| `src/components/PlaygroundFeatureCards.tsx` | Eliminar cards con `href`, agregar 3 templates nuevos de apps |
+| `src/pages/Playground.tsx` | Actualizar suggestion chips y texto de bienvenida |
 
-### Por que ocurre el doble envoltorio
+## Archivos que NO se tocan
 
-El worker en `cloudflare/src/index.ts` usa `streamText` de Cloudflare Workers AI y re-envuelve la respuesta en formato OpenAI-compatible. Pero el stream de Workers AI ya tiene su propio formato SSE (`data: {"response":"..."}`) que se inserta como valor de `content` en el wrapper exterior.
+| Archivo | Razon |
+|---|---|
+| `src/pages/AITools.tsx` | Ya funciona como pagina independiente |
+| `src/pages/RAGExample.tsx` | Ya funciona como pagina independiente |
+| `src/components/Navigation.tsx` | Ya tiene links a todas las herramientas |
 
-### Impacto
+## Resultado esperado
 
-- El chat mostrara texto limpio en lugar de datos crudos JSON
-- Los archivos generados por el AI se parsearan correctamente (los `// filename:` markers estaran visibles para `useProjectSync`)
-- No se modifica ningun otro archivo
+- El Playground es 100% VibeCoding: cada card genera una app dentro del IDE
+- No hay confusion: nada navega fuera del entorno de desarrollo
+- Las herramientas (AI Tools, RAG, Benchmark) se acceden desde la navegacion principal, no desde el Playground
+- Todo lo generado se guarda en el proyecto (ya funciona via `useProjectSync` + `usePlaygroundProject`)
+
