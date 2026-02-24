@@ -1,120 +1,115 @@
 
 
-# Fix: Proyecto Generado No Aparece en el IDE
+# Fix: Proyecto No Aparece en el IDE
 
-## Problemas Encontrados
+## Problemas Identificados
 
-### Problema 1: Bug critico en el parser SSE - perdida de tokens
+### 1. El modelo genera texto descriptivo en lugar de codigo
 
-El parser SSE en `useBinarioAgent.ts` NO buferea lineas incompletas entre chunks del stream. Cuando un chunk del servidor se corta a mitad de una linea JSON, el `JSON.parse` falla silenciosamente y ese token se pierde. Esto corrompe el contenido acumulado, rompiendo los marcadores de archivo (`**filename.ext**\n\`\`\``) que `useProjectSync` necesita para extraer los archivos del proyecto.
+Este es el problema principal. En los logs de red, la respuesta del modelo empieza con:
 
-**Codigo actual (lineas 343-394):**
-```text
-const chunk = decoder.decode(value, { stream: true });
-const lines = chunk.split('\n');
-for (const line of lines) {
-  if (line.startsWith('data: ')) {
-    const data = line.slice(6);
-    try {
-      const parsed = JSON.parse(data); // FALLA si la linea esta cortada
-      ...
-    } catch { /* token perdido silenciosamente */ }
-  }
-}
+```
+"Aquí te presento un ejemplo de cómo podría ser la estructura de la landing page..."
 ```
 
-**Solucion:** Agregar un buffer que acumule texto entre chunks y solo procese lineas completas (separadas por `\n`). La ultima linea incompleta se guarda para el siguiente chunk.
+Esto es solo una descripcion textual. El modelo NO genera los marcadores `// filename:` ni bloques de codigo, asi que `useProjectSync` no tiene nada que parsear y no crea archivos.
 
-### Problema 2: Race condition en sendHttpFallback
+**Solucion**: Reforzar el system prompt con instrucciones mas directas:
+- Agregar "NUNCA describas lo que vas a hacer. Genera el codigo directamente."
+- Agregar "Tu primera linea de respuesta SIEMPRE debe ser un marcador de archivo"
+- Incluir un ejemplo completo de output esperado con multiples archivos
 
-La funcion `sendHttpFallback` usa `queueMicrotask` dentro del callback de `setMessages` para disparar `performHttpRequest`. Esto es fragil y puede causar requests duplicados (confirmado en los network logs: dos POST identicos al mismo timestamp).
+### 2. El buffer final no aplica el doble-unwrap SSE
 
-**Solucion:** Mover la llamada a `performHttpRequest` fuera del callback de `setMessages` usando un ref para los mensajes.
+Despues del while loop (lineas 406-418 de `useBinarioAgent.ts`), el codigo procesa el buffer restante pero NO aplica la logica de unwrap del SSE interno de Cloudflare Workers AI. Esto puede perder los ultimos tokens del stream.
 
-### Problema 3: Suggestion chips definidos pero nunca renderizados
+**Solucion**: Aplicar la misma logica de unwrap en el procesamiento del buffer final.
 
-Los `suggestionChips` (linea 383-388 de Playground.tsx) estan definidos como array pero NO se renderizan en el JSX. Solo se usan via `handleSuggestionClick` que se pasa a los feature cards. Deberian mostrarse como chips debajo del input del chat.
+### 3. Requests HTTP duplicados
+
+Los logs de red muestran 2 POST identicos al mismo endpoint y timestamp. Esto puede ocurrir por React StrictMode o porque el componente se re-renderiza y dispara dos veces.
+
+**Solucion**: Agregar un guard con un ref `isRequestInFlightRef` que evite enviar si ya hay un request activo.
 
 ---
 
 ## Cambios Tecnicos
 
+### Archivo: `src/pages/Playground.tsx`
+
+**Reforzar el system prompt (lineas 55-96)**
+
+Agregar al principio del prompt:
+
+```
+## MANDATORY: DIRECT CODE OUTPUT
+NEVER describe what you will build. NEVER list features as bullet points.
+Your response MUST start with a `// filename:` marker followed by actual code.
+Generate ALL files needed for a complete, working application.
+```
+
+Agregar despues de los RULES un ejemplo completo:
+
+```
+## EXAMPLE OUTPUT FORMAT (follow this exactly)
+// filename: index.html
+```html
+<!DOCTYPE html>
+<html>...</html>
+```
+
+// filename: src/App.jsx
+```jsx
+function App() { return (...); }
+```
+```
+
+Incrementar `PROMPT_VERSION` de 4 a 5 para forzar la actualizacion en localStorage.
+
 ### Archivo: `src/hooks/useBinarioAgent.ts`
 
-**Cambio 1: Buffering SSE correcto**
+**Fix 1: Buffer final con unwrap (lineas 406-418)**
 
-En `performHttpRequest` (lineas ~340-395), agregar un buffer de lineas:
+Aplicar la misma logica de doble-unwrap al buffer final:
 
 ```typescript
-// ANTES del while loop
-let lineBuffer = '';
-
-// DENTRO del while loop
-const chunk = decoder.decode(value, { stream: true });
-lineBuffer += chunk;
-const lines = lineBuffer.split('\n');
-lineBuffer = lines.pop() || ''; // guardar linea incompleta
-
-for (const line of lines) {
-  if (line.startsWith('data: ')) {
-    // ... (resto del parsing igual)
+if (lineBuffer.startsWith('data: ')) {
+  const data = lineBuffer.slice(6);
+  if (data !== '[DONE]') {
+    try {
+      const parsed = JSON.parse(data);
+      let token = parsed.choices?.[0]?.delta?.content || '';
+      // Apply same unwrap logic
+      if (typeof token === 'string' && token.startsWith('data: ')) {
+        // ... same inner unwrap code
+      }
+      if (token) {
+        streamingContentRef.current += token;
+        setStreamingContent(streamingContentRef.current);
+      }
+    } catch { }
   }
 }
 ```
 
-Despues del while loop, procesar el buffer restante si contiene datos.
+**Fix 2: Guard contra requests duplicados**
 
-**Cambio 2: Refactorizar sendHttpFallback**
-
-Reemplazar el patron `queueMicrotask` con un flujo mas directo:
+Agregar `isRequestInFlightRef` al hook:
 
 ```typescript
-const sendHttpFallback = useCallback(async (content: string) => {
-  if (!apiKey) { onError?.(new Error('API key required')); return; }
-
-  const userMessage = { id: `msg-${Date.now()}`, role: 'user', content, createdAt: new Date() };
-  
-  // Primero obtener mensajes actuales y agregar el nuevo
-  const allMessages = [...messagesRef.current, userMessage];
-  
-  setMessages(allMessages);
-  setIsLoading(true);
-  streamingContentRef.current = '';
-  setStreamingContent('');
-  
-  const controller = new AbortController();
-  abortControllerRef.current = controller;
-  
-  // Ejecutar request directamente, no dentro de setMessages
-  await performHttpRequest(allMessages, controller);
-}, [apiKey, onError, performHttpRequest]);
+const isRequestInFlightRef = useRef(false);
 ```
 
-Esto requiere agregar un `messagesRef` que siempre apunte al estado actual de `messages`.
-
-### Archivo: `src/pages/Playground.tsx`
-
-**Cambio 3: Renderizar suggestion chips**
-
-Agregar los chips debajo del input del chat (despues de linea ~761):
+En `sendHttpFallback`, verificar antes de enviar:
 
 ```typescript
-{messages.length === 0 && !isStreamingOrLoading && (
-  <div className="flex flex-wrap gap-1.5 mt-1.5">
-    {suggestionChips.map((chip) => (
-      <button
-        key={chip}
-        onClick={() => handleSuggestionClick(chip)}
-        className="text-[11px] px-2.5 py-1 rounded-full border border-border/50 
-                   text-muted-foreground hover:text-foreground hover:border-primary/40 
-                   transition-colors"
-      >
-        {chip}
-      </button>
-    ))}
-  </div>
-)}
+if (isRequestInFlightRef.current) return;
+isRequestInFlightRef.current = true;
+// ... request ...
+// en finally: isRequestInFlightRef.current = false;
 ```
+
+Y en `performHttpRequest`, agregar `isRequestInFlightRef.current = false` en el `finally`.
 
 ---
 
@@ -122,13 +117,13 @@ Agregar los chips debajo del input del chat (despues de linea ~761):
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/hooks/useBinarioAgent.ts` | Agregar buffering SSE + refactorizar sendHttpFallback |
-| `src/pages/Playground.tsx` | Renderizar suggestion chips debajo del input |
+| `src/pages/Playground.tsx` | Reforzar system prompt, subir PROMPT_VERSION a 5 |
+| `src/hooks/useBinarioAgent.ts` | Unwrap en buffer final + guard de duplicados |
 
 ## Resultado esperado
 
-- Los tokens del stream NUNCA se pierden por cortes de chunk
-- Los archivos generados se parsean correctamente y aparecen en el file explorer, code editor y preview
+- El modelo genera codigo directamente con marcadores `// filename:`
+- `useProjectSync` detecta los archivos y los muestra en el explorador, editor y preview
+- No se pierden tokens al final del stream
 - No hay requests HTTP duplicados
-- Los suggestion chips aparecen como ideas rapidas debajo del input
 
