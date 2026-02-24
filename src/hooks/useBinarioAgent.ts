@@ -154,6 +154,7 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef(providedConversationId || crypto.randomUUID());
   const messagesRef = useRef<AgentMessage[]>([]);
+  const isRequestInFlightRef = useRef(false);
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -403,13 +404,36 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
         }
       }
 
-      // Process any remaining buffered data
+      // Process any remaining buffered data (with double-unwrap)
       if (lineBuffer.startsWith('data: ')) {
         const data = lineBuffer.slice(6);
         if (data !== '[DONE]') {
           try {
             const parsed = JSON.parse(data);
-            const token = parsed.choices?.[0]?.delta?.content || '';
+            let token = parsed.choices?.[0]?.delta?.content || '';
+
+            // Unwrap double-wrapped SSE from Cloudflare Workers AI
+            if (typeof token === 'string' && token.startsWith('data: ')) {
+              const innerLines = token.split('\n');
+              const extractedTokens: string[] = [];
+              for (const innerLine of innerLines) {
+                if (innerLine.startsWith('data: ')) {
+                  const innerData = innerLine.slice(6).trim();
+                  if (innerData && innerData !== '[DONE]') {
+                    try {
+                      const innerParsed = JSON.parse(innerData);
+                      if (innerParsed.response !== undefined) {
+                        extractedTokens.push(innerParsed.response);
+                      }
+                    } catch { /* skip malformed inner JSON */ }
+                  }
+                }
+              }
+              if (extractedTokens.length > 0) {
+                token = extractedTokens.join('');
+              }
+            }
+
             if (token) {
               streamingContentRef.current += token;
               setStreamingContent(streamingContentRef.current);
@@ -441,6 +465,7 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
       streamStartTimeRef.current = null;
       tokenCountRef.current = 0;
       abortControllerRef.current = null;
+      isRequestInFlightRef.current = false;
     }
   }, [apiKey, baseUrl, agentState.model, agentState.systemPrompt, onToken, onComplete, onError]);
 
@@ -450,6 +475,8 @@ export function useBinarioAgent(options: UseBinarioAgentOptions): UseBinarioAgen
       onError?.(new Error('API key required'));
       return;
     }
+    if (isRequestInFlightRef.current) return;
+    isRequestInFlightRef.current = true;
 
     const userMessage: AgentMessage = {
       id: `msg-${Date.now()}`,
