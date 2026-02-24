@@ -1,5 +1,4 @@
-import { useNavigate } from 'react-router-dom';
-import { Bot, Database, Image, Mic, Languages, BarChart3, Wand2 } from 'lucide-react';
+import { Bot, Image, Mic, Languages, BarChart3, ShoppingCart, Rocket } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface PlaygroundFeatureCardsProps {
@@ -16,10 +15,10 @@ const capabilities = [
     color: 'from-primary/20 to-primary/5',
   },
   {
-    icon: Database,
-    title: 'RAG Studio',
-    description: 'Embeddings y búsqueda semántica',
-    href: '/rag-example',
+    icon: BarChart3,
+    title: 'Dashboard Analytics',
+    description: 'Gráficas y métricas en tiempo real',
+    prompt: 'Crea un dashboard con gráficas de ventas, usuarios activos y métricas clave usando Recharts. Incluye sidebar, stat cards y gráficos de línea y barras',
     color: 'from-emerald-500/20 to-emerald-500/5',
   },
   {
@@ -44,17 +43,17 @@ const capabilities = [
     color: 'from-sky-500/20 to-sky-500/5',
   },
   {
-    icon: BarChart3,
-    title: 'Model Benchmark',
-    description: 'Compara modelos side-by-side',
-    href: '/benchmark',
+    icon: ShoppingCart,
+    title: 'E-Commerce',
+    description: 'Tienda online con carrito',
+    prompt: 'Crea una tienda online con catálogo de productos en grid, carrito de compras con contador, página de detalle de producto y formulario de checkout',
     color: 'from-rose-500/20 to-rose-500/5',
   },
   {
-    icon: Wand2,
-    title: 'AI Tools',
-    description: 'Prueba las capacidades AI',
-    href: '/ai-tools',
+    icon: Rocket,
+    title: 'Landing SaaS',
+    description: 'Landing page profesional',
+    prompt: 'Crea una landing page profesional para un producto SaaS con hero section, sección de features con iconos, tabla de pricing con 3 planes, testimonios y CTA final',
     color: 'from-primary/10 to-accent/10',
   },
 ];
@@ -69,8 +68,6 @@ const fadeUp = {
 };
 
 export function PlaygroundFeatureCards({ onSendPrompt, disabled }: PlaygroundFeatureCardsProps) {
-  const navigate = useNavigate();
-
   return (
     <div className="grid grid-cols-2 gap-2.5 w-full max-w-[340px]">
       {capabilities.map((cap, i) => (
@@ -81,13 +78,7 @@ export function PlaygroundFeatureCards({ onSendPrompt, disabled }: PlaygroundFea
           animate="visible"
           custom={i}
           disabled={disabled}
-          onClick={() => {
-            if (cap.href) {
-              navigate(cap.href);
-            } else if (cap.prompt) {
-              onSendPrompt(cap.prompt);
-            }
-          }}
+          onClick={() => onSendPrompt(cap.prompt)}
           className={`group text-left p-3 rounded-xl bg-gradient-to-br ${cap.color} border border-border/30 hover:border-primary/40 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <cap.icon className="w-5 h-5 text-foreground/70 group-hover:text-primary transition-colors mb-1.5" />
