@@ -381,10 +381,10 @@ export default function Playground() {
   const wsStatus = agentStatus as 'disconnected' | 'connecting' | 'connected' | 'error';
 
   const suggestionChips = [
-    "Crea un blog moderno con dark mode",
-    "Landing page SaaS profesional",
-    "Dashboard de analytics interactivo",
-    "Portfolio minimalista con animaciones",
+    "Chat app con WebSocket",
+    "Panel de administración",
+    "App de notas con Markdown",
+    "Portfolio con animaciones",
   ];
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -640,7 +640,7 @@ export default function Playground() {
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground">¿Qué quieres crear?</p>
-                            <p className="text-xs text-muted-foreground mt-1">Elige una capacidad o describe tu proyecto</p>
+                            <p className="text-xs text-muted-foreground mt-1">Elige un template o describe la app que quieres crear</p>
                           </div>
                           <PlaygroundFeatureCards
                             onSendPrompt={handleSuggestionClick}
