@@ -1,129 +1,44 @@
 
 
-# Fix: Proyecto No Aparece en el IDE
+# Fix: Error de Build - Conflicto de Dependencias en Cloudflare
 
-## Problemas Identificados
+## Problema
 
-### 1. El modelo genera texto descriptivo en lugar de codigo
+El build falla porque `agents@^0.5.0` requiere `ai@^6.0.0` como peer dependency, pero `cloudflare/package.json` tiene `ai@^4.3.0`. Segun la documentacion oficial de Cloudflare, desde Agents SDK v0.3.0 se requiere AI SDK v6.
 
-Este es el problema principal. En los logs de red, la respuesta del modelo empieza con:
+## Solucion
 
-```
-"Aquí te presento un ejemplo de cómo podría ser la estructura de la landing page..."
-```
+Actualizar las dependencias en `cloudflare/package.json` para alinearlas con las versiones compatibles:
 
-Esto es solo una descripcion textual. El modelo NO genera los marcadores `// filename:` ni bloques de codigo, asi que `useProjectSync` no tiene nada que parsear y no crea archivos.
+| Paquete | Version actual | Version nueva |
+|---------|---------------|---------------|
+| `ai` | `^4.3.0` | `^6.0.0` |
+| `workers-ai-provider` | `^0.3.0` | `^3.0.0` |
 
-**Solucion**: Reforzar el system prompt con instrucciones mas directas:
-- Agregar "NUNCA describas lo que vas a hacer. Genera el codigo directamente."
-- Agregar "Tu primera linea de respuesta SIEMPRE debe ser un marcador de archivo"
-- Incluir un ejemplo completo de output esperado con multiples archivos
+Las demas dependencias (`agents@^0.5.0`, `@cloudflare/ai-chat@^0.1.0`, `@modelcontextprotocol/sdk@^1.12.1`, `zod@^3.25.0`) no necesitan cambios.
 
-### 2. El buffer final no aplica el doble-unwrap SSE
+## Detalles tecnicos
 
-Despues del while loop (lineas 406-418 de `useBinarioAgent.ts`), el codigo procesa el buffer restante pero NO aplica la logica de unwrap del SSE interno de Cloudflare Workers AI. Esto puede perder los ultimos tokens del stream.
+### Archivo: `cloudflare/package.json`
 
-**Solucion**: Aplicar la misma logica de unwrap en el procesamiento del buffer final.
+Cambiar lineas 23-24:
 
-### 3. Requests HTTP duplicados
-
-Los logs de red muestran 2 POST identicos al mismo endpoint y timestamp. Esto puede ocurrir por React StrictMode o porque el componente se re-renderiza y dispara dos veces.
-
-**Solucion**: Agregar un guard con un ref `isRequestInFlightRef` que evite enviar si ya hay un request activo.
-
----
-
-## Cambios Tecnicos
-
-### Archivo: `src/pages/Playground.tsx`
-
-**Reforzar el system prompt (lineas 55-96)**
-
-Agregar al principio del prompt:
-
-```
-## MANDATORY: DIRECT CODE OUTPUT
-NEVER describe what you will build. NEVER list features as bullet points.
-Your response MUST start with a `// filename:` marker followed by actual code.
-Generate ALL files needed for a complete, working application.
+```json
+"ai": "^6.0.0",
+"workers-ai-provider": "^3.0.0",
 ```
 
-Agregar despues de los RULES un ejemplo completo:
+### Posibles breaking changes de AI SDK v4 a v6
 
-```
-## EXAMPLE OUTPUT FORMAT (follow this exactly)
-// filename: index.html
-```html
-<!DOCTYPE html>
-<html>...</html>
-```
+Segun la documentacion de Cloudflare, los imports cambian:
+- `workers-ai-provider` v3.0.0 usa `createWorkersAI` (verificar que el codigo actual ya use este import)
+- Algunas APIs de streaming pueden haber cambiado
 
-// filename: src/App.jsx
-```jsx
-function App() { return (...); }
-```
-```
+Sera necesario revisar los archivos que importan de `ai` o `workers-ai-provider` en `cloudflare/src/` para asegurar compatibilidad:
+- `cloudflare/src/agent.ts`
+- `cloudflare/src/index.ts`
+- `cloudflare/src/mcp.ts`
+- `cloudflare/src/rag.ts`
 
-Incrementar `PROMPT_VERSION` de 4 a 5 para forzar la actualizacion en localStorage.
-
-### Archivo: `src/hooks/useBinarioAgent.ts`
-
-**Fix 1: Buffer final con unwrap (lineas 406-418)**
-
-Aplicar la misma logica de doble-unwrap al buffer final:
-
-```typescript
-if (lineBuffer.startsWith('data: ')) {
-  const data = lineBuffer.slice(6);
-  if (data !== '[DONE]') {
-    try {
-      const parsed = JSON.parse(data);
-      let token = parsed.choices?.[0]?.delta?.content || '';
-      // Apply same unwrap logic
-      if (typeof token === 'string' && token.startsWith('data: ')) {
-        // ... same inner unwrap code
-      }
-      if (token) {
-        streamingContentRef.current += token;
-        setStreamingContent(streamingContentRef.current);
-      }
-    } catch { }
-  }
-}
-```
-
-**Fix 2: Guard contra requests duplicados**
-
-Agregar `isRequestInFlightRef` al hook:
-
-```typescript
-const isRequestInFlightRef = useRef(false);
-```
-
-En `sendHttpFallback`, verificar antes de enviar:
-
-```typescript
-if (isRequestInFlightRef.current) return;
-isRequestInFlightRef.current = true;
-// ... request ...
-// en finally: isRequestInFlightRef.current = false;
-```
-
-Y en `performHttpRequest`, agregar `isRequestInFlightRef.current = false` en el `finally`.
-
----
-
-## Archivos a modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/pages/Playground.tsx` | Reforzar system prompt, subir PROMPT_VERSION a 5 |
-| `src/hooks/useBinarioAgent.ts` | Unwrap en buffer final + guard de duplicados |
-
-## Resultado esperado
-
-- El modelo genera codigo directamente con marcadores `// filename:`
-- `useProjectSync` detecta los archivos y los muestra en el explorador, editor y preview
-- No se pierden tokens al final del stream
-- No hay requests HTTP duplicados
+Si hay breaking changes en los imports, se ajustaran en el mismo paso.
 
