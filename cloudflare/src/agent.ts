@@ -8,7 +8,7 @@
 
 import { AIChatAgent } from '@cloudflare/ai-chat';
 import { createWorkersAI } from 'workers-ai-provider';
-import { streamText, tool } from 'ai';
+import { streamText, tool, stepCountIs } from 'ai';
 import { z } from 'zod';
 
 export interface AgentEnv {
@@ -82,7 +82,7 @@ export class BinarioAgent extends AIChatAgent<AgentEnv, AgentState> {
       system: this.state.systemPrompt || DEFAULT_SYSTEM_PROMPT,
       messages: this.messages,
       tools,
-      maxSteps: 5, // Allow up to 5 tool-calling iterations
+      stopWhen: stepCountIs(5), // Allow up to 5 tool-calling iterations
       onFinish: async (result) => {
         // Track neuron usage after completion
         const tokensUsed = (result.usage?.totalTokens || 0);
