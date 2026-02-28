@@ -10,6 +10,7 @@ export interface FileAction {
   path: string;
   code?: string;
   language?: string;
+  isDiff?: boolean; // true when code contains SEARCH/REPLACE blocks
 }
 
 /**
@@ -36,11 +37,23 @@ function detectLanguage(filepath: string): string {
 export function parseIncrementalActions(content: string): FileAction[] {
   const actions: FileAction[] = [];
 
-  const fileRegex = /\[(NEW_FILE|EDIT_FILE):\s*([^\]]+)\]\s*\n```(\w+)?\s*\n([\s\S]*?)```/g;
+  // First, try to parse EDIT_FILE blocks with SEARCH/REPLACE diffs
+  const editDiffRegex = /\[EDIT_FILE:\s*([^\]]+)\]\s*\n((?:<<<<<<< SEARCH\n[\s\S]*?>>>>>>> REPLACE\n?)+)/g;
   let match;
+  const editedPaths = new Set<string>();
+  while ((match = editDiffRegex.exec(content)) !== null) {
+    const path = match[1].trim();
+    const diffBlock = match[2];
+    editedPaths.add(path);
+    actions.push({ type: 'edit', path, code: diffBlock, language: detectLanguage(path), isDiff: true });
+  }
+
+  // Then parse full-file EDIT_FILE and NEW_FILE blocks (skip paths already handled as diffs)
+  const fileRegex = /\[(NEW_FILE|EDIT_FILE):\s*([^\]]+)\]\s*\n```(\w+)?\s*\n([\s\S]*?)```/g;
   while ((match = fileRegex.exec(content)) !== null) {
     const type = match[1] === 'NEW_FILE' ? 'new' : 'edit';
     const path = match[2].trim();
+    if (editedPaths.has(path)) continue; // already handled as diff
     const lang = match[3];
     const code = match[4].trim();
     actions.push({ type, path, code, language: lang || detectLanguage(path) });
@@ -65,6 +78,41 @@ export function hasIncrementalMarkers(content: string): boolean {
  * Apply incremental actions to existing project files.
  * Returns the updated files map.
  */
+/**
+ * Apply SEARCH/REPLACE diff blocks to existing file content.
+ */
+export function applyDiffToFile(existingCode: string, diffBlock: string): string {
+  const diffRegex = /<<<<<<< SEARCH\n([\s\S]*?)=======\n([\s\S]*?)>>>>>>> REPLACE/g;
+  let result = existingCode;
+  let match;
+  while ((match = diffRegex.exec(diffBlock)) !== null) {
+    const searchStr = match[1].trimEnd();
+    const replaceStr = match[2].trimEnd();
+    if (result.includes(searchStr)) {
+      result = result.replace(searchStr, replaceStr);
+    } else {
+      // Fuzzy match: try trimming each line
+      const searchLines = searchStr.split('\n').map(l => l.trim()).join('\n');
+      const resultLines = result.split('\n');
+      const fuzzyResult = resultLines.map(l => l.trim()).join('\n');
+      if (fuzzyResult.includes(searchLines)) {
+        // Find the original lines and replace
+        const idx = fuzzyResult.indexOf(searchLines);
+        const before = fuzzyResult.substring(0, idx).split('\n').length - 1;
+        const searchLineCount = searchLines.split('\n').length;
+        const newLines = [...resultLines];
+        newLines.splice(before, searchLineCount, ...replaceStr.split('\n'));
+        result = newLines.join('\n');
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Apply incremental actions to existing project files.
+ * Supports both full-file overwrites and SEARCH/REPLACE diffs.
+ */
 export function applyIncrementalActions(
   existingFiles: Record<string, ProjectFile>,
   actions: FileAction[],
@@ -74,12 +122,29 @@ export function applyIncrementalActions(
   for (const action of actions) {
     switch (action.type) {
       case 'new':
-      case 'edit':
         if (action.code) {
           files[action.path] = {
             code: action.code,
             language: action.language || detectLanguage(action.path),
           };
+        }
+        break;
+      case 'edit':
+        if (action.code) {
+          if (action.isDiff && files[action.path]) {
+            // Apply SEARCH/REPLACE diff to existing file
+            const updated = applyDiffToFile(files[action.path].code, action.code);
+            files[action.path] = {
+              ...files[action.path],
+              code: updated,
+            };
+          } else {
+            // Full file overwrite
+            files[action.path] = {
+              code: action.code,
+              language: action.language || detectLanguage(action.path),
+            };
+          }
         }
         break;
       case 'delete':
