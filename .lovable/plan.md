@@ -1,31 +1,46 @@
 
 
-# Fix: Nuevo conflicto de dependencias en Cloudflare Pages
+## Plan: Eliminar código duplicado en `cloudflare/src/index.ts`
 
-## Problema
-`@cloudflare/ai-chat@0.1.5` ahora requiere `agents@^0.6.0`, pero el proyecto tiene `agents@^0.5.0`. El deploy local funciona porque usa el `package-lock.json` existente (que fija versiones compatibles), pero Cloudflare Pages hace `npm clean-install` fresco y resuelve a las versiones mas nuevas, causando el conflicto.
+### Cambio único
 
-## Solucion
-Actualizar `agents` a `^0.6.0` en `cloudflare/package.json` linea 20:
+**Archivo:** `cloudflare/src/index.ts` (líneas 883-895)
 
-```json
-"agents": "^0.6.0",
+Eliminar las líneas 883-895 que contienen código huérfano (fragmento de ternario suelto y llamada duplicada a `env.AI.run`). El flujo correcto ya está en las líneas 878-882, y debe continuar directamente en la línea 897 (`let content = ...`).
+
+**Antes (líneas 878-896):**
+```typescript
+    const response = await env.AI.run(cfModel as any, {
+      messages,
+      temperature: body.temperature ?? 0.7,
+      max_tokens: body.max_tokens ?? 1024,
+    });
+          : msg                          // ← BASURA
+      );                                 // ← BASURA
+                                         // ← BASURA
+      if (messages[0]?.role !== 'system') // ← BASURA
+        ...                              // ← BASURA
+      }                                  // ← BASURA
+    }                                    // ← BASURA
+                                         // ← BASURA
+    const response = await env.AI.run(   // ← DUPLICADO
+      ...                                // ← DUPLICADO
+    });                                  // ← DUPLICADO
+
+    let content = (response as any).response || '';
 ```
 
-## Posible impacto
-- Agents SDK v0.6.0 puede tener breaking changes respecto a v0.5.x
-- Necesitare revisar `cloudflare/src/agent.ts` para verificar que `AIChatAgent` sigue funcionando igual con la nueva version
-- Si hay cambios en la API, los ajustare en el mismo paso
+**Después:**
+```typescript
+    const response = await env.AI.run(cfModel as any, {
+      messages,
+      temperature: body.temperature ?? 0.7,
+      max_tokens: body.max_tokens ?? 1024,
+    });
 
-## Archivo a modificar
-| Archivo | Cambio |
-|---------|--------|
-| `cloudflare/package.json` | `agents` de `^0.5.0` a `^0.6.0` |
-| `cloudflare/src/agent.ts` | Ajustes si hay breaking changes en Agents SDK v0.6 |
-
-## Post-deploy
-Despues del cambio, hacer nuevamente:
-```bash
-cd cloudflare && npm install && npm run deploy
+    let content = (response as any).response || '';
 ```
+
+### Después del cambio
+El build (`npm run build`) debería pasar sin errores y el deploy a Cloudflare funcionará.
 
