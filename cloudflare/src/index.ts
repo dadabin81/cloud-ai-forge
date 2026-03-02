@@ -880,19 +880,7 @@ async function handleChat(request: Request, env: Env, keyInfo: ApiKeyInfo): Prom
       temperature: body.temperature ?? 0.7,
       max_tokens: body.max_tokens ?? 1024,
     });
-          : msg
-      );
-      
-      if (messages[0]?.role !== 'system') {
-        messages = [{ role: 'system', content: `You are a helpful assistant.${schemaInstructions}` }, ...messages];
-      }
-    }
 
-    const response = await env.AI.run(model as any, {
-      messages,
-      temperature: body.temperature ?? 0.7,
-      max_tokens: body.max_tokens ?? 1024,
-    });
 
     let content = (response as any).response || '';
     
